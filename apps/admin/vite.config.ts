@@ -17,6 +17,15 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Allow tunnels (ngrok / Cloudflare Tunnel / localtunnel) to reach the
+      // dev server for temporary demos. Without this, Vite blocks any request
+      // whose Host header isn't localhost ("Blocked request. This host is not
+      // allowed"). DEV-ONLY — production serves prebuilt static files and
+      // ignores this. Tighten to e.g. ['.ngrok-free.app'] if you prefer.
+      allowedHosts: true,
+      // Bind to all network interfaces so phones/laptops on the same Wi-Fi (and
+      // the tunnel) can reach it, not just localhost.
+      host: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
