@@ -47,7 +47,7 @@ commit it.
 | `SMTP_HOST/PORT/USER/PASS/FROM`            | Email via SMTP (e.g. Gmail app password)            |
 | `SEED_SUPER_ADMIN_EMAIL/PASSWORD`          | First-run super-admin bootstrap                     |
 | `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`| Google Sign-in (existing accounts only)             |
-| `GOOGLE_MAPS_API_KEY`                      | Reverse geocoding for WFH home addresses (cosmetic) |
+| `NOMINATIM_URL` / `NOMINATIM_USER_AGENT`   | Optional overrides for WFH reverse geocoding (free OpenStreetMap; no key) |
 | `FACE_SERVICE_WORKERS`                     | face-service uvicorn workers (default 1; ~1GB RAM each) |
 
 ### Generate strong secrets
@@ -239,7 +239,7 @@ SEED_SUPER_ADMIN_PASSWORD=Bakyalakshmi@18
 # email — pick one:
 RESEND_API_KEY=...      RESEND_FROM=...
 # or: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
-# optional: GOOGLE_CLIENT_ID, GOOGLE_MAPS_API_KEY
+# optional: GOOGLE_CLIENT_ID (Google Sign-In only)
 ```
 Do **not** set `PORT` — Render injects it and the app honors it automatically.
 

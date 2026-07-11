@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
+// Lazy so Leaflet is code-split out of the main bundle.
+const LocationPicker = lazy(() => import('../components/LocationPicker'));
 
 type Step = 'mode_select' | 'home_registration' | 'wfh_reason' | 'face' | 'gps' | 'wifi' | 'submitting' | 'late_reason';
 type TodayState = 'not_started' | 'checked_in' | 'checked_out';
@@ -853,6 +855,18 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                       {homeRegCoords.lat.toFixed(5)}, {homeRegCoords.lng.toFixed(5)}
                       {homeRegCoords.accuracy && <span> (±{Math.round(homeRegCoords.accuracy)}m)</span>}
                     </div>
+                    {/* Confirm/adjust the captured home location on a map before
+                        registering — drag the pin or click to fine-tune. Same
+                        coordinates are submitted; lazy-loaded. */}
+                    <Suspense fallback={<div className="h-[220px] rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-[11px] text-[var(--color-premium-muted)]">Loading map…</div>}>
+                      <LocationPicker
+                        lat={homeRegCoords.lat}
+                        lng={homeRegCoords.lng}
+                        accuracy={homeRegCoords.accuracy}
+                        height={220}
+                        onChange={(la, ln, acc) => setHomeRegCoords({ lat: la, lng: ln, accuracy: acc ?? homeRegCoords.accuracy })}
+                      />
+                    </Suspense>
                     <button
                       onClick={confirmHomeRegistration}
                       disabled={homeRegSubmitting}

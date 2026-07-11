@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import DataTable from '../components/DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
 import QrAttendanceDisplay from '../components/dashboard/QrAttendanceDisplay';
+// Lazy so Leaflet is code-split out of the main bundle.
+const LocationPicker = lazy(() => import('../components/LocationPicker'));
 import {
   LayoutDashboard, Users, Building2, ShieldCheck, Bell, Fingerprint,
   ScrollText, LogOut, AlertTriangle, Smartphone, Menu, X, ClipboardCheck, Home, Clock, MapPin, Download,
@@ -2182,13 +2184,40 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Allowed Radius (Meters)</label>
-                        <input 
+                        <input
                           type="number"
                           value={radius}
                           onChange={e => setRadius(e.target.value)}
                           className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
                           placeholder="100"
                         />
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {[25, 50, 75, 100, 150, 200, 300, 500].map(m => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setRadius(String(m))}
+                              className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-colors ${radius === String(m) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                            >
+                              {m}m
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Interactive OpenStreetMap picker — click to place, drag
+                          the pin, or use current location. Reads/writes the SAME
+                          lat/lng/radius state as the inputs above; the circle
+                          previews the allowed radius. Lazy-loaded. */}
+                      <div className="md:col-span-2">
+                        <Suspense fallback={<div className="h-[300px] rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-400">Loading map…</div>}>
+                          <LocationPicker
+                            lat={lat ? parseFloat(lat) : null}
+                            lng={lng ? parseFloat(lng) : null}
+                            radius={radius ? parseInt(radius, 10) : null}
+                            onChange={(la, ln) => { setLat(la.toFixed(7)); setLng(ln.toFixed(7)); }}
+                          />
+                        </Suspense>
                       </div>
                     </div>
                   </div>
