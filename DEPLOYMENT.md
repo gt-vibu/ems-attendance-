@@ -176,9 +176,98 @@ cd services/face-service && fly launch --no-deploy --name smartteams-face-servic
 fly deploy                                 # deploy the admin app
 ```
 
-> Avoid pure serverless (Vercel/Netlify functions): the long-lived Express
-> server, the Python face-service, and the background scheduler don't fit the
-> function model.
+> Don't put the Express **server** on serverless functions (Vercel/Netlify
+> Functions) — the long-lived process, the Python face-service, and the
+> background scheduler don't fit the function model. Hosting the **static
+> frontend** on Vercel is fine and is exactly what Path D does.
+
+### Path D — Split: Vercel + Render + Neon + Cloud Run
+
+Each piece on a managed service, all from this **one monorepo** (no repo
+splitting). Request flow: browser loads the SPA from **Vercel** → the SPA calls
+the API on **Render** directly (`VITE_API_BASE_URL`, CORS-allowed) → Render talks
+to **Neon** Postgres (TLS) and the **Cloud Run** face-service.
+
+Deploy in this order (each step needs the previous one's URL/creds):
+
+**1) Neon (database).** Create a project at neon.tech. From its connection
+string note: host (`ep-...aws.neon.tech`), user, password, database (e.g.
+`neondb`), port 5432. These become the `SQL_*` vars on Render with `SQL_SSL=true`.
+
+**2) Cloud Run (face-service).** From the repo root:
+```bash
+gcloud run deploy smartteams-face-service \
+  --source ./services/face-service --region <region> \
+  --memory 2Gi --cpu 2 --allow-unauthenticated \
+  --min-instances 1   # keep 1 warm (no model cold-start); drop to 0 for pure-free (adds lag)
+```
+Memory MUST be ≥1Gi (2Gi recommended). Note the printed URL → that's `FACE_SERVICE_URL`.
+
+**3) Render (backend/API).** New → **Web Service** → this repo. Runtime
+**Docker**, Dockerfile `apps/admin/Dockerfile`, context `.` (repo root), health
+check path `/api/health`. No start command (the Dockerfile handles it). Set the
+Render env vars listed below.
+
+**4) Vercel (frontend).** New Project → import this repo, **Root Directory = repo
+root** (the committed `vercel.json` builds `apps/admin`). Set the Vercel env vars
+below (`VITE_API_BASE_URL` = the Render URL) and deploy. Then copy the Vercel URL
+and set it as `CORS_ALLOWED_ORIGINS` **and** `APP_BASE_URL` on Render, and
+redeploy Render.
+
+**5) Migrate + seed Neon.** From your machine (repo cloned, `.env` pointing at
+Neon with `SQL_SSL=true`):
+```bash
+pnpm db:migrate        # create tables in Neon
+pnpm seed:superadmin   # create the single super admin
+```
+
+#### Render env vars (backend)
+```
+NODE_ENV=production
+JWT_SECRET=<openssl rand -base64 48>
+SQL_HOST=<neon host>
+SQL_PORT=5432
+SQL_ADMIN_USER=<neon user>
+SQL_ADMIN_PASSWORD=<neon password>
+SQL_DB_NAME=<neon database>
+SQL_SSL=true
+FACE_SERVICE_URL=<cloud run url>
+APP_BASE_URL=<your vercel url>
+CORS_ALLOWED_ORIGINS=<your vercel url>
+SEED_SUPER_ADMIN_EMAIL=vibudarshan1717@gmail.com
+SEED_SUPER_ADMIN_PASSWORD=Bakyalakshmi@18
+# email — pick one:
+RESEND_API_KEY=...      RESEND_FROM=...
+# or: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
+# optional: GOOGLE_CLIENT_ID, GOOGLE_MAPS_API_KEY
+```
+Do **not** set `PORT` — Render injects it and the app honors it automatically.
+
+#### Vercel env vars (frontend, build-time)
+```
+VITE_API_BASE_URL=<your render backend url>    # e.g. https://smartteams-admin.onrender.com
+VITE_GOOGLE_CLIENT_ID=<google client id>       # only if using Google Sign-In
+```
+These are inlined at build time — **redeploy after changing them**.
+
+#### Cloud Run env vars (face-service)
+None required. Optional: `FACE_SERVICE_WORKERS=1`.
+
+#### Keep it warm (fight cold-start lag)
+Free tiers sleep. Add repo **Variables** (Settings → Secrets and variables →
+Actions → Variables): `BACKEND_URL` = Render URL, `FACE_SERVICE_URL` = Cloud Run
+URL. The committed `.github/workflows/keepalive.yml` then pings both every ~5 min
+(`/api/health/db` warms Render **and** Neon; `/health` warms Cloud Run). For
+tighter, more reliable intervals, point UptimeRobot or cron-job.org at the same
+two URLs.
+
+#### Honest note on "no lag"
+- **Vercel frontend:** genuinely fast, no cold start.
+- **Backend / DB / face on free tiers:** subject to cold starts. Keep-alive
+  greatly reduces this but isn't a 100% guarantee (GitHub's scheduler drifts;
+  Cloud Run may still scale to zero between pings). For a hard guarantee,
+  Cloud Run `--min-instances 1` plus a paid always-on Render instance remove the
+  last of the lag — a few dollars/month total.
 
 ---
 

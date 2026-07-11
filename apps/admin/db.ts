@@ -10,13 +10,22 @@ import bcrypt from 'bcryptjs';
 
 dotenv.config({ path: path.join(process.cwd(), '../../.env') });
 
+// Managed Postgres providers (Neon, Supabase, Render, RDS) require TLS. Enable
+// with SQL_SSL=true. rejectUnauthorized:false accepts the provider cert without
+// bundling a CA file — the connection is still encrypted. Off by default so
+// local Docker Postgres (no TLS) keeps working unchanged.
+const sslConfig = process.env.SQL_SSL === 'true' ? { rejectUnauthorized: false } : false;
+
 const pool = new Pool({
   host: process.env.SQL_HOST || '127.0.0.1',
   port: Number(process.env.SQL_PORT) || 5432,
   user: process.env.SQL_ADMIN_USER || 'postgres',
   password: process.env.SQL_ADMIN_PASSWORD || 'password',
   database: process.env.SQL_DB_NAME || 'postgres',
-  connectionTimeoutMillis: 1000, // Fail fast if not running locally
+  ssl: sslConfig,
+  // A remote managed DB (and a cold Neon compute waking from suspend) needs
+  // more than the old 1s. detectPostgres() still retries with backoff on top.
+  connectionTimeoutMillis: Number(process.env.SQL_CONNECT_TIMEOUT_MS) || 10000,
   max: 20, // enough headroom for many concurrent users without exhausting Postgres' own connection limit
   idleTimeoutMillis: 30000,
   keepAlive: true,

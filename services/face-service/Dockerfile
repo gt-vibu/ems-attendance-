@@ -35,4 +35,7 @@ EXPOSE 8001
 # memory for real concurrent throughput; shell-form CMD so the env var is
 # substituted at container start.
 ENV FACE_SERVICE_WORKERS=1
-CMD uvicorn main:app --host 0.0.0.0 --port 8001 --workers ${FACE_SERVICE_WORKERS}
+# Honor a platform-injected PORT (Google Cloud Run / Render set this), else 8001
+# so local Docker/compose is unchanged. Shell-form CMD so the vars substitute at
+# container start.
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001} --workers ${FACE_SERVICE_WORKERS}

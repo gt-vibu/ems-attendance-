@@ -30,6 +30,8 @@ async function main() {
     user: process.env.SQL_ADMIN_USER || 'postgres',
     password: process.env.SQL_ADMIN_PASSWORD || 'password',
     database: process.env.SQL_DB_NAME || 'postgres',
+    // Managed providers (Neon/Supabase/Render) require TLS — set SQL_SSL=true.
+    ssl: process.env.SQL_SSL === 'true' ? { rejectUnauthorized: false } : false,
   });
   const db = drizzle(pool);
   const migrationsFolder = path.join(process.cwd(), 'drizzle');

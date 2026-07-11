@@ -1,3 +1,7 @@
+// Must run before anything issues a fetch: installs the API base-URL shim so
+// '/api/...' calls hit the backend origin (VITE_API_BASE_URL) when the frontend
+// is deployed separately (e.g. Vercel + Render). No-op when unset (monolith).
+import './lib/apiBase';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import AdminApp from './AdminApp';

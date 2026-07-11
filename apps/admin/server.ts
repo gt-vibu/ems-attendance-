@@ -1200,9 +1200,22 @@ async function startServer() {
     next();
   }
 
-  // API Health check
+  // API Health check (liveness — fast, no dependencies).
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  // Readiness probe that actually touches Postgres. Two jobs: (1) the
+  // keep-alive pinger hits this so a free-tier managed DB (e.g. Neon) doesn't
+  // suspend from inactivity, and (2) it confirms the app can reach its
+  // datastore. Returns 503 if the DB is unreachable so uptime monitors notice.
+  app.get('/api/health/db', async (_req, res) => {
+    try {
+      await db.execute(sql`SELECT 1`);
+      res.json({ status: 'ok', db: 'up' });
+    } catch (err: any) {
+      res.status(503).json({ status: 'degraded', db: 'down', error: err?.message });
+    }
   });
 
   // API documentation for external/partner integrations — raw spec plus an
