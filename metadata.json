@@ -1,0 +1,6 @@
+{
+  "name": "Perimeter",
+  "description": "Enterprise Attendance Verification Engine with multi-signal biometric, geofencing, and break reconciliation pipelines.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

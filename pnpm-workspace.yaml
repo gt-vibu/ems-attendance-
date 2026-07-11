@@ -1,0 +1,14 @@
+# Only the packages that actually contain code and are consumed. The Python
+# face service (services/face-service) is intentionally NOT a workspace member
+# — it's a standalone container built from its own Dockerfile, not a
+# pnpm/Turbo package.
+packages:
+  - 'apps/admin'
+  - 'packages/database'
+
+# Allow esbuild to run its postinstall so its platform binary is set up.
+# pnpm 10 blocks package build scripts by default; the admin production build
+# (esbuild bundling server.ts) fails without this on a clean install — which is
+# exactly what the Docker image build and CI do.
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: local('Space Grotesk');
+  font-display: swap;
+}
+/* No local/hosted "Clash Display" font file exists in this repo (the
+   previous @font-face pointed at a woff2 that was never shipped, causing a
+   404 -> "invalid sfntVersion" parse error on every page load). Falling
+   back to Space Grotesk keeps a distinct display weight without a broken
+   network request; swap in a real hosted Clash Display file here if one is
+   licensed later. */
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Premium light palette — Login, EmployeeLogin, EmployeeKYC,
+     EmployeeAttendance, EmployeeHome, ForgotPassword, ResetPassword only.
+     Accent matches the #7B5CFA button color already used in mail.ts's
+     email templates, so transactional emails and the app feel like one
+     brand. Dashboard, the landing page, and existing slate/neutral
+     palettes are untouched. */
+  --color-premium-bg: #F7F5FF;
+  --color-premium-surface: #FFFFFF;
+  --color-premium-surface-alt: #FAF9FF;
+  --color-premium-border: #E9E4FB;
+  --color-premium-ink: #1B1530;
+  --color-premium-muted: #6E6A85;
+  --color-premium-accent: #7B5CFA;
+  --color-premium-accent-hover: #6A46F5;
+  --color-premium-accent-soft: #EFE9FF;
+  --color-premium-accent-2: #22C7B8;
+  --color-premium-accent-2-soft: #E1FBF7;
+  --color-premium-gold: #F5B94D;
+  --color-premium-gold-soft: #FDF3E1;
+  --color-premium-success: #16A34A;
+  --color-premium-warning: #F59E0B;
+  --color-premium-danger: #E24545;
+  --color-premium-danger-soft: #FDECEC;
+}
+
+/* Glassmorphism utility enhancements */
+.glass-panel {
+  background: rgba(11, 42, 46, 0.45);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(20, 50, 57, 0.4);
+}
+
+.glass-panel-heavy {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+/* Subtle continuous slow rotate animation */
+@keyframes slow-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: slow-rotate 25s linear infinite;
+}
+
+/* Fade In Up Scroll trigger animation */
+@keyframes fadeInUp {
+  0% { opacity: 0; transform: translateY(30px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { 
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+  opacity: 0; 
+}
+
+/* Spawn particle fade+scale-down animation */
+@keyframes fadeScaleDown {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+}
+.animate-fade-scale-down { 
+  animation: fadeScaleDown 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+}
+
+/* Gentle 3D floating loop animation */
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-bounce-slow { 
+  animation: bounce-slow 4s ease-in-out infinite; 
+}
+
+/* Hides scrollbar for horizontally-scrollable tab bars on mobile, while
+   keeping them scrollable via touch/drag. */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Slow-drifting animated gradient wash used behind the premium auth/portal
+   pages (Login, EmployeeLogin, EmployeeKYC, EmployeeAttendance, EmployeeHome,
+   ForgotPassword, ResetPassword) — a cheap CSS alternative layered behind
+   the 3D AuroraField canvas for pages/perf-modes where WebGL isn't wanted. */
+@keyframes premium-gradient-drift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.premium-gradient-bg {
+  background: linear-gradient(120deg, #F7F5FF, #EFE9FF, #E1FBF7, #F7F5FF);
+  background-size: 300% 300%;
+  animation: premium-gradient-drift 18s ease-in-out infinite;
+}
+
+/* Vertical scanning line sweeping the face-capture viewfinder (KYC + daily
+   attendance scan). */
+@keyframes scan-line-sweep {
+  0% { top: 6%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 94%; opacity: 0; }
+}
+.scan-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #22C7B8, transparent);
+  box-shadow: 0 0 8px 1px rgba(34, 199, 184, 0.6);
+  animation: scan-line-sweep 2.2s ease-in-out infinite;
+}
+
+/* =====================================================================
+   CSS-3D "smart mix" layer — GPU-cheap depth/float/tilt used app-wide
+   (every page except the marketing landing page). Deliberately CSS-only
+   (transforms + gradients, no WebGL) so it stays smooth on low-end phones,
+   including the live-camera KYC/attendance pages where a WebGL canvas would
+   fight the camera for GPU. Heavier ambient WebGL (AuroraField) is layered
+   separately, only on non-camera pages.
+   ===================================================================== */
+
+/* A richer, more vibrant animated mesh-gradient wash — the premium look with
+   more colour depth than the flatter premium-gradient-bg. */
+@keyframes mesh-drift {
+  0%,100% { background-position: 0% 0%, 100% 100%, 50% 50%; }
+  50%     { background-position: 100% 50%, 0% 50%, 60% 40%; }
+}
+.premium-mesh-bg {
+  background-color: #F7F5FF;
+  background-image:
+    radial-gradient(at 15% 20%, rgba(123, 92, 250, 0.22) 0px, transparent 55%),
+    radial-gradient(at 85% 25%, rgba(34, 199, 184, 0.20) 0px, transparent 55%),
+    radial-gradient(at 50% 90%, rgba(245, 185, 77, 0.16) 0px, transparent 55%);
+  background-size: 200% 200%, 200% 200%, 200% 200%;
+  animation: mesh-drift 22s ease-in-out infinite;
+}
+
+/* Light glassmorphism card — frosted, subtle inner highlight, soft shadow. */
+.glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 10px 40px -12px rgba(123, 92, 250, 0.28), inset 0 1px 0 rgba(255,255,255,0.7);
+}
+
+/* Perspective tilt-on-hover — a cheap sense of 3D depth. Put .card-3d on a
+   card; it lifts and tilts slightly toward the viewer on hover. */
+.card-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
+  will-change: transform;
+}
+.card-3d:hover {
+  transform: perspective(900px) translateY(-4px) rotateX(3deg) rotateY(-3deg) scale(1.015);
+  box-shadow: 0 22px 48px -18px rgba(123, 92, 250, 0.4);
+}
+
+/* Floating loops at three staggered speeds/offsets — drop onto decorative
+   layers or icon chips for the "floating objects" feel without any JS. */
+@keyframes float-y-a { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(2deg); } }
+@keyframes float-y-b { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-22px) rotate(-3deg); } }
+@keyframes float-y-c { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+.float-a { animation: float-y-a 7s ease-in-out infinite; }
+.float-b { animation: float-y-b 9s ease-in-out infinite; }
+.float-c { animation: float-y-c 5s ease-in-out infinite; }
+
+/* Vibrant gradient text (headings) and a soft glowing accent ring. */
+.text-gradient {
+  background: linear-gradient(100deg, #7B5CFA, #22C7B8 60%, #F5B94D);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@keyframes pulse-ring {
+  0%,100% { box-shadow: 0 0 0 0 rgba(123, 92, 250, 0.28); }
+  50%     { box-shadow: 0 0 0 10px rgba(123, 92, 250, 0.0); }
+}
+.pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
+
+/* Staggered entrance for grids of cards. Pair with inline animation-delay. */
+@keyframes rise-in { 0% { opacity: 0; transform: translateY(18px) scale(0.98); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+.rise-in { animation: rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Accessibility + the auto-calm path for low-power devices: honour the OS
+   "reduce motion" preference by neutralizing all the above animations and
+   the hover tilt. Nothing disappears — it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  .premium-mesh-bg,
+  .premium-gradient-bg,
+  .float-a, .float-b, .float-c,
+  .pulse-ring, .rise-in,
+  .animate-bounce-slow, .animate-fade-in-up, .animate-fade-scale-down,
+  .animate-spin-slow, .scan-line {
+    animation: none !important;
+  }
+  .card-3d { transition: none; }
+  .card-3d:hover { transform: none; box-shadow: 0 10px 30px -18px rgba(123,92,250,0.3); }
+}

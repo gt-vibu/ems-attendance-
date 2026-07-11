@@ -1,0 +1,39 @@
+# Production overlay: puts a Caddy reverse proxy with automatic HTTPS in front
+# of the admin app. Use together with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires DOMAIN (and ideally ACME_EMAIL) set in .env, and your domain's DNS
+# pointing at this host on ports 80/443.
+services:
+  caddy:
+    image: caddy:2
+    container_name: smartteams-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # persisted certificates — don't lose this volume
+      - caddy_config:/config
+    depends_on:
+      admin:
+        condition: service_healthy
+
+  # With Caddy terminating TLS and proxying over the internal network, the
+  # admin app no longer needs to publish 3000 to the public host. `!override`
+  # REPLACES the base file's port list (rather than appending to it, which
+  # would double-bind host port 3000) so admin binds to localhost only — still
+  # reachable for debugging via an SSH tunnel, never exposed publicly.
+  admin:
+    ports: !override
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  caddy_data:
+  caddy_config:

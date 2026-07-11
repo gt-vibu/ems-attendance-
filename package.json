@@ -1,0 +1,35 @@
+{
+  "name": "monorepo-root",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@10.19.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean",
+    "start": "pnpm --filter @company/admin start",
+    "seed": "tsx seed.ts",
+    "seed:superadmin": "tsx seed-superadmin.ts",
+    "db:generate": "pnpm --filter @company/database db:generate",
+    "db:migrate": "pnpm --filter @company/database db:migrate"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "firebase": "^12.15.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "tsx": "^4.21.0",
+    "turbo": "^2.5.5",
+    "typescript": "~5.8.2"
+  }
+}

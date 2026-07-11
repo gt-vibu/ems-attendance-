@@ -1,0 +1,19 @@
+# Caddy reverse proxy with automatic HTTPS.
+#
+# Caddy obtains and auto-renews a Let's Encrypt certificate for {$DOMAIN} with
+# zero manual steps — just point your domain's DNS A/AAAA record at this server
+# and set DOMAIN (and ACME_EMAIL) in .env. HTTP is auto-redirected to HTTPS.
+#
+# Used only with the production override:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+{
+	# Email used by Let's Encrypt for expiry notices (optional but recommended).
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	# admin:3000 is the admin service on the internal compose network.
+	reverse_proxy admin:3000
+}

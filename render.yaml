@@ -1,0 +1,93 @@
+# Render Blueprint — one-click(ish) deploy of the whole stack on Render.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy: push this repo to GitHub, then in Render -> "New" -> "Blueprint" and
+# point it at the repo. Render provisions the managed Postgres, the private
+# face-service, and the public admin web service from this file.
+#
+# AFTER first deploy, set the secrets marked `sync: false` in each service's
+# Environment tab (they are intentionally NOT in this file):
+#   - APP_BASE_URL         -> the admin service's public URL (e.g. https://smartteams-admin.onrender.com)
+#   - SMTP_* or RESEND_*   -> email delivery credentials
+#   - SEED_SUPER_ADMIN_*   -> optional; otherwise a random password is printed in logs on first boot
+#   - GOOGLE_CLIENT_ID / VITE_GOOGLE_CLIENT_ID, GOOGLE_MAPS_API_KEY -> optional integrations
+
+databases:
+  - name: smartteams-postgres
+    databaseName: smartteams
+    user: smartteams
+    postgresMajorVersion: "16"
+    plan: basic-256mb # bump for real workloads; free tier expires after 90 days
+
+services:
+  # --- Face recognition microservice (internal only) ------------------------
+  # Private service: reachable from the admin service at http://<name>:8001,
+  # never exposed to the public internet.
+  - type: pserv
+    name: smartteams-face-service
+    runtime: docker
+    dockerfilePath: ./services/face-service/Dockerfile
+    dockerContext: ./services/face-service
+    plan: standard # face inference needs ~1GB+ RAM for the model bundle
+    envVars:
+      - key: FACE_SERVICE_WORKERS
+        value: "1"
+
+  # --- Admin app: Express API + bundled React SPA (public) ------------------
+  - type: web
+    name: smartteams-admin
+    runtime: docker
+    dockerfilePath: ./apps/admin/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # JWT secret: generated once by Render and kept stable across deploys.
+      - key: JWT_SECRET
+        generateValue: true
+      # Database wiring, pulled from the managed Postgres above.
+      - key: SQL_HOST
+        fromDatabase: { name: smartteams-postgres, property: host }
+      - key: SQL_PORT
+        fromDatabase: { name: smartteams-postgres, property: port }
+      - key: SQL_ADMIN_USER
+        fromDatabase: { name: smartteams-postgres, property: user }
+      - key: SQL_ADMIN_PASSWORD
+        fromDatabase: { name: smartteams-postgres, property: password }
+      - key: SQL_DB_NAME
+        fromDatabase: { name: smartteams-postgres, property: database }
+      # Internal address of the face-service private service.
+      - key: FACE_SERVICE_URL
+        value: http://smartteams-face-service:8001
+      # Set these in the dashboard after first deploy (not stored in the repo).
+      - key: APP_BASE_URL
+        sync: false
+      # Super admin bootstrap — Render will prompt you for these values.
+      - key: SEED_SUPER_ADMIN_EMAIL
+        sync: false
+      - key: SEED_SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

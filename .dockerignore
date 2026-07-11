@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+**/.git
+**/emails
+**/*.log
+db_fallback.json
+.env
+.env.*
+!.env.example

@@ -1,0 +1,60 @@
+# =============================================================================
+# Smart Teams / AMSSS — .gitignore
+# NOTE: git only reads a file named ".gitignore". The pre-existing ".ignore"
+# file is honored by ripgrep/fd, NOT by git, so it never protected anything.
+# =============================================================================
+
+# --- Secrets & environment ---------------------------------------------------
+# These hold live credentials (DB password, JWT secret, SMTP app password).
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+*.local
+
+# --- Personally identifiable information (PII) --------------------------------
+# Local email simulation drops recipients' messages here as plaintext.
+apps/admin/emails/
+**/emails/
+# Local JSON fallback datastore contains real users/tenants/attendance.
+**/db_fallback.json
+**/db_fallback.json.*
+**/*.corrupted-*
+
+# --- Node ---------------------------------------------------------------------
+node_modules/
+**/node_modules/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# --- Build output -------------------------------------------------------------
+dist/
+**/dist/
+build/
+**/build/
+*.tsbuildinfo
+
+# --- Turborepo ----------------------------------------------------------------
+.turbo/
+**/.turbo/
+
+# --- Python face-service ------------------------------------------------------
+# The committed venv is why the archive ballooned to ~350 MB. Never commit it.
+**/venv/
+**/.venv/
+**/__pycache__/
+*.py[cod]
+services/face-service/models/
+
+# --- Logs & runtime -----------------------------------------------------------
+*.log
+logs/
+
+# --- Editor / OS --------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

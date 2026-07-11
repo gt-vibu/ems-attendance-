@@ -1,0 +1,80 @@
+# Full stack in one command: `docker compose up -d`.
+#
+# For local development, it's still fine to run just the datastores and run
+# the admin app directly on the host instead (`pnpm --filter @company/admin
+# dev`) — e.g. `docker compose up -d postgres face-service`. The `admin`
+# service here is what makes this deployable as a self-contained unit.
+services:
+  postgres:
+    image: postgres:16
+    container_name: smartteams-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SQL_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${SQL_ADMIN_PASSWORD:-changeme}
+      POSTGRES_DB: ${SQL_DB_NAME:-smartteams}
+    ports:
+      - "${SQL_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SQL_ADMIN_USER:-postgres} -d ${SQL_DB_NAME:-smartteams}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Face detection/liveness/matching microservice (Python + ONNX Runtime,
+  # CPU-only). Model bundle is downloaded once at image build time (see
+  # services/face-service/Dockerfile), not on first request.
+  face-service:
+    build:
+      context: ./services/face-service
+    container_name: smartteams-face-service
+    restart: unless-stopped
+    environment:
+      # Defaults to 1 (see services/face-service/Dockerfile comment) — each
+      # extra worker is a full extra copy of the model bundle in RAM. Raise
+      # via .env (FACE_SERVICE_WORKERS=N) if the host has the cores/RAM to
+      # spare and needs more concurrent check-in throughput.
+      FACE_SERVICE_WORKERS: ${FACE_SERVICE_WORKERS:-1}
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    container_name: smartteams-admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network, sibling containers are reached by
+      # service name, not 127.0.0.1 (which .env sets for host-based dev) —
+      # these two overrides are the only difference from .env.
+      SQL_HOST: postgres
+      FACE_SERVICE_URL: http://face-service:8001
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    healthcheck:
+      # node:20-slim has no curl/wget, so probe with Node itself.
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      face-service:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
