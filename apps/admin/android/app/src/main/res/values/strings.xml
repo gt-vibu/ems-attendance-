@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Smart Teams</string>
+    <string name="title_activity_main">Smart Teams</string>
+    <string name="package_name">com.smartteams.app</string>
+    <string name="custom_url_scheme">com.smartteams.app</string>
+</resources>

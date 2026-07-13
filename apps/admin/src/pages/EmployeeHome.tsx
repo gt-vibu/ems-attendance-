@@ -76,8 +76,12 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           setLocation(coords);
           resolve(coords);
         },
-        () => reject(new Error('GPS location permission is required for breaks.')),
-        { enableHighAccuracy: true }
+        (err) => reject(new Error(err.code === err.TIMEOUT
+          ? 'Could not get a GPS fix in time. Move somewhere with a clearer signal and try again.'
+          : 'Location permission is required for breaks. Enable it in your browser and try again.')),
+        // timeout so it can't hang forever on a weak signal; maximumAge lets a
+        // recent fix return instantly instead of forcing a slow high-accuracy one.
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
       );
     });
   };
@@ -315,7 +319,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full bg-[var(--color-premium-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(123,92,250,0.14)] border border-[var(--color-premium-border)] space-y-6 relative z-10"
+        className="max-w-md w-full glass-card rounded-3xl p-8 space-y-6 relative z-10"
       >
 
         {/* Header / status */}
@@ -351,7 +355,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
-          className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-2xl p-5 grid grid-cols-2 gap-4"
+          className="card-3d bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-2xl p-5 grid grid-cols-2 gap-4"
         >
           <div>
             <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Checked In</span>
@@ -391,7 +395,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           {activeBreak ? (
             <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] p-5 rounded-2xl flex justify-between items-center">
               <div>
-                <span className="block text-[9px] text-[var(--color-premium-danger)] font-mono uppercase tracking-wider">Status: On Break ({activeBreak.breakType})</span>
+                <span className="inline-block text-[9px] text-[var(--color-premium-danger)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">Status: On Break ({activeBreak.breakType})</span>
                 <span className="text-2xl font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">{breakTimer}</span>
               </div>
               <button
@@ -406,7 +410,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
               <select
                 value={breakType}
                 onChange={e => setBreakType(e.target.value)}
-                className="w-full bg-white border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                className="w-full bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
               >
                 <option value="Lunch">Lunch</option>
                 <option value="Tea">Tea / Coffee</option>

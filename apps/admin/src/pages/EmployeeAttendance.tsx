@@ -235,8 +235,12 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       (position) => {
         setHomeRegCoords({ lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy });
       },
-      () => setError('GPS location permission is required to register your home location.'),
-      { enableHighAccuracy: true }
+      (err) => setError(err.code === err.TIMEOUT
+        ? 'Could not get a GPS fix in time. Move somewhere with a clearer signal and try again.'
+        : 'GPS location permission is required to register your home location.'),
+      // timeout so it can't hang forever on a weak signal; maximumAge lets a
+      // recent fix return instantly instead of forcing a slow high-accuracy one.
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   };
 
@@ -494,11 +498,15 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
           setLoading(false);
         }
       },
-      () => {
-        setError('GPS location access is required to log attendance.');
+      (err) => {
+        setError(err.code === err.TIMEOUT
+          ? 'Could not get a GPS fix in time. Move somewhere with a clearer signal and try again.'
+          : 'GPS location access is required to log attendance.');
         setLoading(false);
       },
-      { enableHighAccuracy: true }
+      // timeout so it can't hang forever on a weak signal; maximumAge lets a
+      // recent fix return instantly instead of forcing a slow high-accuracy one.
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   };
 
@@ -633,9 +641,14 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       // Only if all three gates verified does attendance get recorded — any
       // failure at this final, authoritative step resets all the way back
       // to the camera step rather than carrying partial state forward.
-      setError(err.message || 'Verification failed.');
+      // enterFaceStep() itself clears `error` (and everything else) as part
+      // of resetting the camera, so the real message must be set AFTER that
+      // reset finishes — setting it before, like this used to, gets
+      // silently wiped out in the same tick and the employee never sees why
+      // they were sent back to the camera step.
       setLoading(false);
-      enterFaceStep();
+      await enterFaceStep();
+      setError(err.message || 'Verification failed.');
     }
   };
 
@@ -743,7 +756,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
 
         {todayState === 'checked_out' ? (
           <div className="bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 p-8 rounded-2xl text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-white border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)]">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface)] border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
               <svg className="w-8 h-8 text-[var(--color-premium-accent-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
@@ -782,7 +795,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
 
         {success ? (
           <div className="bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 p-8 rounded-2xl text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-white border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)]">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface)] border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
               <svg className="w-8 h-8 text-[var(--color-premium-accent-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
@@ -812,16 +825,16 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={chooseOfficeMode}
-                    className="flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
+                    className="card-3d flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
                   >
-                    <span className="text-2xl">🏢</span>
+                    <span className="text-2xl float-c">🏢</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-premium-ink)]">Office</span>
                   </button>
                   <button
                     onClick={chooseWfhMode}
-                    className="flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
+                    className="card-3d flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
                   >
-                    <span className="text-2xl">🏠</span>
+                    <span className="text-2xl float-b">🏠</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-premium-ink)]">Work From Home</span>
                   </button>
                 </div>
@@ -903,7 +916,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {/* STEP 1 — Face */}
             {step === 'face' && (
               <>
-                <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-square mb-6 flex items-center justify-center border-2 border-[var(--color-premium-border)]">
+                <div className="relative rounded-2xl overflow-hidden bg-[var(--color-premium-ink)] aspect-square mb-6 flex items-center justify-center border-2 border-[var(--color-premium-border)]">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -919,9 +932,9 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   </div>
 
                   {loading && (
-                    <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
+                    <div className="absolute inset-0 bg-[var(--color-premium-ink)]/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
                       <div className="w-10 h-10 border-4 border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] rounded-full animate-spin"></div>
-                      <p className="text-xs text-slate-300 uppercase tracking-widest font-mono">Loading Biometrics...</p>
+                      <p className="text-xs text-white/70 uppercase tracking-widest font-mono">Loading Biometrics...</p>
                     </div>
                   )}
                 </div>
@@ -1013,12 +1026,12 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                       value={simulatedIp}
                       onChange={e => setSimulatedIp(e.target.value)}
                       placeholder="e.g. 192.168.1.50 (Corporate Wi-Fi IP)"
-                      className="w-full bg-white border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-gold)] placeholder-slate-400"
+                      className="w-full bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-gold)] placeholder:text-[var(--color-premium-muted)]"
                     />
                     <button
                       type="button"
                       onClick={() => checkNetwork(simulatedIp)}
-                      className="w-full mt-2 bg-white hover:bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-ink)] border border-[var(--color-premium-gold)]/60 hover:border-[var(--color-premium-gold)] rounded-xl py-2.5 px-4 text-xs font-bold uppercase tracking-wider transition-all"
+                      className="w-full mt-2 bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-ink)] border border-[var(--color-premium-gold)]/60 hover:border-[var(--color-premium-gold)] rounded-xl py-2.5 px-4 text-xs font-bold uppercase tracking-wider transition-all"
                     >
                       Recheck With Simulated IP
                     </button>

@@ -102,13 +102,13 @@ export default function FeatureGrid() {
     <section id="features" className="py-20 px-6 max-w-7xl mx-auto overflow-hidden">
       <div className="text-center mb-16">
         <span className="font-mono text-xs text-[#8FE3C0] font-black tracking-widest block mb-2 uppercase">
-          PERIMETER CORE ENGINE
+          SMART TEAMS CORE ENGINE
         </span>
         <h2 className="font-display font-black text-3xl md:text-5xl text-white tracking-tight leading-none">
           Six machines, one source of truth
         </h2>
         <p className="font-sans text-xs text-[#9FB4BC] max-w-md mx-auto mt-2 leading-relaxed">
-          Forget vulnerable database rows. Perimeter governs user presence and timeline states with isolated state machines that never leak.
+          Forget vulnerable database rows. Smart Teams governs user presence and timeline states with isolated state machines that never leak.
         </p>
       </div>
 

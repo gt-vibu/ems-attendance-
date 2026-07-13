@@ -7,6 +7,7 @@ import { User } from '../lib/auth';
 import { GOOGLE_CLIENT_ID, loginWithGoogleCredential } from '../lib/googleAuth';
 import PageChrome from '../components/PageChrome';
 import AuroraField from '../three/AuroraField';
+import AnimatedLogo from '../components/AnimatedLogo';
 
 export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void }) {
   const [searchParams] = useSearchParams();
@@ -16,8 +17,10 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // States for resetting password
-  const [viewState, setViewState] = useState<'login' | 'reset_password'>('login');
+  // States for resetting password. 'transition' is the brief animated
+  // hand-off shown after a successful login, before routeAfterLogin
+  // actually navigates — see completeLogin below.
+  const [viewState, setViewState] = useState<'login' | 'reset_password' | 'transition'>('login');
   const [tempToken, setTempToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -59,6 +62,15 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
     }
   };
 
+  const completeLogin = (data: { token: string; user: User }) => {
+    localStorage.setItem('auth_token', data.token);
+    onLogin(data.user);
+    // Brief animated hand-off before routing to KYC/attendance/QR, rather
+    // than navigating instantly.
+    setViewState('transition');
+    setTimeout(() => routeAfterLogin(data.user), 1800);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -82,9 +94,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
         return;
       }
 
-      localStorage.setItem('auth_token', data.token);
-      onLogin(data.user);
-      routeAfterLogin(data.user);
+      completeLogin(data);
     } catch (err: any) {
       setError(err.message || 'Failed to authenticate');
     } finally {
@@ -101,9 +111,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
     setLoading(true);
     try {
       const data = await loginWithGoogleCredential(credentialResponse.credential, getDeviceFingerprint());
-      localStorage.setItem('auth_token', data.token);
-      onLogin(data.user);
-      routeAfterLogin(data.user);
+      completeLogin(data);
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed');
     } finally {
@@ -135,9 +143,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset password');
 
-      localStorage.setItem('auth_token', data.token);
-      onLogin(data.user);
-      routeAfterLogin(data.user);
+      completeLogin(data);
     } catch (err: any) {
       setError(err.message || 'Failed to reset password');
     } finally {
@@ -163,7 +169,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
         {viewState === 'login' && (
           <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Employee Login</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Employee Login</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Verify your device and clock in</p>
             </div>
 
@@ -244,7 +250,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
         {viewState === 'reset_password' && (
           <motion.div key="reset" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Set Permanent Password</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Set Permanent Password</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Create your secure password to complete activation</p>
             </div>
 
@@ -295,6 +301,12 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
                 {loading ? 'Activating Account...' : 'Confirm password'}
               </button>
             </form>
+          </motion.div>
+        )}
+
+        {viewState === 'transition' && (
+          <motion.div key="transition" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="py-8">
+            <AnimatedLogo subtitle="Signing you in…" />
           </motion.div>
         )}
         </AnimatePresence>

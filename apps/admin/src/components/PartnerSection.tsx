@@ -84,7 +84,7 @@ export default function PartnerSection() {
           </span>
           
           <h2 className="font-display font-black text-4xl md:text-6xl lg:text-7xl text-slate-950 tracking-tight leading-none">
-            Deploy Perimeter in an afternoon
+            Deploy Smart Teams in an afternoon
           </h2>
 
           <p className="font-sans text-sm md:text-base text-slate-500 max-w-lg mx-auto leading-relaxed">

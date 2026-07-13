@@ -1,8 +1,8 @@
-# Capacitor (Android) — packaging the same web app as a native app
+# Capacitor (Android + iOS) — packaging the same web app as a native app
 
 This wraps the existing `apps/admin` React/Vite web app with Capacitor so it
-can ship as an installable Android app, while the normal web deploy (Vercel)
-is completely unaffected. Everything here is additive and gated behind
+can ship as an installable Android **and iOS** app, while the normal web
+deploy (Vercel) is completely unaffected. Everything here is additive and gated behind
 `VITE_CAPACITOR=true` at build time — leaving it unset (the default) keeps
 the web build byte-for-byte identical to before Capacitor was added.
 
@@ -10,22 +10,30 @@ the web build byte-for-byte identical to before Capacitor was added.
 
 ## 1. Prerequisites
 
-- [Android Studio](https://developer.android.com/studio) installed, with the
-  Android SDK configured (`ANDROID_HOME` set).
+- **Android:** [Android Studio](https://developer.android.com/studio)
+  installed, with the Android SDK configured (`ANDROID_HOME` set) and **JDK
+  17+** (Capacitor 8 / the Android Gradle Plugin require 17 or newer — JDK 16
+  or older will fail the Gradle build).
+- **iOS:** a **macOS** machine with **Xcode** installed. iOS cannot be built
+  on Windows or Linux — the `ios/` project can be *generated* anywhere
+  (Capacitor 8 uses Swift Package Manager, no CocoaPods), but building and
+  running it requires a Mac. Capacitor 8 needs Xcode 16+.
 - Node/pnpm already set up for this repo (see root `README.md`).
 
 ## 2. One-time setup
 
 Dependencies are already added to `apps/admin/package.json`
-(`@capacitor/core`, `@capacitor/cli`, `@capacitor/android`). From the repo
-root:
+(`@capacitor/core`, `@capacitor/cli`, `@capacitor/android`,
+`@capacitor/ios`). From the repo root:
 
 ```powershell
 pnpm install
-pnpm --filter @company/admin exec cap add android
+pnpm --filter @company/admin exec cap add android   # generates apps/admin/android/
+pnpm --filter @company/admin exec cap add ios        # generates apps/admin/ios/ (Mac needed only to *build*)
 ```
 
-This generates `apps/admin/android/` — a full native Android Studio project.
+This generates `apps/admin/android/` (a native Android Studio project) and
+`apps/admin/ios/` (a native Xcode project).
 
 ### Verify the camera permission
 
@@ -50,6 +58,20 @@ No JavaScript/React changes are needed for the camera itself — Capacitor's
 WebView supports `getUserMedia` natively once the OS-level permission above
 is declared.
 
+### iOS: verify the camera usage description
+
+iOS **crashes the app** the instant `getUserMedia` opens the camera unless
+`ios/App/App/Info.plist` contains an `NSCameraUsageDescription`. This repo
+already ships that key (added when the `ios/` project was generated):
+
+```xml
+<key>NSCameraUsageDescription</key>
+<string>Smart Teams uses the camera for face-verification check-in and for scanning attendance QR codes.</string>
+```
+
+If you regenerate `ios/` from scratch (`cap add ios`), re-add it. The app
+only captures video, so no `NSMicrophoneUsageDescription` is required.
+
 ## 3. Build-and-sync cycle
 
 Every time you want to rebuild the native app after a code change:
@@ -60,6 +82,13 @@ $env:VITE_API_BASE_URL = "https://<your-render-app>.onrender.com"
 pnpm --filter @company/admin build:web
 pnpm --filter @company/admin exec cap sync android
 pnpm --filter @company/admin exec cap open android
+```
+
+For iOS (on a Mac), swap the last two lines:
+
+```bash
+pnpm --filter @company/admin exec cap sync ios
+pnpm --filter @company/admin exec cap open ios   # opens Xcode
 ```
 
 - `VITE_CAPACITOR=true` switches routing to `HashRouter` (see "Why
@@ -130,8 +159,14 @@ works normally under `HashRouter`.
   after publishing without creating a new store listing.
 - An app doing camera-based biometric KYC will need a completed Play Store
   Data Safety form referencing camera/biometric data use.
-- iOS support (`@capacitor/ios`, `Info.plist` `NSCameraUsageDescription`) is
-  a follow-up, not covered by this Android-only pass.
-- Decide whether to commit the generated `android/` folder to git (usually
-  worth it once the manifest/icons are finalized) or regenerate it per
-  machine with `cap add android`.
+- iOS support is now included (`@capacitor/ios`, `Info.plist`
+  `NSCameraUsageDescription`). Before an App Store submission you still need
+  an Apple Developer account, a real bundle id / signing team set in Xcode
+  (the `appId` `com.smartteams.app` is the default), and the App Privacy
+  ("nutrition label") questionnaire filled out for camera/biometric use.
+- The `androidScheme: 'https'` origin is `https://localhost`; the iOS origin
+  is `capacitor://localhost` (Capacitor's default `iosScheme`). Both are
+  already listed in the CORS section above.
+- Decide whether to commit the generated `android/`/`ios/` folders to git
+  (usually worth it once manifests/icons are finalized) or regenerate them
+  per machine with `cap add android` / `cap add ios`.

@@ -18,6 +18,7 @@ interface PortalShellProps {
   onLogout: () => void;
   title: string;
   fallbackHref?: string;
+  headerActions?: ReactNode;
   children: ReactNode;
 }
 
@@ -28,7 +29,7 @@ interface PortalShellProps {
 // signed-in employee can see/do. Deliberately WebGL-free itself — the ambient
 // AuroraField (heavier) is mounted by the page behind it only where safe.
 export default function PortalShell({
-  user, roleLabel, navItems, activeTab, onTabChange, onLogout, title, fallbackHref = '/', children,
+  user, roleLabel, navItems, activeTab, onTabChange, onLogout, title, fallbackHref = '/', headerActions, children,
 }: PortalShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -118,6 +119,7 @@ export default function PortalShell({
           </div>
           <div className="flex items-center gap-4 shrink-0">
             <PageChrome fallbackHref={fallbackHref} variant="compact" />
+            {headerActions}
             <span className="hidden sm:block text-xs text-[var(--color-premium-muted)] font-semibold">{user.email}</span>
           </div>
         </header>

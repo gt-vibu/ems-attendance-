@@ -69,6 +69,12 @@ export const users = pgTable('users', {
   kycActionLog: jsonb('kyc_action_log'),
   registeredDeviceId: text('registered_device_id'),
   deviceApprovalPending: boolean('device_approval_pending').default(false),
+  // Single-active-session enforcement: activeSessionId mirrors the JWT's
+  // `sid` claim for whichever token is currently "live"; sessionExpiresAt
+  // mirrors the JWT's own 24h expiry so a crashed/never-logged-out browser
+  // self-heals instead of permanently locking the account out.
+  activeSessionId: text('active_session_id'),
+  sessionExpiresAt: timestamp('session_expires_at'),
   // Last-known GPS from the attendance heartbeat ping (see attendanceLogs
   // heartbeat endpoint) — used by the end-of-day auto-checkout job to guess
   // whether someone who forgot to check out is actually still on-premises.

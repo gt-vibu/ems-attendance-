@@ -595,10 +595,10 @@ export default function EnterpriseSandbox() {
       {
         id: 'mail-001',
         timestamp: new Date(Date.now() - 3600000 * 2).toLocaleString(),
-        from: 'onboarding@perimeter.sec',
+        from: 'onboarding@smartteams.sec',
         to: 'superadmin@example.com',
         subject: '[SYSTEM] Secure SaaS Control Center Active',
-        body: 'Welcome to Perimeter. Your global secure tenant environment is active. Standard seed tenants Apex Logistics and Vertex Systems have been pre-provisioned and sealed.',
+        body: 'Welcome to Smart Teams. Your global secure tenant environment is active. Standard seed tenants Apex Logistics and Vertex Systems have been pre-provisioned and sealed.',
         read: true
       }
     ];
@@ -638,7 +638,7 @@ export default function EnterpriseSandbox() {
         tenantName: 'Genesis Core',
         actor: 'Global System Root',
         action: 'LEDGER_INITIALIZATION',
-        details: 'Perimeter Immutable Audit Trail successfully instantiated and anchored.',
+        details: 'Smart Teams Immutable Audit Trail successfully instantiated and anchored.',
         hash: 'b61a38cfc84668b05fc61bb9a0224bf16327bdf408ffec3f7902e4823ee2bcf1'
       }
     ];
@@ -775,9 +775,9 @@ export default function EnterpriseSandbox() {
     appendLedger(
       newId,
       newTenant.name,
-      'Perimeter SMTP Mailer',
+      'Smart Teams SMTP Mailer',
       'EMAIL_DISPATCHED',
-      `Onboarding welcome package and policy verification instructions transmitted to ${cleanAdminEmail} via gateway mail.perimeter.sec.`
+      `Onboarding welcome package and policy verification instructions transmitted to ${cleanAdminEmail} via gateway mail.smartteams.sec.`
     );
 
     // Push simulated SMTP Email Request both to SuperAdmin inbox and CCing the user
@@ -786,7 +786,7 @@ export default function EnterpriseSandbox() {
       id: simulatedEmailId,
       timestamp: new Date().toLocaleString(),
       from: cleanAdminEmail,
-      to: 'superadmin@perimeter.sec',
+      to: 'superadmin@smartteams.sec',
       subject: `[Onboarding Request] ${companyName} - Plan: ${obPlan}`,
       body: `Hi SuperAdmin,\n\nI want to become a tenant on your security platform. I selected the package "${obPlan}" ($${obPlan === 'STANDARD' ? '49' : obPlan === 'PREMIUM' ? '149' : '499'}/mo).\n\nDetails:\n- Company: ${companyName}\n- Admin Email: ${cleanAdminEmail}\n- Primary Admin Name: ${adminName}\n- Domicile: ${obCountry}\n- Geofence Limit: ${obRadius}m\n\nPlease verify these details and onboard us.\n\nRegards,\n${adminName}\nAdmin of ${companyName}`,
       plan: obPlan,
@@ -880,10 +880,10 @@ export default function EnterpriseSandbox() {
     const inviteMail = {
       id: mailId,
       timestamp: new Date().toLocaleString(),
-      from: 'no-reply@perimeter.sec',
+      from: 'no-reply@smartteams.sec',
       to: newEmp.email,
-      subject: `[Perimeter] You have been invited to join ${currentTenant.name}`,
-      body: `Hello ${newEmp.name},\n\nYou have been provisioned a new ${newEmp.role} account on Perimeter for ${currentTenant.name}.\n\nPlease log in to access your workspace and verify your identity.\n\nLogin ID: ${newEmp.email}\nTemporary Password: ${tempPassword}\n\nLogin URL: https://perimeter.systems/login\n\nNote: You will be required to set a permanent password upon your first login.\n\nRegards,\nPerimeter Access Control`,
+      subject: `[Smart Teams] You have been invited to join ${currentTenant.name}`,
+      body: `Hello ${newEmp.name},\n\nYou have been provisioned a new ${newEmp.role} account on Smart Teams for ${currentTenant.name}.\n\nPlease log in to access your workspace and verify your identity.\n\nLogin ID: ${newEmp.email}\nTemporary Password: ${tempPassword}\n\nLogin URL: https://smartteams.app/login\n\nNote: You will be required to set a permanent password upon your first login.\n\nRegards,\nSmart Teams Access Control`,
       read: false
     };
     setSimulatedEmails(prev => [inviteMail, ...prev]);
@@ -891,7 +891,7 @@ export default function EnterpriseSandbox() {
     appendLedger(
       currentTenant.id,
       currentTenant.name,
-      'Perimeter SMTP Mailer',
+      'Smart Teams SMTP Mailer',
       'EMAIL_DISPATCHED',
       `Sent credentials verification packet and policy documentation instructions to ${newEmp.email}.`
     );
@@ -1088,10 +1088,10 @@ export default function EnterpriseSandbox() {
       const changeMail = {
         id: mailId,
         timestamp: new Date().toLocaleString(),
-        from: 'billing@perimeter.sec',
+        from: 'billing@smartteams.sec',
         to: adminEmail,
-        subject: `[Perimeter Security] Core Feature Allotment Changed for ${companyName}`,
-        body: `Dear Administrator of ${companyName},\n\nWe are writing to notify you that the global Super Admin (${superAdminEmail}) has updated your platform feature permissions.\n\nAllotment of "${featureKey.toUpperCase()}" is now: ${nextVal ? 'ACTIVE (ENABLED)' : 'INACTIVE (DISABLED)'}.\n\nIf this was unexpected, please contact support or reply to this request.\n\nRegards,\nPerimeter Subscription Registry`,
+        subject: `[Smart Teams Security] Core Feature Allotment Changed for ${companyName}`,
+        body: `Dear Administrator of ${companyName},\n\nWe are writing to notify you that the global Super Admin (${superAdminEmail}) has updated your platform feature permissions.\n\nAllotment of "${featureKey.toUpperCase()}" is now: ${nextVal ? 'ACTIVE (ENABLED)' : 'INACTIVE (DISABLED)'}.\n\nIf this was unexpected, please contact support or reply to this request.\n\nRegards,\nSmart Teams Subscription Registry`,
         read: false
       };
       setSimulatedEmails(prev => [changeMail, ...prev]);
@@ -1151,10 +1151,10 @@ export default function EnterpriseSandbox() {
         const approvalMail = {
           id: mailId,
           timestamp: new Date().toLocaleString(),
-          from: 'onboarding@perimeter.sec',
+          from: 'onboarding@smartteams.sec',
           to: adminEmailAddress,
-          subject: `[Perimeter] Organization APPROVED & Activated: ${company.name}`,
-          body: `Dear Administrator of ${company.name},\n\nWe are pleased to inform you that your request to register under the ${company.plan || 'PREMIUM'} Plan has been officially VERIFIED and APPROVED by the global Super Admin (${superAdminEmail}).\n\nYour isolated container environment is now active. You have been allotted the following features by the Super Admin:\n${activeFeaturesText}\n\nTo access your workspace, please log in with your temporary credentials:\nLogin ID: ${adminEmailAddress}\nTemporary Password: ${tempPassword}\n\nImportant: You will be prompted to set a permanent password upon your first login. After that, you can enter the Policy Settings to onboard other roles such as HR, Managers, or Employees based on dynamic capabilities.\n\nLogin URL: https://perimeter.systems/login\n\nSincerely,\nPerimeter SaaS Gateway`,
+          subject: `[Smart Teams] Organization APPROVED & Activated: ${company.name}`,
+          body: `Dear Administrator of ${company.name},\n\nWe are pleased to inform you that your request to register under the ${company.plan || 'PREMIUM'} Plan has been officially VERIFIED and APPROVED by the global Super Admin (${superAdminEmail}).\n\nYour isolated container environment is now active. You have been allotted the following features by the Super Admin:\n${activeFeaturesText}\n\nTo access your workspace, please log in with your temporary credentials:\nLogin ID: ${adminEmailAddress}\nTemporary Password: ${tempPassword}\n\nImportant: You will be prompted to set a permanent password upon your first login. After that, you can enter the Policy Settings to onboard other roles such as HR, Managers, or Employees based on dynamic capabilities.\n\nLogin URL: https://smartteams.app/login\n\nSincerely,\nSmart Teams SaaS Gateway`,
           read: false
         };
         setSimulatedEmails(prev => [approvalMail, ...prev]);
@@ -2580,7 +2580,7 @@ export default function EnterpriseSandbox() {
             🔒 SECURE IDENTITY GATEWAY
           </span>
           <h2 className="font-display font-black text-3xl text-white tracking-tight leading-tight">
-            Perimeter Security Sign-In
+            Smart Teams Security Sign-In
           </h2>
           <p className="text-xs text-slate-400 max-w-[280px] mx-auto leading-relaxed">
             Enforcing rigid Multi-Tenant RBAC isolation with cryptographic JWT Claims.
@@ -3551,7 +3551,7 @@ export default function EnterpriseSandbox() {
                   <div className="bg-slate-950/80 rounded-xl p-3 border border-slate-900 space-y-2 text-[10px] font-mono">
                     <div className="flex justify-between">
                       <span className="text-slate-500">SMTP Gateway:</span>
-                      <span className="text-emerald-600 font-bold">mail.perimeter.sec</span>
+                      <span className="text-emerald-600 font-bold">mail.smartteams.sec</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Deliverability:</span>

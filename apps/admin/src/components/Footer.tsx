@@ -19,7 +19,7 @@ export default function Footer() {
         {/* Left Column: CTA */}
         <div className="md:col-span-5 space-y-6">
           <h3 className="font-display font-black text-2xl text-slate-950 tracking-tight">
-            Perimeter
+            Smart Teams
           </h3>
           <p className="text-xs text-slate-500 font-sans max-w-sm leading-relaxed">
             Attendance verification that is simple to run and impossible to cheat. Governed by isolated, secure state machine blocks.
