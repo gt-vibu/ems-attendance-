@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "node --test wfh.test.ts qr.test.ts",
+    "test": "tsx --test wfh.test.ts qr.test.ts",
     "cap:sync:android": "cap sync android",
     "cap:open:android": "cap open android",
     "cap:sync:ios": "cap sync ios",
