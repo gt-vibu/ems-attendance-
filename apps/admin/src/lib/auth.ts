@@ -27,8 +27,19 @@ export function useAuth() {
     setUser(u);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      } catch {
+        // Best-effort — still clear local state below so the user isn't
+        // stuck looking logged-in after a network hiccup. Worst case the
+        // server-side session lingers until its own 24h expiry.
+      }
+    }
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_token');
     setUser(null);
   };
 

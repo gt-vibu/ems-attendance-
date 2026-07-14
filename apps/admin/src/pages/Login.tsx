@@ -7,6 +7,7 @@ import { User } from '../lib/auth';
 import { GOOGLE_CLIENT_ID, loginWithGoogleCredential } from '../lib/googleAuth';
 import PageChrome from '../components/PageChrome';
 import AuroraField from '../three/AuroraField';
+import AnimatedLogo from '../components/AnimatedLogo';
 
 export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [searchParams] = useSearchParams();
@@ -17,8 +18,10 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // View states: 'login' | 'reset_password' | 'request_tenancy'
-  const [viewState, setViewState] = useState<'login' | 'reset_password' | 'request_tenancy'>('login');
+  // View states: 'login' | 'reset_password' | 'request_tenancy' | 'transition'
+  // ('transition' is the brief animated hand-off shown after a successful
+  // login, before landing on the dashboard — see completeLogin below.)
+  const [viewState, setViewState] = useState<'login' | 'reset_password' | 'request_tenancy' | 'transition'>('login');
 
   // Temp Password reset state
   const [tempToken, setTempToken] = useState('');
@@ -45,7 +48,10 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const completeLogin = (data: { token: string; user: User }) => {
     localStorage.setItem('auth_token', data.token);
     onLogin(data.user);
-    navigate('/dashboard');
+    // Brief animated hand-off before landing on the dashboard, rather than
+    // navigating instantly — see the 'transition' view below.
+    setViewState('transition');
+    setTimeout(() => navigate('/dashboard'), 1800);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -185,7 +191,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
         {viewState === 'login' && (
           <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Smart Teams Login</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Smart Teams Login</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Access your enterprise workspace dashboard</p>
             </div>
 
@@ -271,7 +277,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
         {viewState === 'reset_password' && (
           <motion.div key="reset" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Set Permanent Password</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Set Permanent Password</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Please set a secure permanent password to activate your account</p>
             </div>
 
@@ -324,7 +330,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
         {viewState === 'request_tenancy' && (
           <motion.div key="tenancy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="text-center mb-8">
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Request Tenancy</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Request Tenancy</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Apply to register your enterprise with Smart Teams</p>
             </div>
 
@@ -394,6 +400,12 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
                 Back to Organizational Sign In
               </button>
             </div>
+          </motion.div>
+        )}
+
+        {viewState === 'transition' && (
+          <motion.div key="transition" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="py-8">
+            <AnimatedLogo subtitle="Signing you in…" />
           </motion.div>
         )}
         </AnimatePresence>

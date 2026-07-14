@@ -250,7 +250,7 @@ export default function EmployeeKYC({ user, updateSession }: { user: User, updat
           </div>
         )}
 
-        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video mb-4 flex items-center justify-center border-4 border-[var(--color-premium-border)]">
+        <div className="relative rounded-2xl overflow-hidden bg-[var(--color-premium-ink)] aspect-video mb-4 flex items-center justify-center border-4 border-[var(--color-premium-border)]">
           <video
             ref={videoRef}
             autoPlay
@@ -264,13 +264,13 @@ export default function EmployeeKYC({ user, updateSession }: { user: User, updat
           </div>
 
           {!cameraReady && !error && (
-            <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center text-slate-300 text-xs font-medium">
+            <div className="absolute inset-0 bg-[var(--color-premium-ink)]/80 flex items-center justify-center text-white/70 text-xs font-medium">
               Starting camera...
             </div>
           )}
 
           {cameraReady && redoActions.length === 0 && (
-            <div className="absolute bottom-3 left-3 right-3 bg-slate-950/85 border border-slate-800 backdrop-blur-md py-2.5 px-4 rounded-xl text-center">
+            <div className="absolute bottom-3 left-3 right-3 bg-[var(--color-premium-ink)]/90 border border-white/10 backdrop-blur-md py-2.5 px-4 rounded-xl text-center">
               {phase === 'done' ? (
                 <>
                   <p className="font-mono text-[9px] tracking-widest uppercase font-extrabold text-[var(--color-premium-accent-2)] mb-0.5">
@@ -288,13 +288,13 @@ export default function EmployeeKYC({ user, updateSession }: { user: User, updat
                 </>
               ) : (
                 <>
-                  <p className="font-mono text-[9px] tracking-widest uppercase font-extrabold text-[var(--color-premium-accent-2)] mb-0.5">
+                  <p className={`font-mono text-[9px] tracking-widest uppercase font-extrabold text-[var(--color-premium-accent-2)] mb-0.5 inline-block rounded-full px-1 ${phase === 'capturing' ? 'pulse-ring' : ''}`}>
                     {phase === 'get_ready' ? 'Get ready' : `Capturing ${stepProgress}/${FRAMES_PER_STEP}`}
                   </p>
                   <h5 className="font-sans font-bold text-sm tracking-tight text-white">
                     {currentStep?.title}
                   </h5>
-                  <p className="text-[11px] text-slate-400 mt-0.5">{currentStep?.instruction}</p>
+                  <p className="text-[11px] text-white/60 mt-0.5">{currentStep?.instruction}</p>
                 </>
               )}
             </div>

@@ -1,15 +1,15 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
+import PortalShell, { type PortalNavItem } from '../components/PortalShell';
 import DataTable from '../components/DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
 import QrAttendanceDisplay from '../components/dashboard/QrAttendanceDisplay';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 import {
-  LayoutDashboard, Users, Building2, ShieldCheck, Bell, Fingerprint,
-  ScrollText, LogOut, AlertTriangle, Smartphone, Menu, X, ClipboardCheck, Home, Clock, MapPin, Download,
+  LayoutDashboard, Users, Building2, ShieldCheck, Bell,
+  ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine
 } from 'lucide-react';
 import {
@@ -32,7 +32,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // ==========================================
   // AUDIT LEDGER STATES & FUNCTIONS
@@ -648,7 +647,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const [recruitedUsers, setRecruitedUsers] = useState<any[]>([]);
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
-  const [newUserRole, setNewUserRole] = useState('employee');
+  // Empty by default (not e.g. 'Employee') so the <datalist> below shows every
+  // suggestion — browsers filter datalist options to ones that substring-match
+  // whatever's already typed, so a pre-filled value used to hide every option
+  // that didn't literally contain that text.
+  const [newUserRole, setNewUserRole] = useState('');
   const [newUserPrivileges, setNewUserPrivileges] = useState<string[]>([]);
   const [hasRecruitmentAccess, setHasRecruitmentAccess] = useState(false);
 
@@ -847,7 +850,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       setSuccess(`Employee "${newUserName}" hired successfully. Temporary credentials sent.`);
       setNewUserEmail('');
       setNewUserName('');
-      setNewUserRole('employee');
+      setNewUserRole('');
       setNewUserPrivileges([]);
       
       fetchTenantAdminData();
@@ -910,12 +913,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     }
   };
 
+  // Functional update — required because "Manage Employees" calls this twice
+  // in one handler (toggling both 'employee.create' and 'employee.read'
+  // together); reading the `newUserPrivileges` closure variable directly (as
+  // this used to) meant the second call saw the same stale pre-update array
+  // as the first, so it silently overwrote the first toggle instead of
+  // building on it. The functional form always sees the latest queued state.
   const togglePrivilege = (priv: string) => {
-    if (newUserPrivileges.includes(priv)) {
-      setNewUserPrivileges(newUserPrivileges.filter(p => p !== priv));
-    } else {
-      setNewUserPrivileges([...newUserPrivileges, priv]);
-    }
+    setNewUserPrivileges(prev => prev.includes(priv) ? prev.filter(p => p !== priv) : [...prev, priv]);
   };
 
   // Drill-down modal behind the clickable stat cards — one piece of state
@@ -991,25 +996,25 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     {
       accessorKey: 'name',
       header: 'Name',
-      cell: ({ getValue }) => <span className="font-semibold text-slate-900">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-premium-ink)]">{getValue() as string}</span>,
     },
     {
       accessorKey: 'email',
       header: 'Email',
-      cell: ({ getValue }) => <span className="text-slate-500 font-mono">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] font-mono">{getValue() as string}</span>,
     },
     {
       accessorKey: 'role',
       header: 'Role',
       filterFn: 'equalsString',
-      cell: ({ getValue }) => <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="font-bold text-[var(--color-premium-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
     },
     {
       id: 'kyc',
       accessorFn: (emp: any) => (emp.isKycCompleted ? 'Completed' : 'Pending'),
       header: 'KYC State',
       cell: ({ row }) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${row.original.isKycCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${row.original.isKycCompleted ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>
           {row.original.isKycCompleted ? 'Completed' : 'Pending'}
         </span>
       ),
@@ -1020,7 +1025,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       header: 'Device Pin',
       enableSorting: false,
       cell: ({ row }) => (
-        <span className="font-mono text-[10px] text-slate-400">
+        <span className="font-mono text-[10px] text-[var(--color-premium-muted)]">
           {row.original.registeredDeviceId ? row.original.registeredDeviceId.substring(0, 12) + '...' : 'Unpinned'}
         </span>
       ),
@@ -1033,7 +1038,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       cell: ({ row }) => (
         <button
           onClick={() => openAccessEditor(row.original)}
-          className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-50 hover:bg-violet-100 px-2.5 py-1 rounded-lg transition-colors"
+          className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-premium-accent)] bg-[var(--color-premium-accent-soft)] hover:bg-[var(--color-premium-accent-soft)] px-2.5 py-1 rounded-lg transition-colors"
         >
           {(Array.isArray(row.original.privileges) ? row.original.privileges : []).some((p: string) => p.startsWith('attendance.qr.') || p.startsWith('wfh.')) ? 'Manage' : 'Grant'}
         </button>
@@ -1045,24 +1050,24 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     {
       accessorKey: 'userName',
       header: 'Employee',
-      cell: ({ getValue }) => <span className="font-semibold text-slate-900">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-premium-ink)]">{getValue() as string}</span>,
     },
     {
       accessorKey: 'role',
       header: 'Role',
       filterFn: 'equalsString',
-      cell: ({ getValue }) => <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="font-bold text-[var(--color-premium-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
     },
     {
       accessorKey: 'date',
       header: 'Date',
-      cell: ({ getValue }) => <span className="text-slate-600">{new Date(getValue() as string).toLocaleDateString()}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)]">{new Date(getValue() as string).toLocaleDateString()}</span>,
     },
     {
       id: 'checkInTime',
       accessorKey: 'checkInTime',
       header: 'Check-In',
-      cell: ({ getValue }) => <span className="font-mono text-[11px] text-slate-500">{new Date(getValue() as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>,
+      cell: ({ getValue }) => <span className="font-mono text-[11px] text-[var(--color-premium-muted)]">{new Date(getValue() as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>,
     },
     {
       accessorKey: 'status',
@@ -1070,7 +1075,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       cell: ({ getValue }) => {
         const s = getValue() as string;
         return (
-          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-emerald-100 text-emerald-800' : s === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
+          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : s === 'pending' ? 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>
             {s}
           </span>
         );
@@ -1082,14 +1087,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       header: 'Dist. From Home',
       cell: ({ getValue }) => {
         const d = getValue() as number | null;
-        return <span className="text-slate-500 text-[11px]">{d == null ? '—' : `${Math.round(d)}m`}</span>;
+        return <span className="text-[var(--color-premium-muted)] text-[11px]">{d == null ? '—' : `${Math.round(d)}m`}</span>;
       },
     },
     {
       accessorKey: 'wfhReason',
       header: 'Reason',
       enableSorting: false,
-      cell: ({ getValue }) => <span className="text-slate-500 text-[11px] truncate max-w-[220px] block">{(getValue() as string) || '—'}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] text-[11px] truncate max-w-[220px] block">{(getValue() as string) || '—'}</span>,
     },
   ];
 
@@ -1097,28 +1102,28 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     {
       accessorKey: 'generatedByName',
       header: 'Started By',
-      cell: ({ getValue }) => <span className="font-semibold text-slate-900">{getValue() as string}</span>,
+      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-premium-ink)]">{getValue() as string}</span>,
     },
     {
       accessorKey: 'status',
       header: 'Status',
       cell: ({ getValue }) => {
         const s = getValue() as string;
-        return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{s}</span>;
+        return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'active' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)]'}`}>{s}</span>;
       },
     },
     {
       accessorKey: 'rotationSeconds',
       header: 'Rotation',
-      cell: ({ getValue }) => <span className="text-slate-500 font-mono">{getValue() as number}s</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] font-mono">{getValue() as number}s</span>,
     },
-    { accessorKey: 'scansCount', header: 'Scans', cell: ({ getValue }) => <span className="text-slate-700">{getValue() as number}</span> },
-    { accessorKey: 'successCount', header: 'Success', cell: ({ getValue }) => <span className="text-emerald-700">{getValue() as number}</span> },
-    { accessorKey: 'failCount', header: 'Failed', cell: ({ getValue }) => <span className="text-rose-700">{getValue() as number}</span> },
+    { accessorKey: 'scansCount', header: 'Scans', cell: ({ getValue }) => <span className="text-[var(--color-premium-ink)]">{getValue() as number}</span> },
+    { accessorKey: 'successCount', header: 'Success', cell: ({ getValue }) => <span className="text-[var(--color-premium-success)]">{getValue() as number}</span> },
+    { accessorKey: 'failCount', header: 'Failed', cell: ({ getValue }) => <span className="text-[var(--color-premium-danger)]">{getValue() as number}</span> },
     {
       accessorKey: 'createdAt',
       header: 'Started',
-      cell: ({ getValue }) => <span className="text-slate-400 text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
     },
   ];
 
@@ -1128,8 +1133,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       header: 'Employee',
       cell: ({ row }) => (
         <div>
-          <span className="font-semibold text-slate-900 block">{row.original.userName}</span>
-          <span className="text-[10px] text-slate-400 uppercase font-bold">{row.original.userRole}</span>
+          <span className="font-semibold text-[var(--color-premium-ink)] block">{row.original.userName}</span>
+          <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold">{row.original.userRole}</span>
         </div>
       ),
     },
@@ -1140,7 +1145,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       cell: ({ getValue }) => {
         const s = getValue() as string;
         return (
-          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'success' ? 'bg-emerald-100 text-emerald-700' : s === 'failed' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'success' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : s === 'failed' ? 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]' : 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]'}`}>
             {s}
           </span>
         );
@@ -1153,7 +1158,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       cell: ({ row }) => {
         const s = row.original;
         return (
-          <span className="font-mono text-[10px] text-slate-500">
+          <span className="font-mono text-[10px] text-[var(--color-premium-muted)]">
             {[
               s.gpsPassed != null && (s.gpsPassed ? 'GPS✓' : 'GPS✗'),
               s.wifiPassed != null && (s.wifiPassed ? 'WiFi✓' : 'WiFi✗'),
@@ -1168,18 +1173,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       accessorKey: 'failureReason',
       header: 'Failure Reason',
       enableSorting: false,
-      cell: ({ getValue }) => <span className="text-slate-500">{(getValue() as string) || '—'}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)]">{(getValue() as string) || '—'}</span>,
     },
     {
       accessorKey: 'ipAddress',
       header: 'IP',
       enableSorting: false,
-      cell: ({ getValue }) => <span className="text-slate-400 font-mono text-[10px]">{(getValue() as string) || '—'}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] font-mono text-[10px]">{(getValue() as string) || '—'}</span>,
     },
     {
       accessorKey: 'createdAt',
       header: 'Time',
-      cell: ({ getValue }) => <span className="text-slate-400 text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
+      cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
     },
     {
       id: 'actions',
@@ -1190,7 +1195,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         row.original.status === 'failed' ? (
           <button
             onClick={() => handleOverrideQrScan(row.original.id)}
-            className="bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
+            className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
           >
             Override
           </button>
@@ -1200,19 +1205,19 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   ];
 
   // --- Stat-card drill-down column sets ---
-  const roleCell = ({ getValue }: any) => <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">{getValue() as string}</span>;
-  const nameCell = ({ getValue }: any) => <span className="font-semibold text-slate-900">{getValue() as string}</span>;
+  const roleCell = ({ getValue }: any) => <span className="font-bold text-[var(--color-premium-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>;
+  const nameCell = ({ getValue }: any) => <span className="font-semibold text-[var(--color-premium-ink)]">{getValue() as string}</span>;
   const modeBadge = ({ getValue }: any) => {
     const m = (getValue() as string) || 'office';
-    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${m === 'wfh' ? 'bg-violet-100 text-violet-700' : m === 'qr' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{m}</span>;
+    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${m === 'wfh' ? 'bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]' : m === 'qr' ? 'bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)]' : 'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)]'}`}>{m}</span>;
   };
   const statusBadge = ({ getValue }: any) => {
     const s = (getValue() as string) || '';
-    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-emerald-100 text-emerald-800' : s === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>{s}</span>;
+    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : s === 'pending' ? 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>{s}</span>;
   };
   const timeCell = ({ getValue }: any) => {
     const v = getValue();
-    return <span className="font-mono text-[11px] text-slate-500">{v ? new Date(v as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>;
+    return <span className="font-mono text-[11px] text-[var(--color-premium-muted)]">{v ? new Date(v as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>;
   };
 
   // Present / Late / Rejected / WFH-today rows (a check-in with time + mode + status)
@@ -1232,8 +1237,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const locationRequestColumns: ColumnDef<any, any>[] = [
     { accessorKey: 'name', header: 'Name', cell: nameCell },
     { accessorKey: 'role', header: 'Role', filterFn: 'equalsString', cell: roleCell },
-    { accessorKey: 'newLocation', header: 'Requested Location', enableSorting: false, cell: ({ getValue }) => <span className="text-slate-600 text-[11px]">{(getValue() as string) || '—'}</span> },
-    { accessorKey: 'reason', header: 'Reason', enableSorting: false, cell: ({ getValue }) => <span className="text-slate-500 text-[11px] truncate max-w-[200px] block">{(getValue() as string) || '—'}</span> },
+    { accessorKey: 'newLocation', header: 'Requested Location', enableSorting: false, cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] text-[11px]">{(getValue() as string) || '—'}</span> },
+    { accessorKey: 'reason', header: 'Reason', enableSorting: false, cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)] text-[11px] truncate max-w-[200px] block">{(getValue() as string) || '—'}</span> },
   ];
 
   // Sidebar navigation — the standard left-nav pattern used across Zoho
@@ -1275,129 +1280,40 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     : user.role.charAt(0).toUpperCase() + user.role.slice(1);
   const activeNavLabel = activeTab === 'home' ? 'Home' : (navItems.find(n => n.id === activeTab)?.label || 'Dashboard');
 
-  const SidebarContent = () => (
-    <>
-      <div className="px-6 py-6 flex items-center gap-2.5 border-b border-slate-200">
-        <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center shrink-0">
-          <Fingerprint className="w-4.5 h-4.5 text-white" size={18} />
-        </div>
-        <div className="min-w-0">
-          <span className="font-display font-bold text-sm text-slate-900 tracking-tight block truncate">Smart Teams</span>
-          <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">
-            {roleLabel}
-          </span>
-        </div>
-      </div>
-
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <button
-          onClick={() => { setActiveTab('home'); setMobileSidebarOpen(false); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
-            activeTab === 'home' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Home size={16} className="shrink-0" />
-          <span className="flex-1 text-left truncate">Home</span>
-        </button>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => { setActiveTab(item.id); setMobileSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
-                isActive ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              <Icon size={16} className="shrink-0" />
-              <span className="flex-1 text-left truncate">{item.label}</span>
-              {typeof item.count === 'number' && item.count > 0 && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                  {item.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="px-3 py-4 border-t border-slate-200">
-        <div className="flex items-center gap-2.5 px-3 py-2 mb-2">
-          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0">
-            {(user.email || '?').charAt(0).toUpperCase()}
-          </div>
-          <span className="text-[11px] text-slate-500 font-medium truncate">{user.email}</span>
-        </div>
-        <button
-          onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-        >
-          <LogOut size={16} />
-          Sign Out
-        </button>
-      </div>
-    </>
-  );
+  // PortalShell's nav array — same items as navItems (used by the Home tab's
+  // tile grid) with a 'home' entry prepended, since PortalShell's sidebar
+  // includes Home as a regular nav row rather than a separate hardcoded button.
+  const portalNavItems: PortalNavItem[] = [
+    { id: 'home', label: 'Home', icon: Home },
+    ...navItems.map(({ id, label, icon, count }) => ({ id, label, icon, count })),
+  ];
 
   return (
-    <div className="min-h-screen premium-mesh-bg font-sans text-slate-800 flex relative">
-
-      {/* Desktop persistent sidebar */}
-      <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-white border-r border-slate-200 sticky top-0 h-screen">
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile sidebar drawer */}
-      {mobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileSidebarOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 bg-white border-r border-slate-200 flex flex-col shadow-2xl">
-            <button
-              onClick={() => setMobileSidebarOpen(false)}
-              className="absolute top-5 right-4 text-slate-400 hover:text-slate-700"
-            >
-              <X size={20} />
-            </button>
-            <SidebarContent />
-          </aside>
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Slim top bar: mobile menu toggle + page title + notifications */}
-        <header className="bg-white border-b border-slate-200 px-4 md:px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-sm">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={() => setMobileSidebarOpen(true)}
-              className="md:hidden text-slate-500 hover:text-slate-900 shrink-0"
-            >
-              <Menu size={22} />
-            </button>
-            <h1 className="font-display font-bold text-base md:text-lg text-slate-900 tracking-tight truncate">{activeNavLabel}</h1>
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <PageChrome fallbackHref="/login" variant="compact" />
-            <div className="w-px h-5 bg-slate-200" />
-            <button
-              onClick={() => setActiveTab('notifications')}
-              className="relative text-slate-400 hover:text-slate-700 transition-colors"
-              title="Notifications"
-            >
-              <Bell size={19} />
-              {notifications.filter((n: any) => !n.isRead).length > 0 && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full" />
-              )}
-            </button>
-            <span className="hidden sm:block text-xs text-slate-500 font-semibold">{user.email}</span>
-          </div>
-        </header>
-
-        <main className="max-w-5xl mx-auto p-4 md:p-6 mt-2 md:mt-6 w-full">
-        
+    <PortalShell
+      user={user}
+      roleLabel={roleLabel}
+      navItems={portalNavItems}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      onLogout={onLogout}
+      title={activeNavLabel}
+      fallbackHref="/login"
+      headerActions={
+        <button
+          onClick={() => setActiveTab('notifications')}
+          className="relative text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] transition-colors"
+          title="Notifications"
+        >
+          <Bell size={19} />
+          {notifications.filter((n: any) => !n.isRead).length > 0 && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-[var(--color-premium-danger)] rounded-full pulse-ring" />
+          )}
+        </button>
+      }
+    >
         {/* Alerts */}
-        {error && <div className="bg-red-50 text-red-600 text-xs p-4 rounded-xl mb-6 border border-red-100 font-medium shadow-sm">{error}</div>}
-        {success && <div className="bg-emerald-50 text-emerald-600 text-xs p-4 rounded-xl mb-6 border border-emerald-100 font-medium shadow-sm">{success}</div>}
+        {error && <div className="bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-premium-danger)]/20 font-medium">{error}</div>}
+        {success && <div className="bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-premium-success)]/20 font-medium">{success}</div>}
 
         {/* ======================================================== */}
         {/* HOME — role-aware tile landing view. Built directly from
@@ -1410,16 +1326,17 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-extrabold font-display text-gradient inline-block">Welcome, {user.name || user.email}</h2>
-              <p className="text-sm text-slate-500 mt-1">Signed in as <strong>{roleLabel}</strong>. Here's what you can do.</p>
+              <p className="text-sm text-[var(--color-premium-muted)] mt-1">Signed in as <strong>{roleLabel}</strong>. Here's what you can do.</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {navItems.map((item) => {
+              {navItems.map((item, i) => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className="text-left glass-card card-3d rounded-2xl p-5 group"
+                    className="text-left glass-card card-3d rise-in rounded-2xl p-5 group"
+                    style={{ animationDelay: `${i * 60}ms` }}
                   >
                     <div className="flex items-start justify-between mb-3">
                       <div className="w-10 h-10 rounded-xl bg-[var(--color-premium-accent-soft)] group-hover:bg-[var(--color-premium-accent)] flex items-center justify-center transition-colors float-c">
@@ -1429,8 +1346,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]">{item.count}</span>
                       )}
                     </div>
-                    <h3 className="font-bold text-sm text-slate-900">{item.label}</h3>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">{item.description}</p>
+                    <h3 className="font-bold text-sm text-[var(--color-premium-ink)]">{item.label}</h3>
+                    <p className="text-xs text-[var(--color-premium-muted)] mt-1 leading-relaxed">{item.description}</p>
                   </button>
                 );
               })}
@@ -1448,27 +1365,27 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {activeTab === 'analytics' && superAnalytics && (
               <div className="space-y-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Tenants</span>
-                    <span className="text-2xl font-black text-slate-900 block mt-1">{superAnalytics.totalTenants}</span>
+                  <div className="glass-card card-3d rise-in rounded-2xl p-4" style={{ animationDelay: '0ms' }}>
+                    <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Total Tenants</span>
+                    <span className="text-2xl font-black text-[var(--color-premium-ink)] block mt-1">{superAnalytics.totalTenants}</span>
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Active Tenants</span>
-                    <span className="text-2xl font-black text-emerald-600 block mt-1">{superAnalytics.activeTenants}</span>
+                  <div className="glass-card card-3d rise-in rounded-2xl p-4" style={{ animationDelay: '60ms' }}>
+                    <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Active Tenants</span>
+                    <span className="text-2xl font-black text-[var(--color-premium-success)] block mt-1">{superAnalytics.activeTenants}</span>
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Suspended</span>
-                    <span className="text-2xl font-black text-rose-600 block mt-1">{superAnalytics.suspendedTenants}</span>
+                  <div className="glass-card card-3d rise-in rounded-2xl p-4" style={{ animationDelay: '120ms' }}>
+                    <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Suspended</span>
+                    <span className="text-2xl font-black text-[var(--color-premium-danger)] block mt-1">{superAnalytics.suspendedTenants}</span>
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl p-4">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Total Staff (All Tenants)</span>
-                    <span className="text-2xl font-black text-slate-900 block mt-1">{superAnalytics.totalEmployees}</span>
+                  <div className="glass-card card-3d rise-in rounded-2xl p-4" style={{ animationDelay: '180ms' }}>
+                    <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Total Staff (All Tenants)</span>
+                    <span className="text-2xl font-black text-[var(--color-premium-ink)] block mt-1">{superAnalytics.totalEmployees}</span>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5">
-                    <h3 className="text-sm font-bold text-slate-900 mb-1">This Month, Across All Tenants</h3>
-                    <p className="text-[10px] text-slate-400 mb-3">Approved check-ins vs. rejected verification attempts</p>
+                  <div className="glass-card rounded-2xl p-5">
+                    <h3 className="text-sm font-bold text-[var(--color-premium-ink)] mb-1">This Month, Across All Tenants</h3>
+                    <p className="text-[10px] text-[var(--color-premium-muted)] mb-3">Approved check-ins vs. rejected verification attempts</p>
                     {(superAnalytics.monthlyCheckInEvents + superAnalytics.monthlyRejectedEvents) > 0 ? (
                       <div style={{ width: '100%', height: 200 }}>
                         <ResponsiveContainer>
@@ -1484,38 +1401,38 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                               outerRadius={75}
                               paddingAngle={3}
                             >
-                              <Cell fill="#059669" />
-                              <Cell fill="#e11d48" />
+                              <Cell fill="#16A34A" />
+                              <Cell fill="#E24545" />
                             </Pie>
                             <RechartsTooltip />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400 text-center py-16">No attendance events recorded yet this month.</p>
+                      <p className="text-xs text-[var(--color-premium-muted)] text-center py-16">No attendance events recorded yet this month.</p>
                     )}
                     <div className="flex justify-center gap-6 mt-2">
-                      <span className="text-xs text-slate-600 flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" /> Approved ({superAnalytics.monthlyCheckInEvents})</span>
-                      <span className="text-xs text-slate-600 flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block" /> Rejected ({superAnalytics.monthlyRejectedEvents})</span>
+                      <span className="text-xs text-[var(--color-premium-muted)] flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--color-premium-success)] inline-block" /> Approved ({superAnalytics.monthlyCheckInEvents})</span>
+                      <span className="text-xs text-[var(--color-premium-muted)] flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--color-premium-danger)] inline-block" /> Rejected ({superAnalytics.monthlyRejectedEvents})</span>
                     </div>
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5">
-                    <h3 className="text-sm font-bold text-slate-900 mb-1">Plan Breakdown</h3>
-                    <p className="text-[10px] text-slate-400 mb-3">Tenants grouped by subscription plan</p>
+                  <div className="glass-card rounded-2xl p-5">
+                    <h3 className="text-sm font-bold text-[var(--color-premium-ink)] mb-1">Plan Breakdown</h3>
+                    <p className="text-[10px] text-[var(--color-premium-muted)] mb-3">Tenants grouped by subscription plan</p>
                     {Object.keys(superAnalytics.planBreakdown || {}).length > 0 ? (
                       <div style={{ width: '100%', height: 200 }}>
                         <ResponsiveContainer>
                           <BarChart data={Object.entries(superAnalytics.planBreakdown || {}).map(([plan, count]) => ({ plan, count }))}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="plan" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                            <RechartsTooltip cursor={{ fill: '#f8fafc' }} />
-                            <Bar dataKey="count" fill="#0f172a" radius={[6, 6, 0, 0]} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E9E4FB" />
+                            <XAxis dataKey="plan" tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
+                            <RechartsTooltip cursor={{ fill: '#EFE9FF' }} />
+                            <Bar dataKey="count" fill="#7B5CFA" radius={[6, 6, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400 text-center py-16">No tenants onboarded yet.</p>
+                      <p className="text-xs text-[var(--color-premium-muted)] text-center py-16">No tenants onboarded yet.</p>
                     )}
                   </div>
                 </div>
@@ -1524,15 +1441,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Manage Tenants: suspend / reactivate */}
             {activeTab === 'tenants' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                <h2 className="text-lg font-bold text-slate-900 mb-6 font-display">All Tenants</h2>
+              <div className="glass-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-6 font-display">All Tenants</h2>
                 {allTenants.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-12">No tenants onboarded yet.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-12">No tenants onboarded yet.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                        <tr className="border-b border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)] text-[10px] uppercase font-bold tracking-wider">
                           <th className="py-3 px-4">Company Name</th>
                           <th className="py-3 px-4">Plan</th>
                           <th className="py-3 px-4">Staff</th>
@@ -1542,21 +1459,21 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       </thead>
                       <tbody>
                         {allTenants.map((t) => (
-                          <tr key={t.id} className="border-b border-slate-100 text-sm hover:bg-slate-50 transition-colors">
-                            <td className="py-4 px-4 font-semibold text-slate-900">{t.name}</td>
+                          <tr key={t.id} className="border-b border-[var(--color-premium-border)] text-sm hover:bg-[var(--color-premium-accent-soft)] transition-colors">
+                            <td className="py-4 px-4 font-semibold text-[var(--color-premium-ink)]">{t.name}</td>
                             <td className="py-4 px-4">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">{t.plan}</span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-ink)]">{t.plan}</span>
                             </td>
                             <td className="py-4 px-4 font-semibold">{t.employeeCount}</td>
                             <td className="py-4 px-4">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${(t.status || 'active') === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${(t.status || 'active') === 'active' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>
                                 {t.status || 'active'}
                               </span>
                             </td>
                             <td className="py-4 px-4 text-right">
                               <button
                                 onClick={() => handleToggleTenantStatus(t.id, t.status || 'active')}
-                                className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-rose-600 hover:bg-rose-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                                className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-[var(--color-premium-danger)] hover:brightness-110 text-white' : 'bg-[var(--color-premium-success)] hover:brightness-110 text-white'}`}
                               >
                                 {(t.status || 'active') === 'active' ? 'Suspend' : 'Reactivate'}
                               </button>
@@ -1572,15 +1489,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tenancy Requests List */}
             {activeTab === 'requests' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                <h2 className="text-lg font-bold text-slate-900 mb-6 font-display">Inbound Tenant Registrations</h2>
+              <div className="glass-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-6 font-display">Inbound Tenant Registrations</h2>
                 {tenancyRequests.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-12">No pending registration requests found.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-12">No pending registration requests found.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                        <tr className="border-b border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)] text-[10px] uppercase font-bold tracking-wider">
                           <th className="py-3 px-4">Company Name</th>
                           <th className="py-3 px-4">Admin Email</th>
                           <th className="py-3 px-4">Plan Selected</th>
@@ -1591,17 +1508,17 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       </thead>
                       <tbody>
                         {tenancyRequests.map((req) => (
-                          <tr key={req.id} className="border-b border-slate-100 text-sm hover:bg-slate-50 transition-colors">
-                            <td className="py-4 px-4 font-semibold text-slate-900">{req.companyName}</td>
-                            <td className="py-4 px-4 text-slate-500 font-mono text-xs">{req.email}</td>
+                          <tr key={req.id} className="border-b border-[var(--color-premium-border)] text-sm hover:bg-[var(--color-premium-accent-soft)] transition-colors">
+                            <td className="py-4 px-4 font-semibold text-[var(--color-premium-ink)]">{req.companyName}</td>
+                            <td className="py-4 px-4 text-[var(--color-premium-muted)] font-mono text-xs">{req.email}</td>
                             <td className="py-4 px-4">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${req.plan === 'Enterprise' ? 'bg-purple-100 text-purple-700' : req.plan === 'Professional' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${req.plan === 'Enterprise' ? 'bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]' : req.plan === 'Professional' ? 'bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)]' : 'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-ink)]'}`}>
                                 {req.plan}
                               </span>
                             </td>
                             <td className="py-4 px-4 font-semibold">{req.numEmployees}</td>
                             <td className="py-4 px-4">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${req.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${req.status === 'approved' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]'}`}>
                                 {req.status}
                               </span>
                             </td>
@@ -1609,7 +1526,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                               {req.status === 'pending' && (
                                 <button 
                                   onClick={() => handleOpenApproveModal(req)}
-                                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors"
+                                  className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors"
                                 >
                                   Onboard Tenant
                                 </button>
@@ -1626,18 +1543,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Super Admin Notifications */}
             {activeTab === 'notifications' && (
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                <h2 className="text-lg font-bold text-slate-900 mb-6 font-display">Admin Inbox</h2>
+              <div className="glass-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-6 font-display">Admin Inbox</h2>
                 {notifications.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-12">No notifications found.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-12">No notifications found.</p>
                 ) : (
                   <div className="space-y-4">
                     {notifications.map((notif) => (
-                      <div key={notif.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-start gap-4">
+                      <div key={notif.id} className="p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)] flex justify-between items-start gap-4">
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">{notif.title}</h4>
-                          <p className="text-xs text-slate-600 mt-1">{notif.message}</p>
-                          <span className="text-[10px] text-slate-400 mt-2 block">{new Date(notif.createdAt).toLocaleString()}</span>
+                          <h4 className="text-xs font-bold text-[var(--color-premium-ink)] uppercase tracking-wider">{notif.title}</h4>
+                          <p className="text-xs text-[var(--color-premium-muted)] mt-1">{notif.message}</p>
+                          <span className="text-[10px] text-[var(--color-premium-muted)] mt-2 block">{new Date(notif.createdAt).toLocaleString()}</span>
                         </div>
                       </div>
                     ))}
@@ -1650,65 +1567,65 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
         {/* Approval Modal */}
         {showApprovalModal && selectedRequest && (
-          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-slate-100 shadow-2xl">
-              <h3 className="text-lg font-bold text-slate-900 mb-2 font-display">Approve Tenancy Onboarding</h3>
-              <p className="text-xs text-slate-500 mb-6">Assign feature capabilities and privileges for <strong>{selectedRequest.companyName}</strong>.</p>
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            <div className="glass-card rounded-3xl p-8 max-w-md w-full shadow-2xl">
+              <h3 className="text-lg font-bold text-[var(--color-premium-ink)] mb-2 font-display">Approve Tenancy Onboarding</h3>
+              <p className="text-xs text-[var(--color-premium-muted)] mb-6">Assign feature capabilities and privileges for <strong>{selectedRequest.companyName}</strong>.</p>
 
               <div className="mb-6">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Subscription Plan</label>
+                <label className="block text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-wider mb-2">Subscription Plan</label>
                 <select
                   value={selectedPlanOverride}
                   onChange={e => setSelectedPlanOverride(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none text-slate-700 font-medium"
+                  className="w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none text-[var(--color-premium-ink)] font-medium"
                 >
                   <option value="Basic">Basic</option>
                   <option value="Standard">Standard</option>
                   <option value="Professional">Professional</option>
                   <option value="Enterprise">Enterprise</option>
                 </select>
-                <p className="text-[10px] text-slate-400 mt-1">Requested: <strong>{selectedRequest.plan}</strong> — you can change it before onboarding.</p>
+                <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Requested: <strong>{selectedRequest.plan}</strong> — you can change it before onboarding.</p>
               </div>
 
               <div className="space-y-4 mb-8">
-                <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Features Package</span>
+                <span className="block text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-wider">Features Package</span>
                 
-                <label className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-100/50 transition-colors">
+                <label className="flex items-center gap-3 p-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl cursor-pointer hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
                   <input 
                     type="checkbox" 
                     checked={selectedFeatures.includes('kyc')} 
                     onChange={() => toggleFeature('kyc')}
-                    className="w-4 h-4 accent-slate-900"
+                    className="w-4 h-4 accent-[var(--color-premium-accent)]"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-slate-950">KYC Biometrics Check</span>
-                    <span className="text-[10px] text-slate-500">Requires camera face embeddings matching</span>
+                    <span className="block text-xs font-bold text-[var(--color-premium-ink)]">KYC Biometrics Check</span>
+                    <span className="text-[10px] text-[var(--color-premium-muted)]">Requires camera face embeddings matching</span>
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-100/50 transition-colors">
+                <label className="flex items-center gap-3 p-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl cursor-pointer hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
                   <input 
                     type="checkbox" 
                     checked={selectedFeatures.includes('gps_geofence')} 
                     onChange={() => toggleFeature('gps_geofence')}
-                    className="w-4 h-4 accent-slate-900"
+                    className="w-4 h-4 accent-[var(--color-premium-accent)]"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-slate-950">GPS Geofencing Bounds</span>
-                    <span className="text-[10px] text-slate-500">Limits checking in to office coordinate radius</span>
+                    <span className="block text-xs font-bold text-[var(--color-premium-ink)]">GPS Geofencing Bounds</span>
+                    <span className="text-[10px] text-[var(--color-premium-muted)]">Limits checking in to office coordinate radius</span>
                   </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-100/50 transition-colors">
+                <label className="flex items-center gap-3 p-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl cursor-pointer hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
                   <input 
                     type="checkbox" 
                     checked={selectedFeatures.includes('wifi_lock')} 
                     onChange={() => toggleFeature('wifi_lock')}
-                    className="w-4 h-4 accent-slate-900"
+                    className="w-4 h-4 accent-[var(--color-premium-accent)]"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-slate-950">Corporate Wi-Fi IP Security</span>
-                    <span className="text-[10px] text-slate-500">Validates corporate public network IP addresses</span>
+                    <span className="block text-xs font-bold text-[var(--color-premium-ink)]">Corporate Wi-Fi IP Security</span>
+                    <span className="text-[10px] text-[var(--color-premium-muted)]">Validates corporate public network IP addresses</span>
                   </div>
                 </label>
               </div>
@@ -1716,14 +1633,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               <div className="flex gap-3">
                 <button 
                   onClick={() => setShowApprovalModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+                  className="flex-1 bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={handleApproveRequest}
                   disabled={loading}
-                  className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all disabled:opacity-50"
+                  className="flex-1 bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all disabled:opacity-50"
                 >
                   {loading ? 'Onboarding...' : 'Confirm Approval'}
                 </button>
@@ -1746,24 +1663,24 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               return (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('All Staff', bd.total, simplePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Total Staff</span>
-                  <span className="text-xl font-black text-slate-900 block mt-1">{tenantAnalytics.totalStaff}</span>
+                  <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Total Staff</span>
+                  <span className="text-xl font-black text-[var(--color-premium-ink)] block mt-1">{tenantAnalytics.totalStaff}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Present Today', bd.present, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Present Today</span>
-                  <span className="text-xl font-black text-emerald-600 block mt-1">{tenantAnalytics.presentToday}</span>
+                  <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Present Today</span>
+                  <span className="text-xl font-black text-[var(--color-premium-success)] block mt-1">{tenantAnalytics.presentToday}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Absent Today', bd.absent, simplePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Absent Today</span>
-                  <span className="text-xl font-black text-slate-700 block mt-1">{tenantAnalytics.absentToday}</span>
+                  <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Absent Today</span>
+                  <span className="text-xl font-black text-[var(--color-premium-ink)] block mt-1">{tenantAnalytics.absentToday}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Late Today', bd.late, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Late Today</span>
-                  <span className="text-xl font-black text-amber-600 block mt-1">{tenantAnalytics.lateToday}</span>
+                  <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Late Today</span>
+                  <span className="text-xl font-black text-[var(--color-premium-gold)] block mt-1">{tenantAnalytics.lateToday}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Rejected Today', bd.rejected, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
-                  <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Rejected Today</span>
-                  <span className="text-xl font-black text-rose-600 block mt-1">{tenantAnalytics.rejectedToday}</span>
+                  <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Rejected Today</span>
+                  <span className="text-xl font-black text-[var(--color-premium-danger)] block mt-1">{tenantAnalytics.rejectedToday}</span>
                 </button>
               </div>
               );
@@ -1796,33 +1713,33 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               <div className="mb-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <button type="button" onClick={() => openDrillDown('WFH Today', wfhTodayRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">WFH Today</span>
-                    <span className="text-xl font-black text-violet-600 block mt-1">{wfhStats.todayWfhCount}</span>
+                    <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">WFH Today</span>
+                    <span className="text-xl font-black text-[var(--color-premium-accent)] block mt-1">{wfhStats.todayWfhCount}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('WFH This Month', wfhMonthRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">WFH This Month</span>
-                    <span className="text-xl font-black text-violet-600 block mt-1">{wfhStats.monthlyWfhCount}</span>
+                    <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">WFH This Month</span>
+                    <span className="text-xl font-black text-[var(--color-premium-accent)] block mt-1">{wfhStats.monthlyWfhCount}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('Pending WFH Approvals', pendingWfhRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Pending WFH Approvals</span>
-                    <span className="text-xl font-black text-amber-600 block mt-1">{wfhStats.pendingWfhApprovals}</span>
+                    <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Pending WFH Approvals</span>
+                    <span className="text-xl font-black text-[var(--color-premium-gold)] block mt-1">{wfhStats.pendingWfhApprovals}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('Pending Location Requests', locationRows, locationRequestColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Pending Location Requests</span>
-                    <span className="text-xl font-black text-amber-600 block mt-1">{wfhStats.pendingLocationChangeRequests}</span>
+                    <span className="text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider block">Pending Location Requests</span>
+                    <span className="text-xl font-black text-[var(--color-premium-gold)] block mt-1">{wfhStats.pendingLocationChangeRequests}</span>
                   </button>
                 </div>
 
                 {(wfhStats.officeVsWfh30d.office > 0 || wfhStats.officeVsWfh30d.wfh > 0) && (
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 mt-3">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">Office vs. Work From Home (Last 30 Days)</h3>
+                  <div className="glass-card rounded-2xl p-5 mt-3">
+                    <h3 className="text-xs font-bold text-[var(--color-premium-ink)] uppercase tracking-wider mb-3">Office vs. Work From Home (Last 30 Days)</h3>
                     <ResponsiveContainer width="100%" height={180}>
                       <BarChart data={[{ name: 'Check-ins', Office: wfhStats.officeVsWfh30d.office, WFH: wfhStats.officeVsWfh30d.wfh }]} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                        <XAxis type="number" allowDecimals={false} />
-                        <YAxis type="category" dataKey="name" width={70} />
-                        <RechartsTooltip />
-                        <Bar dataKey="Office" fill="#0f172a" radius={[0, 4, 4, 0]} />
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E9E4FB" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
+                        <RechartsTooltip cursor={{ fill: '#EFE9FF' }} />
+                        <Bar dataKey="Office" fill="#6E6A85" radius={[0, 4, 4, 0]} />
                         <Bar dataKey="WFH" fill="#7B5CFA" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -1834,44 +1751,44 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Attendance Corrections (regularization requests) */}
             {activeTab === 'corrections' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] mb-8">
-                <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">Attendance Corrections</h2>
-                <p className="text-xs text-slate-400 mb-6">Requests from staff to regularize a missed check-in/out or flag a wrong location. Approving here does not silently rewrite the original record — it's logged as its own reviewed decision.</p>
+              <div className="glass-card rounded-3xl p-6 mb-8">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-display">Attendance Corrections</h2>
+                <p className="text-xs text-[var(--color-premium-muted)] mb-6">Requests from staff to regularize a missed check-in/out or flag a wrong location. Approving here does not silently rewrite the original record — it's logged as its own reviewed decision.</p>
                 {corrections.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">No correction requests yet.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-8">No correction requests yet.</p>
                 ) : (
                   <div className="space-y-3">
                     {corrections.map((c) => (
-                      <div key={c.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div key={c.id} className="flex items-center justify-between p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-slate-900">{c.userName}</span>
-                            <span className="text-[10px] text-slate-400 uppercase font-bold">{c.userRole}</span>
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-slate-200 text-slate-700">
+                            <span className="text-sm font-bold text-[var(--color-premium-ink)]">{c.userName}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold">{c.userRole}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-premium-border)] text-[var(--color-premium-ink)]">
                               {c.requestType.replace('_', ' ')}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${c.status === 'pending' ? 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]' : c.status === 'approved' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>
                               {c.status}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-600">
+                          <p className="text-xs text-[var(--color-premium-muted)]">
                             {c.requestedDate}{c.requestedTime ? ` at ${c.requestedTime}` : ''} — {c.reason}
                           </p>
-                          <p className="text-[10px] text-slate-400 mt-1">Submitted {new Date(c.createdAt).toLocaleString()}</p>
+                          <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Submitted {new Date(c.createdAt).toLocaleString()}</p>
                         </div>
                         {c.status === 'pending' && (
                           <div className="flex gap-2 shrink-0 ml-4">
                             <button
                               onClick={() => handleResolveCorrection(c.id, 'approve')}
                               disabled={loading}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              className="bg-[var(--color-premium-success)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => handleResolveCorrection(c.id, 'reject')}
                               disabled={loading}
-                              className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              className="bg-[var(--color-premium-danger)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                             >
                               Reject
                             </button>
@@ -1886,30 +1803,30 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Late Arrivals (check-ins pending manager approval) */}
             {activeTab === 'late-arrivals' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] mb-8">
-                <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">Late Arrivals &amp; Work From Home</h2>
-                <p className="text-xs text-slate-400 mb-6">Late check-ins with an explanation, and WFH check-ins awaiting approval, both land here. Approving finalizes the check-in; rejecting marks the day absent.</p>
+              <div className="glass-card rounded-3xl p-6 mb-8">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-display">Late Arrivals &amp; Work From Home</h2>
+                <p className="text-xs text-[var(--color-premium-muted)] mb-6">Late check-ins with an explanation, and WFH check-ins awaiting approval, both land here. Approving finalizes the check-in; rejecting marks the day absent.</p>
                 {pendingAttendance.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">Nothing awaiting approval.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-8">Nothing awaiting approval.</p>
                 ) : (
                   <div className="space-y-3">
                     {pendingAttendance.map((l) => (
-                      <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div key={l.id} className="flex items-center justify-between p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-slate-900">{l.userName}</span>
-                            <span className="text-[10px] text-slate-400 uppercase font-bold">{l.userRole}</span>
+                            <span className="text-sm font-bold text-[var(--color-premium-ink)]">{l.userName}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold">{l.userRole}</span>
                             {l.attendanceMode === 'wfh' ? (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-violet-100 text-violet-700">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]">
                                 🏠 WFH
                               </span>
                             ) : (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-100 text-amber-700">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]">
                                 late arrival
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-slate-600">
+                          <p className="text-xs text-[var(--color-premium-muted)]">
                             {l.attendanceMode === 'wfh'
                               ? <>Checked in {new Date(l.createdAt).toLocaleString()} — {Math.round(l.distanceFromHomeMeters ?? 0)}m from home{l.wfhReason ? ` — "${l.wfhReason}"` : ''}</>
                               : <>Checked in {new Date(l.createdAt).toLocaleString()} — {l.explanation}</>}
@@ -1919,14 +1836,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                           <button
                             onClick={() => handleResolveAttendance(l.id, 'approve')}
                             disabled={loading}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                            className="bg-[var(--color-premium-success)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => handleResolveAttendance(l.id, 'reject')}
                             disabled={loading}
-                            className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                            className="bg-[var(--color-premium-danger)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                           >
                             Reject
                           </button>
@@ -1940,38 +1857,38 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: WFH Home-Location Change Requests */}
             {activeTab === 'wfh-locations' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] mb-8">
-                <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">WFH Home Location Requests</h2>
-                <p className="text-xs text-slate-400 mb-6">Employees cannot change their registered Work From Home location themselves — approving one of these replaces it going forward.</p>
+              <div className="glass-card rounded-3xl p-6 mb-8">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-display">WFH Home Location Requests</h2>
+                <p className="text-xs text-[var(--color-premium-muted)] mb-6">Employees cannot change their registered Work From Home location themselves — approving one of these replaces it going forward.</p>
                 {wfhLocationRequests.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">No home-location change requests awaiting review.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-8">No home-location change requests awaiting review.</p>
                 ) : (
                   <div className="space-y-3">
                     {wfhLocationRequests.map((r) => (
-                      <div key={r.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-slate-900">{r.userName}</span>
-                            <span className="text-[10px] text-slate-400 uppercase font-bold">{r.userRole}</span>
+                            <span className="text-sm font-bold text-[var(--color-premium-ink)]">{r.userName}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold">{r.userRole}</span>
                           </div>
-                          <p className="text-xs text-slate-600">
+                          <p className="text-xs text-[var(--color-premium-muted)]">
                             New location: {r.newAddress || `${r.newLatitude.toFixed(5)}, ${r.newLongitude.toFixed(5)}`}
                             {r.reason ? ` — "${r.reason}"` : ''}
                           </p>
-                          <p className="text-[10px] text-slate-400 mt-1">{new Date(r.createdAt).toLocaleString()}</p>
+                          <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">{new Date(r.createdAt).toLocaleString()}</p>
                         </div>
                         <div className="flex gap-2 shrink-0 ml-4">
                           <button
                             onClick={() => handleResolveWfhLocationRequest(r.id, 'approve')}
                             disabled={loading}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                            className="bg-[var(--color-premium-success)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => handleResolveWfhLocationRequest(r.id, 'reject')}
                             disabled={loading}
-                            className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                            className="bg-[var(--color-premium-danger)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                           >
                             Reject
                           </button>
@@ -1985,9 +1902,9 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: WFH Ledger — per-employee/per-day record */}
             {activeTab === 'wfh-ledger' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] mb-8">
-                <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">Work From Home Ledger</h2>
-                <p className="text-xs text-slate-400 mb-6">Every WFH check-in over the last 90 days — search by employee, sort or filter by role/date, and page through the records.</p>
+              <div className="glass-card rounded-3xl p-6 mb-8">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-display">Work From Home Ledger</h2>
+                <p className="text-xs text-[var(--color-premium-muted)] mb-6">Every WFH check-in over the last 90 days — search by employee, sort or filter by role/date, and page through the records.</p>
                 <DataTable
                   data={wfhLedger}
                   columns={wfhLedgerColumns}
@@ -2009,9 +1926,9 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Tab: QR Attendance session history + scan logs */}
             {activeTab === 'qr-logs' && (
               <div className="space-y-6">
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                  <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">QR Session History</h2>
-                  <p className="text-xs text-slate-400 mb-6">Every Start/Stop session, most recent first — search by who started it, sort any column, page through.</p>
+                <div className="glass-card rounded-3xl p-6">
+                  <h2 className="text-lg font-bold text-gradient mb-2 font-display">QR Session History</h2>
+                  <p className="text-xs text-[var(--color-premium-muted)] mb-6">Every Start/Stop session, most recent first — search by who started it, sort any column, page through.</p>
                   <DataTable
                     data={qrSessionHistory}
                     columns={qrSessionColumns}
@@ -2023,9 +1940,9 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   />
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                  <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">QR Scan Attempts</h2>
-                  <p className="text-xs text-slate-400 mb-6">Every scan attempt — successful, failed, or expired — traceable by employee, device, and IP.</p>
+                <div className="glass-card rounded-3xl p-6">
+                  <h2 className="text-lg font-bold text-gradient mb-2 font-display">QR Scan Attempts</h2>
+                  <p className="text-xs text-[var(--color-premium-muted)] mb-6">Every scan attempt — successful, failed, or expired — traceable by employee, device, and IP.</p>
                   <DataTable
                     data={qrScanLogs}
                     columns={qrScanColumns}
@@ -2042,39 +1959,39 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Timing Violations (break overstays, geofence exits) */}
             {activeTab === 'violations' && (
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] mb-8">
-                <h2 className="text-lg font-bold text-slate-900 mb-2 font-display">Timing &amp; Break Violations</h2>
-                <p className="text-xs text-slate-400 mb-6">Raised automatically when someone exceeds the daily break budget or returns from break outside the office boundary. Only visible to people granted &quot;Receive Alerts&quot;; accepting/rejecting requires the matching privilege.</p>
+              <div className="glass-card rounded-3xl p-6 mb-8">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-display">Timing &amp; Break Violations</h2>
+                <p className="text-xs text-[var(--color-premium-muted)] mb-6">Raised automatically when someone exceeds the daily break budget or returns from break outside the office boundary. Only visible to people granted &quot;Receive Alerts&quot;; accepting/rejecting requires the matching privilege.</p>
                 {attendanceAlerts.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">No violations recorded.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-8">No violations recorded.</p>
                 ) : (
                   <div className="space-y-3">
                     {attendanceAlerts.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div key={a.id} className="flex items-center justify-between p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-slate-900">{a.userName}</span>
-                            <span className="text-[10px] text-slate-400 uppercase font-bold">{a.userRole}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${a.status === 'pending' ? 'bg-amber-100 text-amber-700' : a.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            <span className="text-sm font-bold text-[var(--color-premium-ink)]">{a.userName}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] uppercase font-bold">{a.userRole}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${a.status === 'pending' ? 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]' : a.status === 'accepted' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>
                               {a.status}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-600">{a.message}</p>
-                          <p className="text-[10px] text-slate-400 mt-1">{new Date(a.createdAt).toLocaleString()}</p>
+                          <p className="text-xs text-[var(--color-premium-muted)]">{a.message}</p>
+                          <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">{new Date(a.createdAt).toLocaleString()}</p>
                         </div>
                         {a.status === 'pending' && (
                           <div className="flex gap-2 shrink-0 ml-4">
                             <button
                               onClick={() => handleResolveAlert(a.id, 'accept')}
                               disabled={loading}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              className="bg-[var(--color-premium-success)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                             >
                               Accept
                             </button>
                             <button
                               onClick={() => handleResolveAlert(a.id, 'reject')}
                               disabled={loading}
-                              className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              className="bg-[var(--color-premium-danger)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
                             >
                               Reject
                             </button>
@@ -2089,19 +2006,19 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Settings */}
             {activeTab === 'settings' && (
-              <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
+              <div className="glass-card rounded-3xl p-8">
                 <div className="mb-8">
-                  <h2 className="text-xl font-bold text-slate-900 font-display">Office Boundary Rules</h2>
-                  <p className="text-sm text-slate-500 mt-1">Configure Geofence coordinates and public network IP values.</p>
+                  <h2 className="text-xl font-bold text-gradient font-display">Office Boundary Rules</h2>
+                  <p className="text-sm text-[var(--color-premium-muted)] mt-1">Configure Geofence coordinates and public network IP values.</p>
                 </div>
                 
                 <form onSubmit={handleSaveConfig} className="space-y-6">
                   {/* Network Requirement */}
-                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
-                    <h3 className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                  <div className="p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
+                    <h3 className="text-sm font-semibold text-[var(--color-premium-ink)] mb-2 flex items-center gap-2">
                       Corporate Network Locking
                     </h3>
-                    <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+                    <p className="text-[11px] text-[var(--color-premium-muted)] mb-4 leading-relaxed">
                       Browsers cannot read a device's actual Wi-Fi network name (SSID) — that's blocked by every
                       browser for privacy reasons, and only possible from a native mobile app with special OS
                       permissions. So the real check here is <strong>public IP address matching</strong>: if your
@@ -2112,26 +2029,26 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Wi-Fi Network Name (Reference Only)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Wi-Fi Network Name (Reference Only)</label>
                         <input 
                           type="text"
                           value={wifiSsid}
                           onChange={e => setWifiSsid(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="e.g. SmartTeams_Office"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">A label for your own reference — not technically enforced. The IP address to the right is what's actually checked.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">A label for your own reference — not technically enforced. The IP address to the right is what's actually checked.</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Office Public IP Address (Enforced)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Office Public IP Address (Enforced)</label>
                         <input 
                           type="text"
                           value={officeIp}
                           onChange={e => setOfficeIp(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all font-mono"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all font-mono"
                           placeholder="e.g. 122.161.44.89 (or 127.0.0.1 for local host)"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Find this by searching "what is my IP" from a device connected to office Wi-Fi.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Find this by searching "what is my IP" from a device connected to office Wi-Fi.</p>
                       </div>
                     </div>
                     <label className="flex items-center gap-2.5 mt-4 cursor-pointer select-none">
@@ -2139,21 +2056,21 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         type="checkbox"
                         checked={wifiCheckEnabled}
                         onChange={e => setWifiCheckEnabled(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/30"
+                        className="w-4 h-4 rounded border-[var(--color-premium-border)] text-[var(--color-premium-ink)] focus:ring-[var(--color-premium-accent)]/30"
                       />
-                      <span className="text-xs font-semibold text-slate-700">Require corporate network for check-in/out</span>
+                      <span className="text-xs font-semibold text-[var(--color-premium-ink)]">Require corporate network for check-in/out</span>
                     </label>
-                    <p className="text-[10px] text-slate-400 mt-1 ml-6">When off, employees can clock in from any network — Wi-Fi is shown as its own step during check-in only if this is on.</p>
+                    <p className="text-[10px] text-[var(--color-premium-muted)] mt-1 ml-6">When off, employees can clock in from any network — Wi-Fi is shown as its own step during check-in only if this is on.</p>
                   </div>
 
                   {/* Geofence Requirement */}
-                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-sm font-semibold text-slate-900">Geofence Coordinates</h3>
+                      <h3 className="text-sm font-semibold text-[var(--color-premium-ink)]">Geofence Coordinates</h3>
                       <button 
                         type="button" 
                         onClick={handleGetCurrentLocation}
-                        className="text-xs bg-white border border-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
+                        className="text-xs bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-premium-accent-soft)] transition-colors shadow-sm"
                       >
                         Fetch Coordinates
                       </button>
@@ -2161,34 +2078,34 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Latitude</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Latitude</label>
                         <input 
                           type="number"
                           step="any"
                           value={lat}
                           onChange={e => setLat(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all font-mono"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all font-mono"
                           placeholder="13.0827"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Longitude</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Longitude</label>
                         <input 
                           type="number"
                           step="any"
                           value={lng}
                           onChange={e => setLng(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all font-mono"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all font-mono"
                           placeholder="80.2707"
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Allowed Radius (Meters)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Allowed Radius (Meters)</label>
                         <input
                           type="number"
                           value={radius}
                           onChange={e => setRadius(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="100"
                         />
                         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -2197,7 +2114,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                               key={m}
                               type="button"
                               onClick={() => setRadius(String(m))}
-                              className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-colors ${radius === String(m) ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                              className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-colors ${radius === String(m) ? 'bg-[var(--color-premium-accent)] text-white border-[var(--color-premium-accent)]' : 'bg-[var(--color-premium-surface)] text-[var(--color-premium-muted)] border-[var(--color-premium-border)] hover:bg-[var(--color-premium-accent-soft)]'}`}
                             >
                               {m}m
                             </button>
@@ -2210,7 +2127,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                           lat/lng/radius state as the inputs above; the circle
                           previews the allowed radius. Lazy-loaded. */}
                       <div className="md:col-span-2">
-                        <Suspense fallback={<div className="h-[300px] rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-400">Loading map…</div>}>
+                        <Suspense fallback={<div className="h-[300px] rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-xs text-[var(--color-premium-muted)]">Loading map…</div>}>
                           <LocationPicker
                             lat={lat ? parseFloat(lat) : null}
                             lng={lng ? parseFloat(lng) : null}
@@ -2225,86 +2142,86 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Attendance Policy — actually consumed by the backend's
                       late-arrival, half-day, and break-budget calculations,
                       which previously had no way to be configured. */}
-                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
-                    <h3 className="text-sm font-semibold text-slate-900 mb-4">Attendance &amp; Break Policy</h3>
+                  <div className="p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
+                    <h3 className="text-sm font-semibold text-[var(--color-premium-ink)] mb-4">Attendance &amp; Break Policy</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Shift Start Time</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Shift Start Time</label>
                         <input 
                           type="time"
                           value={shiftStart}
                           onChange={e => setShiftStart(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Shift End Time</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Shift End Time</label>
                         <input 
                           type="time"
                           value={shiftEnd}
                           onChange={e => setShiftEnd(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Expected clock-out time. Used for out-time and overtime calculations.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Expected clock-out time. Used for out-time and overtime calculations.</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Grace Period (Minutes)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Grace Period (Minutes)</label>
                         <input 
                           type="number"
                           min="0"
                           value={gracePeriodMins}
                           onChange={e => setGracePeriodMins(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="15"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Arrivals after Shift Start + Grace are marked Late.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Arrivals after Shift Start + Grace are marked Late.</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Half-Day Threshold (Minutes Worked)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Half-Day Threshold (Minutes Worked)</label>
                         <input 
                           type="number"
                           min="0"
                           value={halfDayMins}
                           onChange={e => setHalfDayMins(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="240"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Daily Break Budget (Minutes)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Daily Break Budget (Minutes)</label>
                         <input 
                           type="number"
                           min="0"
                           value={dailyBreakBudgetMins}
                           onChange={e => setDailyBreakBudgetMins(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="60"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Breaks exceeding this budget escalate to you automatically.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Breaks exceeding this budget escalate to you automatically.</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Minimum Attendance %</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Minimum Attendance %</label>
                         <input
                           type="number"
                           min="0"
                           max="100"
                           value={minAttendancePercent}
                           onChange={e => setMinAttendancePercent(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="75"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Below this monthly percentage, alert emails go to the employee and their reporting hierarchy.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Below this monthly percentage, alert emails go to the employee and their reporting hierarchy.</p>
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Weekend Days</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Weekend Days</label>
                         <div className="flex flex-wrap gap-3">
                           {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => (
-                            <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+                            <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
                               <input
                                 type="checkbox"
                                 checked={weekendConfig.includes(day)}
                                 onChange={() => toggleWeekendDay(day)}
-                                className="accent-slate-900"
+                                className="accent-[var(--color-premium-accent)]"
                               />
                               {day}
                             </label>
@@ -2317,73 +2234,73 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Work From Home (WFH) Policy — additive attendance mode,
                       disabled by default so existing tenants see no change
                       until this is explicitly turned on. */}
-                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                     <label className="flex items-center gap-2.5 cursor-pointer select-none mb-4">
                       <input
                         type="checkbox"
                         checked={wfhEnabled}
                         onChange={e => setWfhEnabled(e.target.checked)}
-                        className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/30"
+                        className="w-4 h-4 rounded border-[var(--color-premium-border)] text-[var(--color-premium-ink)] focus:ring-[var(--color-premium-accent)]/30"
                       />
-                      <span className="text-sm font-semibold text-slate-900">Enable Work From Home</span>
+                      <span className="text-sm font-semibold text-[var(--color-premium-ink)]">Enable Work From Home</span>
                     </label>
 
                     {wfhEnabled && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Allowed Roles</label>
+                          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Allowed Roles</label>
                           <div className="flex flex-wrap gap-3">
                             {WFH_ROLE_OPTIONS.map(role => (
-                              <label key={role} className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                                <input type="checkbox" checked={wfhAllowedRoles.includes(role)} onChange={() => toggleWfhRole(role)} className="accent-slate-900" />
+                              <label key={role} className="flex items-center gap-1.5 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                                <input type="checkbox" checked={wfhAllowedRoles.includes(role)} onChange={() => toggleWfhRole(role)} className="accent-[var(--color-premium-accent)]" />
                                 {role}
                               </label>
                             ))}
                           </div>
-                          <p className="text-[10px] text-slate-400 mt-1">Leave all unchecked to allow every clock-in-capable role (any custom roles you've created too).</p>
+                          <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Leave all unchecked to allow every clock-in-capable role (any custom roles you've created too).</p>
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Max WFH Days / Month</label>
+                          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Max WFH Days / Month</label>
                           <input
                             type="number" min="0" value={wfhMaxDaysPerMonth} onChange={e => setWfhMaxDaysPerMonth(e.target.value)}
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                            className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                             placeholder="Leave blank for unlimited"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Allowed Radius From Home (Meters)</label>
+                          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Allowed Radius From Home (Meters)</label>
                           <input
                             type="number" min="0" value={wfhRadiusMeters} onChange={e => setWfhRadiusMeters(e.target.value)}
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                            className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                             placeholder="200"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">WFH Late-Login Grace (Minutes)</label>
+                          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">WFH Late-Login Grace (Minutes)</label>
                           <input
                             type="number" min="0" value={wfhLateLoginGraceMins} onChange={e => setWfhLateLoginGraceMins(e.target.value)}
-                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                            className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                             placeholder={`Leave blank to reuse office grace (${gracePeriodMins}m)`}
                           />
                         </div>
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Allowed Weekdays</label>
+                          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Allowed Weekdays</label>
                           <div className="flex flex-wrap gap-3">
                             {WEEKDAY_OPTIONS.map(day => (
-                              <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                                <input type="checkbox" checked={wfhAllowedWeekdays.includes(day)} onChange={() => toggleWfhWeekday(day)} className="accent-slate-900" />
+                              <label key={day} className="flex items-center gap-1.5 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                                <input type="checkbox" checked={wfhAllowedWeekdays.includes(day)} onChange={() => toggleWfhWeekday(day)} className="accent-[var(--color-premium-accent)]" />
                                 {day}
                               </label>
                             ))}
                           </div>
                         </div>
                         <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                          <input type="checkbox" checked={wfhApprovalRequired} onChange={e => setWfhApprovalRequired(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/30" />
-                          <span className="text-xs font-semibold text-slate-700">Require manager approval for every WFH check-in</span>
+                          <input type="checkbox" checked={wfhApprovalRequired} onChange={e => setWfhApprovalRequired(e.target.checked)} className="w-4 h-4 rounded border-[var(--color-premium-border)] text-[var(--color-premium-ink)] focus:ring-[var(--color-premium-accent)]/30" />
+                          <span className="text-xs font-semibold text-[var(--color-premium-ink)]">Require manager approval for every WFH check-in</span>
                         </label>
                         <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                          <input type="checkbox" checked={wfhRequireReason} onChange={e => setWfhRequireReason(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/30" />
-                          <span className="text-xs font-semibold text-slate-700">Require a reason for each WFH day</span>
+                          <input type="checkbox" checked={wfhRequireReason} onChange={e => setWfhRequireReason(e.target.checked)} className="w-4 h-4 rounded border-[var(--color-premium-border)] text-[var(--color-premium-ink)] focus:ring-[var(--color-premium-accent)]/30" />
+                          <span className="text-xs font-semibold text-[var(--color-premium-ink)]">Require a reason for each WFH day</span>
                         </label>
                       </div>
                     )}
@@ -2393,7 +2310,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <button
                       type="submit"
                       disabled={loading}
-                      className="bg-slate-900 text-white rounded-xl px-8 py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition-colors disabled:opacity-50 shadow-sm"
+                      className="bg-[var(--color-premium-accent)] text-white rounded-xl px-8 py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 shadow-sm"
                     >
                       {loading ? 'Saving...' : 'Save Policies'}
                     </button>
@@ -2404,57 +2321,57 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     (PUT /api/qr/config), separate from the office/WFH
                     policy form above. Disabled by default so existing
                     tenants see no change until this is explicitly turned on. */}
-                <form onSubmit={handleSaveQrConfig} className="mt-8 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                <form onSubmit={handleSaveQrConfig} className="mt-8 p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
                   <label className="flex items-center gap-2.5 cursor-pointer select-none mb-4">
                     <input
                       type="checkbox"
                       checked={qrEnabled}
                       onChange={e => setQrEnabled(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/30"
+                      className="w-4 h-4 rounded border-[var(--color-premium-border)] text-[var(--color-premium-ink)] focus:ring-[var(--color-premium-accent)]/30"
                     />
-                    <span className="text-sm font-semibold text-slate-900">Enable Dynamic QR Attendance</span>
+                    <span className="text-sm font-semibold text-[var(--color-premium-ink)]">Enable Dynamic QR Attendance</span>
                   </label>
-                  <p className="text-[11px] text-slate-500 mb-4 -mt-2">A privileged employee (see "QR Attendance" permissions above) displays a rotating QR code; any employee scans it with their own device and goes through whichever checks below are enabled to mark attendance.</p>
+                  <p className="text-[11px] text-[var(--color-premium-muted)] mb-4 -mt-2">A privileged employee (see "QR Attendance" permissions above) displays a rotating QR code; any employee scans it with their own device and goes through whichever checks below are enabled to mark attendance.</p>
 
                   {qrEnabled && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">QR Rotation Interval</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">QR Rotation Interval</label>
                         <select
                           value={qrRotationSeconds}
                           onChange={e => setQrRotationSeconds(parseInt(e.target.value, 10))}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                         >
                           {QR_ROTATION_CHOICES.map(s => <option key={s} value={s}>{s} seconds</option>)}
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">QR Geofence Radius (Meters)</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">QR Geofence Radius (Meters)</label>
                         <input
                           type="number" min="0" value={qrGeofenceRadiusMeters} onChange={e => setQrGeofenceRadiusMeters(e.target.value)}
-                          className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 transition-all"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all"
                           placeholder="Leave blank to reuse the office geofence radius"
                         />
                       </div>
                       <div className="md:col-span-2 flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                          <input type="checkbox" checked={qrRequireGps} onChange={e => setQrRequireGps(e.target.checked)} className="accent-slate-900" />
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                          <input type="checkbox" checked={qrRequireGps} onChange={e => setQrRequireGps(e.target.checked)} className="accent-[var(--color-premium-accent)]" />
                           Require GPS
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                          <input type="checkbox" checked={qrRequireFace} onChange={e => setQrRequireFace(e.target.checked)} className="accent-slate-900" />
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                          <input type="checkbox" checked={qrRequireFace} onChange={e => setQrRequireFace(e.target.checked)} className="accent-[var(--color-premium-accent)]" />
                           Require Face Verification
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                          <input type="checkbox" checked={qrRequireWifi} onChange={e => setQrRequireWifi(e.target.checked)} className="accent-slate-900" />
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                          <input type="checkbox" checked={qrRequireWifi} onChange={e => setQrRequireWifi(e.target.checked)} className="accent-[var(--color-premium-accent)]" />
                           Require Corporate Wi-Fi
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-                          <input type="checkbox" checked={qrRequireDeviceTrust} onChange={e => setQrRequireDeviceTrust(e.target.checked)} className="accent-slate-900" />
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-premium-ink)] bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-lg px-3 py-1.5">
+                          <input type="checkbox" checked={qrRequireDeviceTrust} onChange={e => setQrRequireDeviceTrust(e.target.checked)} className="accent-[var(--color-premium-accent)]" />
                           Require Registered Device
                         </label>
                       </div>
-                      <p className="text-[10px] text-slate-400 md:col-span-2 -mt-2">Corporate Wi-Fi and Registered Device reuse the exact same checks as office check-in above — same corporate IP / device-pinning, not a separate system.</p>
+                      <p className="text-[10px] text-[var(--color-premium-muted)] md:col-span-2 -mt-2">Corporate Wi-Fi and Registered Device reuse the exact same checks as office check-in above — same corporate IP / device-pinning, not a separate system.</p>
                     </div>
                   )}
 
@@ -2462,7 +2379,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <button
                       type="submit"
                       disabled={qrConfigSaving}
-                      className="bg-violet-700 text-white rounded-xl px-8 py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-violet-800 transition-colors disabled:opacity-50 shadow-sm"
+                      className="bg-[var(--color-premium-accent)] text-white rounded-xl px-8 py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 shadow-sm"
                     >
                       {qrConfigSaving ? 'Saving...' : 'Save QR Policy'}
                     </button>
@@ -2470,15 +2387,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </form>
 
                 {/* Holiday Calendar — its own section since it's a list, not a single form submit */}
-                <div className="mt-8 p-5 bg-slate-50 rounded-2xl border border-slate-100">
-                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Holiday Calendar</h3>
-                  <p className="text-[11px] text-slate-500 mb-4">Days marked here show as "Holiday" instead of "Absent" in attendance status, for everyone in the organization.</p>
+                <div className="mt-8 p-5 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)]">
+                  <h3 className="text-sm font-semibold text-[var(--color-premium-ink)] mb-1">Holiday Calendar</h3>
+                  <p className="text-[11px] text-[var(--color-premium-muted)] mb-4">Days marked here show as "Holiday" instead of "Absent" in attendance status, for everyone in the organization.</p>
                   <form onSubmit={handleAddHoliday} className="flex flex-col sm:flex-row gap-3 mb-4">
                     <input
                       type="date"
                       value={newHolidayDate}
                       onChange={e => setNewHolidayDate(e.target.value)}
-                      className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500"
+                      className="px-4 py-2.5 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)]"
                       required
                     />
                     <input
@@ -2486,28 +2403,28 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       value={newHolidayName}
                       onChange={e => setNewHolidayName(e.target.value)}
                       placeholder="e.g. Independence Day"
-                      className="flex-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500"
+                      className="flex-1 px-4 py-2.5 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)]"
                       required
                     />
                     <button
                       type="submit"
                       disabled={loading}
-                      className="bg-slate-900 text-white rounded-xl px-6 py-2.5 font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition-colors disabled:opacity-50 shrink-0"
+                      className="bg-[var(--color-premium-accent)] text-white rounded-xl px-6 py-2.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 shrink-0"
                     >
                       Add
                     </button>
                   </form>
                   {holidaysList.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-4">No holidays configured yet.</p>
+                    <p className="text-xs text-[var(--color-premium-muted)] text-center py-4">No holidays configured yet.</p>
                   ) : (
                     <div className="space-y-1.5">
                       {holidaysList.map((h) => (
-                        <div key={h.id} className="flex items-center justify-between px-4 py-2 bg-white rounded-lg border border-slate-100">
-                          <span className="text-xs text-slate-700"><span className="font-mono font-bold">{h.date}</span> — {h.name}</span>
+                        <div key={h.id} className="flex items-center justify-between px-4 py-2 bg-[var(--color-premium-surface)] rounded-lg border border-[var(--color-premium-border)]">
+                          <span className="text-xs text-[var(--color-premium-ink)]"><span className="font-mono font-bold">{h.date}</span> — {h.name}</span>
                           <button
                             onClick={() => handleDeleteHoliday(h.id)}
                             disabled={loading}
-                            className="text-[10px] font-bold uppercase text-rose-500 hover:text-rose-700 disabled:opacity-50"
+                            className="text-[10px] font-bold uppercase text-[var(--color-premium-danger)] hover:text-[var(--color-premium-danger)] disabled:opacity-50"
                           >
                             Remove
                           </button>
@@ -2523,173 +2440,183 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {activeTab === 'recruitment' && (
               <div className="space-y-8">
                 {/* Recruit User Form */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                  <h2 className="text-base font-bold text-slate-900 mb-4 font-display">Recruit Team Member</h2>
+                <div className="glass-card rounded-3xl p-6">
+                  <h2 className="text-base font-bold text-[var(--color-premium-ink)] mb-4 font-display">Recruit Team Member</h2>
                   <form onSubmit={handleHireUser} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Full Name</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Full Name</label>
                         <input 
                           type="text"
                           value={newUserName}
                           onChange={e => setNewUserName(e.target.value)}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none"
                           placeholder="John Doe"
                           required
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Email Address</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Email Address</label>
                         <input 
                           type="email"
                           value={newUserEmail}
                           onChange={e => setNewUserEmail(e.target.value)}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none"
                           placeholder="john@company.com"
                           required
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1.5 uppercase tracking-wider">Organization Role</label>
+                        <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Organization Role</label>
                         <input
                           type="text"
                           list="role-suggestions"
                           value={newUserRole}
                           onChange={e => setNewUserRole(e.target.value)}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none text-slate-700 font-medium"
+                          className="w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none text-[var(--color-premium-ink)] font-medium"
                           placeholder="e.g. Employee, Manager, HR, GM, Intern..."
                           required
                         />
                         <datalist id="role-suggestions">
                           <option value="Employee" />
-                          <option value="Manager" />
-                          <option value="HR" />
-                          <option value="GM" />
                           <option value="Intern" />
+                          <option value="Team Lead" />
+                          <option value="L1 Manager" />
+                          <option value="L2 Manager" />
+                          <option value="Manager" />
+                          <option value="Senior Manager" />
+                          <option value="Assistant Manager" />
+                          <option value="Supervisor" />
+                          <option value="Coordinator" />
+                          <option value="HR" />
+                          <option value="HR Manager" />
+                          <option value="GM" />
+                          <option value="Receptionist" />
+                          <option value="Security" />
                           <option value="HM" />
                         </datalist>
-                        <p className="text-[10px] text-slate-400 mt-1">Any role name is accepted — it doesn't need to match the suggestions above.</p>
+                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1">Any role name is accepted — it doesn't need to match the suggestions above.</p>
                       </div>
                     </div>
 
-                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Additional RBAC Privileges</span>
-                      <p className="text-[10px] text-slate-400 mb-3">On top of whatever this role gets by default. Every role — including custom ones — can always clock in, take breaks, and complete KYC regardless of these toggles. You can only grant a privilege you hold yourself — power can only pass downward, never up. Organization policies (shift times, geofence, break budget, network rules) can never be delegated; only the tenant admin account can change those.</p>
+                    <div className="p-4 bg-[var(--color-premium-surface-alt)] rounded-xl border border-[var(--color-premium-border)]">
+                      <span className="block text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-wider mb-1">Additional RBAC Privileges</span>
+                      <p className="text-[10px] text-[var(--color-premium-muted)] mb-3">On top of whatever this role gets by default. Every role — including custom ones — can always clock in, take breaks, and complete KYC regardless of these toggles. You can only grant a privilege you hold yourself — power can only pass downward, never up. Organization policies (shift times, geofence, break budget, network rules) can never be delegated; only the tenant admin account can change those.</p>
                       <div className="flex flex-wrap gap-4">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={newUserPrivileges.includes('employee.create') && newUserPrivileges.includes('employee.read')} 
                             onChange={() => { togglePrivilege('employee.create'); togglePrivilege('employee.read'); }}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Manage Employees (hire, view roster)</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Manage Employees (hire, view roster)</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={newUserPrivileges.includes('settings.edit')} 
                             onChange={() => togglePrivilege('settings.edit')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Approve Device Change Requests</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Approve Device Change Requests</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={newUserPrivileges.includes('reports.view')} 
                             onChange={() => togglePrivilege('reports.view')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">View Reports &amp; Audit Ledger</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">View Reports &amp; Audit Ledger</span>
                         </label>
                       </div>
-                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-slate-200">
+                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-[var(--color-premium-border)]">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={newUserPrivileges.includes('alerts.receive')} 
                             onChange={() => togglePrivilege('alerts.receive')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Receive Timing/Break Violation Alerts</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Receive Timing/Break Violation Alerts</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={newUserPrivileges.includes('alerts.accept')} 
                             onChange={() => togglePrivilege('alerts.accept')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Accept Alerts</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Accept Alerts</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('alerts.reject')}
                             onChange={() => togglePrivilege('alerts.reject')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Reject Alerts</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Reject Alerts</span>
                         </label>
                       </div>
                       {/* Dynamic QR Attendance — permissions alone decide who can
                           generate/display/close a QR session; no role name is
                           ever hardcoded here, matching every other toggle above. */}
-                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-slate-200">
+                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-[var(--color-premium-border)]">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('attendance.qr.generate')}
                             onChange={() => togglePrivilege('attendance.qr.generate')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Generate QR Attendance Sessions</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Generate QR Attendance Sessions</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('attendance.qr.display')}
                             onChange={() => togglePrivilege('attendance.qr.display')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Display QR Attendance Screen</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Display QR Attendance Screen</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('attendance.qr.close')}
                             onChange={() => togglePrivilege('attendance.qr.close')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Close QR Attendance Sessions</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Close QR Attendance Sessions</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('attendance.qr.override')}
                             onChange={() => togglePrivilege('attendance.qr.override')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">Override Failed QR Scans</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">Override Failed QR Scans</span>
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={newUserPrivileges.includes('attendance.qr.view_logs')}
                             onChange={() => togglePrivilege('attendance.qr.view_logs')}
-                            className="accent-slate-900"
+                            className="accent-[var(--color-premium-accent)]"
                           />
-                          <span className="text-xs text-slate-700">View QR Attendance Logs</span>
+                          <span className="text-xs text-[var(--color-premium-ink)]">View QR Attendance Logs</span>
                         </label>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-2">Scanning a code to mark one's own attendance needs no special toggle — every clock-in-capable role can already do that, the same as the existing camera check-in.</p>
+                      <p className="text-[10px] text-[var(--color-premium-muted)] mt-2">Scanning a code to mark one's own attendance needs no special toggle — every clock-in-capable role can already do that, the same as the existing camera check-in.</p>
                     </div>
 
                     <button 
                       type="submit"
                       disabled={loading}
-                      className="bg-slate-900 text-white rounded-xl py-3 px-6 font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition-colors disabled:opacity-50"
+                      className="bg-[var(--color-premium-accent)] text-white rounded-xl py-3 px-6 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50"
                     >
                       {loading ? 'Adding...' : 'Register User'}
                     </button>
@@ -2697,8 +2624,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </div>
 
                 {/* Team Members List */}
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                  <h2 className="text-base font-bold text-slate-900 mb-4 font-display">Organization Directory</h2>
+                <div className="glass-card rounded-3xl p-6">
+                  <h2 className="text-base font-bold text-[var(--color-premium-ink)] mb-4 font-display">Organization Directory</h2>
                   <DataTable
                     data={recruitedUsers}
                     columns={directoryColumns}
@@ -2715,15 +2642,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Device approvals */}
             {activeTab === 'devices' && (
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                <h2 className="text-lg font-bold text-slate-900 mb-6 font-display">Pending Device Migrations</h2>
+              <div className="glass-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-6 font-display">Pending Device Migrations</h2>
                 {deviceRequests.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-12">No pending device approvals found.</p>
+                  <p className="text-sm text-[var(--color-premium-muted)] text-center py-12">No pending device approvals found.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        <tr className="border-b border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] text-[10px] text-[var(--color-premium-muted)] font-bold uppercase tracking-wider">
                           <th className="py-3 px-4">Employee</th>
                           <th className="py-3 px-4">Email</th>
                           <th className="py-3 px-4">New Device ID</th>
@@ -2733,21 +2660,21 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       </thead>
                       <tbody>
                         {deviceRequests.map((req) => (
-                          <tr key={req.id} className="border-b border-slate-100 text-xs">
-                            <td className="py-4 px-4 font-semibold text-slate-900">{req.userName}</td>
-                            <td className="py-4 px-4 text-slate-500 font-mono">{req.userEmail}</td>
+                          <tr key={req.id} className="border-b border-[var(--color-premium-border)] text-xs hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
+                            <td className="py-4 px-4 font-semibold text-[var(--color-premium-ink)]">{req.userName}</td>
+                            <td className="py-4 px-4 text-[var(--color-premium-muted)] font-mono">{req.userEmail}</td>
                             <td className="py-4 px-4 font-mono text-[10px]">{req.newDeviceId.substring(0, 20)}...</td>
-                            <td className="py-4 px-4 text-slate-400">{new Date(req.createdAt).toLocaleDateString()}</td>
+                            <td className="py-4 px-4 text-[var(--color-premium-muted)]">{new Date(req.createdAt).toLocaleDateString()}</td>
                             <td className="py-4 px-4 text-right flex justify-end gap-2">
                               <button 
                                 onClick={() => handleDeviceAction(req.id, 'reject')}
-                                className="bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
+                                className="bg-[var(--color-premium-danger-soft)] hover:brightness-95 text-[var(--color-premium-danger)] font-bold text-xs uppercase tracking-wider py-1 px-3 rounded-lg transition-all"
                               >
                                 Deny
                               </button>
                               <button 
                                 onClick={() => handleDeviceAction(req.id, 'approve')}
-                                className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
+                                className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
                               >
                                 Approve
                               </button>
@@ -2765,18 +2692,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
         {/* Unified Notifications Tab */}
         {activeTab === 'notifications' && (
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-            <h2 className="text-lg font-bold text-slate-900 mb-6 font-display">System Notifications</h2>
+          <div className="glass-card rounded-3xl p-6">
+            <h2 className="text-lg font-bold text-gradient mb-6 font-display">System Notifications</h2>
             {notifications.length === 0 ? (
-              <p className="text-sm text-slate-400 text-center py-12">No notifications found.</p>
+              <p className="text-sm text-[var(--color-premium-muted)] text-center py-12">No notifications found.</p>
             ) : (
               <div className="space-y-4">
                 {notifications.map((notif) => (
-                  <div key={notif.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-start gap-4">
+                  <div key={notif.id} className="p-4 bg-[var(--color-premium-surface-alt)] rounded-2xl border border-[var(--color-premium-border)] flex justify-between items-start gap-4">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">{notif.title}</h4>
-                      <p className="text-xs text-slate-600 mt-1">{notif.message}</p>
-                      <span className="text-[10px] text-slate-400 mt-2 block">{new Date(notif.createdAt).toLocaleString()}</span>
+                      <h4 className="text-xs font-bold text-[var(--color-premium-ink)] uppercase tracking-wider">{notif.title}</h4>
+                      <p className="text-xs text-[var(--color-premium-muted)] mt-1">{notif.message}</p>
+                      <span className="text-[10px] text-[var(--color-premium-muted)] mt-2 block">{new Date(notif.createdAt).toLocaleString()}</span>
                     </div>
                   </div>
                 ))}
@@ -2788,21 +2715,21 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         {/* Immutable Audit Ledger Tab */}
         {activeTab === 'ledger' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="glass-card rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-slate-900 font-display">Immutable Cryptographic Audit Ledger</h2>
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] uppercase font-bold rounded-md border border-emerald-100 flex items-center gap-1">
+                  <h2 className="text-lg font-bold text-gradient font-display">Immutable Cryptographic Audit Ledger</h2>
+                  <span className="px-2 py-0.5 bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)] text-[10px] uppercase font-bold rounded-md border border-[color:var(--color-premium-success)]/20 flex items-center gap-1">
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2.166 11.37h7.478l2.5-8.333a1 1 0 011.902.008L15.344 7.62h2.49a1 1 0 110 2H14.656a1 1 0 01-.95-.678L12.5 5.03l-2.5 8.333a1 1 0 01-1.902-.008L6.804 9.38H2.166a1 1 0 110-2z" clipRule="evenodd" /></svg>
                     SHA-256 Chained
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Verify that database logs have not been tampered with or modified since creation.</p>
+                <p className="text-xs text-[var(--color-premium-muted)] mt-1">Verify that database logs have not been tampered with or modified since creation.</p>
               </div>
               <div className="flex gap-2 self-start md:self-auto">
                 <button
                   onClick={handleExportLedgerCsv}
-                  className="bg-white border border-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider py-3 px-5 rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2"
+                  className="bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-bold text-xs uppercase tracking-wider py-3 px-5 rounded-xl hover:bg-[var(--color-premium-accent-soft)] transition-colors flex items-center gap-2"
                 >
                   <Download size={14} />
                   Export CSV
@@ -2810,7 +2737,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <button
                   onClick={verifyLedgerIntegrity}
                   disabled={ledgerVerifying}
-                  className="bg-slate-950 text-white font-bold text-xs uppercase tracking-wider py-3 px-6 rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  className="bg-[var(--color-premium-accent)] text-white font-bold text-xs uppercase tracking-wider py-3 px-6 rounded-xl hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {ledgerVerifying ? (
                     <>
@@ -2823,12 +2750,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             </div>
 
             {ledgerVerificationResult && (
-              <div className={`p-5 rounded-3xl border flex items-start gap-4 ${ledgerVerificationResult.isValid ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-800'}`}>
-                <div className={`p-2 rounded-2xl ${ledgerVerificationResult.isValid ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+              <div className={`p-5 rounded-3xl border flex items-start gap-4 ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-premium-success)]/10 border-[color:var(--color-premium-success)]/20 text-[var(--color-premium-success)]' : 'bg-[var(--color-premium-danger-soft)] border-[var(--color-premium-danger)]/20 text-[var(--color-premium-danger)]'}`}>
+                <div className={`p-2 rounded-2xl ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-premium-success)]/10' : 'bg-[var(--color-premium-danger-soft)]'}`}>
                   {ledgerVerificationResult.isValid ? (
-                    <svg className="w-6 h-6 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                    <svg className="w-6 h-6 text-[var(--color-premium-success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
                   ) : (
-                    <svg className="w-6 h-6 text-rose-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    <svg className="w-6 h-6 text-[var(--color-premium-danger)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                   )}
                 </div>
                 <div>
@@ -2843,11 +2770,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               </div>
             )}
 
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+            <div className="glass-card rounded-3xl p-6">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                    <tr className="border-b border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] text-[10px] text-[var(--color-premium-muted)] font-bold uppercase tracking-wider">
                       <th className="py-3 px-4">Timestamp</th>
                       <th className="py-3 px-4">Actor</th>
                       <th className="py-3 px-4">Security Action</th>
@@ -2859,28 +2786,28 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     {ledger.map((log) => {
                       const isFraud = log.action.startsWith('FRAUD') || log.action.includes('VIOLATION');
                       return (
-                        <tr key={log.id} className="border-b border-slate-100 text-xs hover:bg-slate-50/50 transition-colors">
-                          <td className="py-4 px-4 text-slate-500 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                        <tr key={log.id} className="border-b border-[var(--color-premium-border)] text-xs hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
+                          <td className="py-4 px-4 text-[var(--color-premium-muted)] whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
                           <td className="py-4 px-4">
-                            <span className="font-semibold text-slate-900 block">{log.actorName}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">ID: #{log.actorId || 'SYS'}</span>
+                            <span className="font-semibold text-[var(--color-premium-ink)] block">{log.actorName}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] font-mono">ID: #{log.actorId || 'SYS'}</span>
                           </td>
                           <td className="py-4 px-4">
                             <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                              isFraud ? 'bg-rose-100 text-rose-700' :
-                              log.action.startsWith('WFH_') ? 'bg-violet-100 text-violet-700' :
-                              log.action === 'CHECK_IN' ? 'bg-emerald-100 text-emerald-700' :
-                              log.action === 'CHECK_OUT' ? 'bg-blue-100 text-blue-700' :
-                              'bg-slate-100 text-slate-700'
+                              isFraud ? 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]' :
+                              log.action.startsWith('WFH_') ? 'bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]' :
+                              log.action === 'CHECK_IN' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' :
+                              log.action === 'CHECK_OUT' ? 'bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)]' :
+                              'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-ink)]'
                             }`}>
                               {log.action}
                             </span>
                           </td>
                           <td className="py-4 px-4">
-                            <span className="text-slate-600 block">{log.ipAddress || 'No IP'}</span>
-                            <span className="text-[10px] text-slate-400 block truncate max-w-[200px]">{log.deviceInfo || 'System Agent'}</span>
+                            <span className="text-[var(--color-premium-muted)] block">{log.ipAddress || 'No IP'}</span>
+                            <span className="text-[10px] text-[var(--color-premium-muted)] block truncate max-w-[200px]">{log.deviceInfo || 'System Agent'}</span>
                           </td>
-                          <td className="py-4 px-4 font-mono text-[10px] text-slate-400" title={log.hash}>
+                          <td className="py-4 px-4 font-mono text-[10px] text-[var(--color-premium-muted)]" title={log.hash}>
                             {log.hash.substring(0, 8)}...
                           </td>
                         </tr>
@@ -2888,7 +2815,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     })}
                     {ledger.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="py-12 text-center text-slate-400 text-sm">No ledger block records created yet.</td>
+                        <td colSpan={5} className="py-12 text-center text-[var(--color-premium-muted)] text-sm">No ledger block records created yet.</td>
                       </tr>
                     )}
                   </tbody>
@@ -2901,34 +2828,34 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         {/* Feature Access Modal — grants/revokes the delegable QR + WFH
             permission strings for one already-hired employee. */}
         {accessEditingUser && (
-          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-slate-100 shadow-2xl">
-              <h3 className="text-lg font-bold text-slate-900 mb-1 font-display">Feature Access</h3>
-              <p className="text-xs text-slate-500 mb-6">Grant or revoke delegable features for <strong>{accessEditingUser.name}</strong>.</p>
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            <div className="glass-card rounded-3xl p-8 max-w-md w-full shadow-2xl">
+              <h3 className="text-lg font-bold text-[var(--color-premium-ink)] mb-1 font-display">Feature Access</h3>
+              <p className="text-xs text-[var(--color-premium-muted)] mb-6">Grant or revoke delegable features for <strong>{accessEditingUser.name}</strong>.</p>
               <div className="space-y-3 mb-8">
                 {ACCESS_OPTIONS.map(opt => (
-                  <label key={opt.key} className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl cursor-pointer hover:bg-slate-100/50 transition-colors">
+                  <label key={opt.key} className="flex items-center gap-3 p-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl cursor-pointer hover:bg-[var(--color-premium-accent-soft)]/50 transition-colors">
                     <input
                       type="checkbox"
                       checked={accessDraft.includes(opt.key)}
                       onChange={() => toggleAccessDraft(opt.key)}
-                      className="w-4 h-4 accent-violet-700"
+                      className="w-4 h-4 accent-[var(--color-premium-accent)]"
                     />
-                    <span className="text-xs font-bold text-slate-700">{opt.label}</span>
+                    <span className="text-xs font-bold text-[var(--color-premium-ink)]">{opt.label}</span>
                   </label>
                 ))}
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => setAccessEditingUser(null)}
-                  className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
+                  className="flex-1 bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => saveAccess(accessEditingUser.id)}
                   disabled={accessSaving}
-                  className="flex-1 bg-violet-700 hover:bg-violet-800 text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
+                  className="flex-1 bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
                 >
                   {accessSaving ? 'Saving...' : 'Save'}
                 </button>
@@ -2940,11 +2867,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         {/* Stat-card drill-down modal — shows the actual people behind a
             clicked stat, rendered through the shared DataTable. */}
         {drillDown && (
-          <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6" onClick={() => setDrillDown(null)}>
-            <div className="bg-white rounded-3xl p-6 max-w-3xl w-full border border-slate-100 shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6" onClick={() => setDrillDown(null)}>
+            <div className="glass-card rounded-3xl p-6 max-w-3xl w-full shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900 font-display">{drillDown.title} <span className="text-slate-400 font-normal text-sm">({drillDown.rows.length})</span></h3>
-                <button onClick={() => setDrillDown(null)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18} /></button>
+                <h3 className="text-lg font-bold text-[var(--color-premium-ink)] font-display">{drillDown.title} <span className="text-[var(--color-premium-muted)] font-normal text-sm">({drillDown.rows.length})</span></h3>
+                <button onClick={() => setDrillDown(null)} className="text-[var(--color-premium-muted)] hover:text-[var(--color-premium-ink)] p-1"><X size={18} /></button>
               </div>
               <DataTable
                 data={drillDown.rows}
@@ -2960,8 +2887,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
           </div>
         )}
 
-      </main>
-      </div>
-    </div>
+    </PortalShell>
   );
 }

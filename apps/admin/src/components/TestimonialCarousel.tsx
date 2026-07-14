@@ -16,7 +16,7 @@ interface Testimonial {
 
 const TESTIMONIALS: Testimonial[] = [
   {
-    quote: "We eliminated manual timesheet matching altogether. Perimeter automatically flags geofence gaps and reconciles breaks without supervisor intervention.",
+    quote: "We eliminated manual timesheet matching altogether. Smart Teams automatically flags geofence gaps and reconciles breaks without supervisor intervention.",
     name: "Marcus Aurelius",
     role: "Ops Manager, Rome Field Services",
     feature: "◦ Presence tracker",

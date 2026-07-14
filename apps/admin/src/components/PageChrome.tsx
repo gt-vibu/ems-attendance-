@@ -36,14 +36,14 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
         <button
           onClick={goBack}
           aria-label="Back"
-          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-slate-100 transition-colors"
+          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-[var(--color-premium-accent-soft)] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <button
           onClick={goToLanding}
           aria-label="Visit landing page"
-          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-slate-100 transition-colors"
+          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-[var(--color-premium-accent-soft)] transition-colors"
         >
           <Globe className="w-4 h-4" />
         </button>

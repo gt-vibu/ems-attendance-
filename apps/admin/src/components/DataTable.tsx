@@ -14,9 +14,8 @@ import { Search, ArrowUpDown, ArrowUp, ArrowDown, ArrowLeftToLine, ArrowRightToL
 
 // Generic, headless-styled admin table used across the Organization
 // Directory, WFH Ledger, and QR history/logs — one implementation instead
-// of four hand-rolled tables. Styled to match Dashboard.tsx's existing
-// slate/violet palette (not the --color-premium-* tokens, which are
-// deliberately scoped to the employee-facing pages only — see index.css).
+// of four hand-rolled tables. Styled with the shared --color-premium-*
+// design tokens (see index.css) so it matches every page that uses it.
 //
 // Client-side sort/filter/paginate over whatever `data` is passed in — the
 // backend still caps how much comes down (same convention QR history/logs
@@ -98,12 +97,12 @@ export default function DataTable<T>({
       {/* Toolbar: search, optional role filter, optional add-new */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-[var(--color-premium-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={globalFilter}
             onChange={e => setGlobalFilter(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-400 text-slate-700"
+            className="w-full pl-8 pr-3 py-2 text-xs bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-lg focus:outline-none focus:border-[var(--color-premium-accent)] text-[var(--color-premium-ink)]"
           />
         </div>
         {filterColumn && (
@@ -113,7 +112,7 @@ export default function DataTable<T>({
               setRoleFilterValue(e.target.value);
               table.getColumn(filterColumn.id)?.setFilterValue(e.target.value || undefined);
             }}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:border-violet-400"
+            className="text-xs bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-lg px-3 py-2 text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
           >
             <option value="">All {filterColumn.label}</option>
             {filterColumn.options.map(opt => (
@@ -124,18 +123,18 @@ export default function DataTable<T>({
         {onAddNew && (
           <button
             onClick={onAddNew}
-            className="ml-auto flex items-center gap-1.5 bg-violet-700 hover:bg-violet-800 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
+            className="ml-auto flex items-center gap-1.5 bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors"
           >
             <Plus size={14} /> {addNewLabel}
           </button>
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-100">
+      <div className="overflow-x-auto rounded-xl border border-[var(--color-premium-border)] glass-card">
         <table className="w-full text-left border-collapse">
           <thead>
             {table.getHeaderGroups().map(headerGroup => (
-              <tr key={headerGroup.id} className="border-b border-slate-100 text-[10px] text-slate-400 font-bold uppercase tracking-wider bg-slate-50/60">
+              <tr key={headerGroup.id} className="border-b border-[var(--color-premium-border)] text-[10px] text-[var(--color-premium-muted)] font-bold uppercase tracking-wider bg-[var(--color-premium-surface-alt)]">
                 {headerGroup.headers.map(header => {
                   const pinned = header.column.getIsPinned();
                   const canSort = header.column.getCanSort();
@@ -143,7 +142,7 @@ export default function DataTable<T>({
                   return (
                     <th
                       key={header.id}
-                      className={`py-3 px-4 select-none ${pinned ? 'sticky z-10 bg-slate-50' : ''}`}
+                      className={`py-3 px-4 select-none ${pinned ? 'sticky z-10 bg-[var(--color-premium-surface-alt)]' : ''}`}
                       style={pinned ? { [pinned === 'left' ? 'left' : 'right']: 0 } : undefined}
                     >
                       <div className="flex items-center gap-1.5">
@@ -151,7 +150,7 @@ export default function DataTable<T>({
                           type="button"
                           disabled={!canSort}
                           onClick={header.column.getToggleSortingHandler()}
-                          className={`flex items-center gap-1 ${canSort ? 'hover:text-violet-700 cursor-pointer' : ''}`}
+                          className={`flex items-center gap-1 ${canSort ? 'hover:text-[var(--color-premium-accent)] cursor-pointer' : ''}`}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           {canSort && (
@@ -163,7 +162,7 @@ export default function DataTable<T>({
                             type="button"
                             title={pinned ? 'Unpin column' : 'Pin column'}
                             onClick={() => cyclePin(header.column.id)}
-                            className={`p-0.5 rounded transition-colors ${pinned ? 'text-violet-700 bg-violet-50' : 'text-slate-300 hover:text-slate-500'}`}
+                            className={`p-0.5 rounded transition-colors ${pinned ? 'text-[var(--color-premium-accent)] bg-[var(--color-premium-accent-soft)]' : 'text-[var(--color-premium-border)] hover:text-[var(--color-premium-muted)]'}`}
                           >
                             {pinned === 'right' ? <ArrowRightToLine size={11} /> : <ArrowLeftToLine size={11} />}
                           </button>
@@ -178,16 +177,16 @@ export default function DataTable<T>({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="py-10 text-center text-xs text-slate-400">{emptyMessage}</td>
+                <td colSpan={columns.length} className="py-10 text-center text-xs text-[var(--color-premium-muted)]">{emptyMessage}</td>
               </tr>
             ) : rows.map(row => (
-              <tr key={row.id} className="border-b border-slate-100 text-xs hover:bg-slate-50/60">
+              <tr key={row.id} className="border-b border-[var(--color-premium-border)] text-xs hover:bg-[var(--color-premium-accent-soft)]/40 transition-colors">
                 {row.getVisibleCells().map(cell => {
                   const pinned = cell.column.getIsPinned();
                   return (
                     <td
                       key={cell.id}
-                      className={`py-3.5 px-4 ${pinned ? 'sticky z-10 bg-white' : ''}`}
+                      className={`py-3.5 px-4 ${pinned ? 'sticky z-10 bg-[var(--color-premium-surface)]' : ''}`}
                       style={pinned ? { [pinned === 'left' ? 'left' : 'right']: 0 } : undefined}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -202,7 +201,7 @@ export default function DataTable<T>({
 
       {/* Pagination footer */}
       {rows.length > 0 && (
-        <div className="flex items-center justify-between mt-4 text-xs text-slate-500">
+        <div className="flex items-center justify-between mt-4 text-xs text-[var(--color-premium-muted)]">
           <span>
             Page {pageIndex + 1} of {Math.max(pageCount, 1)} &middot; {table.getFilteredRowModel().rows.length} record{table.getFilteredRowModel().rows.length === 1 ? '' : 's'}
           </span>
@@ -210,14 +209,14 @@ export default function DataTable<T>({
             <button
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
-              className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50"
+              className="p-1.5 rounded-lg border border-[var(--color-premium-border)] disabled:opacity-30 hover:bg-[var(--color-premium-accent-soft)] transition-colors"
             >
               <ChevronLeft size={14} />
             </button>
             <button
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
-              className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50"
+              className="p-1.5 rounded-lg border border-[var(--color-premium-border)] disabled:opacity-30 hover:bg-[var(--color-premium-accent-soft)] transition-colors"
             >
               <ChevronRight size={14} />
             </button>

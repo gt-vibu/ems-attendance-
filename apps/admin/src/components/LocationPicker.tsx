@@ -124,7 +124,7 @@ export default function LocationPicker({
 
   return (
     <div className={className}>
-      <div style={{ height }} className="rounded-xl overflow-hidden border border-slate-200 relative z-0">
+      <div style={{ height }} className="rounded-xl overflow-hidden border border-[var(--color-premium-border)] shadow-[0_10px_30px_-15px_rgba(123,92,250,0.3)] relative z-0">
         <MapContainer
           center={position}
           zoom={hasPos ? FOCUS_ZOOM : DEFAULT_ZOOM}
@@ -172,11 +172,11 @@ export default function LocationPicker({
           type="button"
           onClick={useCurrentLocation}
           disabled={locating}
-          className="text-xs bg-white border border-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+          className="text-xs bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-semibold px-3 py-1.5 rounded-lg hover:bg-[var(--color-premium-accent-soft)] hover:text-[var(--color-premium-accent)] transition-colors shadow-sm disabled:opacity-50"
         >
           {locating ? 'Locating…' : 'Use Current Location'}
         </button>
-        <span className="text-[11px] font-mono text-slate-500">
+        <span className="text-[11px] font-mono text-[var(--color-premium-muted)]">
           {shown ? (
             <>
               {shown.lat.toFixed(6)}, {shown.lng.toFixed(6)}
@@ -187,7 +187,7 @@ export default function LocationPicker({
           )}
         </span>
       </div>
-      {geoError ? <p className="mt-1 text-[11px] text-red-500">{geoError}</p> : null}
+      {geoError ? <p className="mt-1 text-[11px] text-[var(--color-premium-danger)]">{geoError}</p> : null}
     </div>
   );
 }

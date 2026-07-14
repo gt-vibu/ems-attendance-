@@ -22,7 +22,7 @@ export default defineConfig(() => {
       // whose Host header isn't localhost ("Blocked request. This host is not
       // allowed"). DEV-ONLY — production serves prebuilt static files and
       // ignores this. Tighten to e.g. ['.ngrok-free.app'] if you prefer.
-      allowedHosts: true,
+      allowedHosts: true as const,
       // Bind to all network interfaces so phones/laptops on the same Wi-Fi (and
       // the tunnel) can reach it, not just localhost.
       host: true,

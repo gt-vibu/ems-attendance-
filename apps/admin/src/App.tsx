@@ -125,7 +125,7 @@ export default function App() {
       {/* HEADER BAR */}
       <header className="max-w-7xl mx-auto px-6 pt-6 flex justify-between items-center text-xs select-none relative z-30">
         <span className="font-display font-semibold text-xl md:text-2xl text-slate-950 tracking-tight">
-          Perimeter
+          Smart Teams
         </span>
 
         <div className="flex items-center gap-6">
@@ -160,7 +160,7 @@ export default function App() {
 
         <div className="space-y-5 text-sm md:text-base text-slate-600 leading-relaxed max-w-[520px] mx-auto font-medium">
           <p>
-            Perimeter verifies every check-in against geofence, device, and confidence signals — so "present" actually means present.
+            Smart Teams verifies every check-in against geofence, device, and confidence signals — so "present" actually means present.
           </p>
           <p>
             Every state change — check-in, break, anomaly, correction, approval — is a versioned, auditable transition, not a status field someone can quietly edit.

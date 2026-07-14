@@ -37,6 +37,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [budgetMins, setBudgetMins] = useState(60);
   const [remainingMins, setRemainingMins] = useState(60);
   const [checkingOut, setCheckingOut] = useState(false);
+  // In-flight guard for start/end break: a break action first waits on a GPS
+  // fix (which can be slow on mobile), so without this the button gives no
+  // feedback and invites repeated taps that fire concurrent, racing requests.
+  const [breakBusy, setBreakBusy] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -72,7 +76,18 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         ]);
         if (pctRes?.ok) { const p = await pctRes.json(); setAttendancePercent(p.percentage); setAttendanceThreshold(p.threshold ?? 75); }
         if (corrRes?.ok) { const c = await corrRes.json(); setCorrections(c.corrections || []); }
-        if (wfhRes?.ok) { const w = await wfhRes.json(); setWfhEligible(!!w.eligible); if (!w.eligible && w.reason) setWfhReasonMsg(w.reason); }
+        // Always land on either "eligible" or a reason string — never leave
+        // both empty, or the WFH card silently disappears instead of
+        // showing a disabled state (a real bug: a failed/slow network
+        // request used to make the whole card vanish rather than degrade).
+        if (wfhRes?.ok) {
+          const w = await wfhRes.json();
+          setWfhEligible(!!w.eligible);
+          setWfhReasonMsg(!w.eligible ? (w.reason || 'Work From Home is not available right now.') : '');
+        } else {
+          setWfhEligible(false);
+          setWfhReasonMsg('Could not check Work From Home eligibility. Try refreshing.');
+        }
         if (histRes?.ok) { const h = await histRes.json(); setAttendanceHistory(h.logs || []); }
 
         if (state === 'checked_in') {
@@ -121,8 +136,19 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       if (!navigator.geolocation) return reject(new Error('Geolocation is not supported on this device.'));
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => reject(new Error('GPS location permission is required for breaks.')),
-        { enableHighAccuracy: true }
+        // Distinct, actionable messages instead of always blaming "permission".
+        (err) => reject(new Error(
+          err.code === err.TIMEOUT
+            ? 'Could not get a GPS fix in time. Move somewhere with a clearer signal and try again.'
+            : err.code === err.PERMISSION_DENIED
+              ? 'Location permission is required for breaks. Enable it in your browser and try again.'
+              : 'Could not read your GPS location. Please try again.'
+        )),
+        // timeout: never hang forever waiting for a fix (the default) — that's
+        // what made the buttons feel dead on mobile indoors. maximumAge: a
+        // fix from the last 30s is fine for "are you still at the office" and
+        // returns instantly instead of forcing a slow fresh high-accuracy fix.
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
       );
     });
 
@@ -134,7 +160,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   };
 
   const handleStartBreak = async () => {
-    setError(''); setSuccess('');
+    if (breakBusy) return; // ignore double-taps while a request is already in flight
+    setError(''); setSuccess(''); setBreakBusy(true);
     try {
       const coords = await getFreshLocation();
       const r = await fetch('/api/breaks/start', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ breakType, lat: coords.lat, lng: coords.lng }) });
@@ -142,9 +169,11 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       if (!r.ok) throw new Error(d.error);
       setActiveBreak(d.session);
     } catch (err: any) { setError(err.message || 'Failed to start break'); }
+    finally { setBreakBusy(false); }
   };
   const handleEndBreak = async () => {
-    setError(''); setSuccess('');
+    if (breakBusy) return; // ignore double-taps while a request is already in flight
+    setError(''); setSuccess(''); setBreakBusy(true);
     try {
       const coords = await getFreshLocation();
       const r = await fetch('/api/breaks/end', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ lat: coords.lat, lng: coords.lng, clientTimestamp: new Date().toISOString() }) });
@@ -154,7 +183,16 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       fetchBreaksToday();
       setSuccess(d.isViolation ? 'Work resumed — this break exceeded the budget and was flagged.' : 'Work session resumed.');
       setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) { setError(err.message || 'Failed to end break'); }
+    } catch (err: any) {
+      setError(err.message || 'Failed to end break');
+      // The end-break request can be rejected server-side (e.g. a GPS-drift
+      // geofence check) while the break stays OPEN in the database. Re-sync
+      // from the server so the UI keeps showing "On Break" — otherwise the
+      // user thinks the break ended, then checkout mysteriously blocks them
+      // with "you're currently on break".
+      fetchActiveBreak();
+    }
+    finally { setBreakBusy(false); }
   };
   const handleCheckout = async () => {
     setError(''); setCheckingOut(true);
@@ -192,11 +230,11 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const titleFor = navItems.find(n => n.id === tab)?.label || 'Overview';
 
   const historyColumns: ColumnDef<any, any>[] = [
-    { accessorKey: 'createdAt', header: 'Date', cell: ({ getValue }) => <span className="text-slate-600">{new Date(getValue() as string).toLocaleDateString()}</span> },
-    { id: 'time', accessorKey: 'createdAt', header: 'Time', cell: ({ getValue }) => <span className="font-mono text-[11px] text-slate-500">{new Date(getValue() as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> },
-    { accessorKey: 'type', header: 'Type', cell: ({ getValue }) => <span className="text-slate-700 text-[11px]">{String(getValue() || '').replace('_', ' ')}</span> },
-    { accessorKey: 'attendanceMode', header: 'Mode', cell: ({ getValue }) => { const m = (getValue() as string) || 'office'; return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${m === 'wfh' ? 'bg-violet-100 text-violet-700' : m === 'qr' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{m}</span>; } },
-    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = getValue() as string; return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-emerald-100 text-emerald-800' : s === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>{s}</span>; } },
+    { accessorKey: 'createdAt', header: 'Date', cell: ({ getValue }) => <span className="text-[var(--color-premium-muted)]">{new Date(getValue() as string).toLocaleDateString()}</span> },
+    { id: 'time', accessorKey: 'createdAt', header: 'Time', cell: ({ getValue }) => <span className="font-mono text-[11px] text-[var(--color-premium-muted)]">{new Date(getValue() as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span> },
+    { accessorKey: 'type', header: 'Type', cell: ({ getValue }) => <span className="text-[var(--color-premium-ink)] text-[11px]">{String(getValue() || '').replace('_', ' ')}</span> },
+    { accessorKey: 'attendanceMode', header: 'Mode', cell: ({ getValue }) => { const m = (getValue() as string) || 'office'; return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${m === 'wfh' ? 'bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]' : m === 'qr' ? 'bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)]' : 'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)]'}`}>{m}</span>; } },
+    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => { const s = getValue() as string; return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)]' : s === 'pending' ? 'bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-gold)]' : 'bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)]'}`}>{s}</span>; } },
   ];
 
   if (loading) {
@@ -204,7 +242,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   }
 
   const alreadyDone = todayState === 'checked_out';
-  const tile = 'glass-card card-3d rounded-2xl p-5';
+  const tile = 'glass-card card-3d rise-in rounded-2xl p-5';
 
   return (
     <PortalShell
@@ -265,20 +303,20 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
           {/* Status tiles */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className={tile}>
+            <div className={tile} style={{ animationDelay: '0ms' }}>
               <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Checked In</span>
               <span className="text-lg font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">{checkInTime && todayState !== 'not_started' ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
             </div>
-            <div className={tile}>
+            <div className={tile} style={{ animationDelay: '60ms' }}>
               <span className="block text-[9px] text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">Hours Today</span>
               <span className="text-lg font-mono font-bold text-[var(--color-premium-accent-2)] mt-1 block">{todayState === 'checked_in' ? hoursWorked : '—'}</span>
             </div>
-            <div className={tile}>
+            <div className={tile} style={{ animationDelay: '120ms' }}>
               <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Attendance</span>
               <span className={`text-lg font-mono font-bold mt-1 block ${attendancePercent !== null && attendancePercent < attendanceThreshold ? 'text-[var(--color-premium-danger)]' : 'text-[var(--color-premium-ink)]'}`}>{attendancePercent !== null ? `${attendancePercent}%` : '—'}</span>
               <span className="text-[10px] text-[var(--color-premium-muted)]">min {attendanceThreshold}%</span>
             </div>
-            <div className={tile}>
+            <div className={tile} style={{ animationDelay: '180ms' }}>
               <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Pending Requests</span>
               <span className="text-lg font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">{corrections.filter(c => c.status === 'pending').length}</span>
             </div>
@@ -315,17 +353,17 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             {activeBreak ? (
               <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] p-5 rounded-2xl flex justify-between items-center">
                 <div>
-                  <span className="block text-[9px] text-[var(--color-premium-danger)] font-mono uppercase tracking-wider">On Break ({activeBreak.breakType})</span>
+                  <span className="inline-block text-[9px] text-[var(--color-premium-danger)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">On Break ({activeBreak.breakType})</span>
                   <span className="text-2xl font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">{breakTimer}</span>
                 </div>
-                <button onClick={handleEndBreak} className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md">Resume Work</button>
+                <button onClick={handleEndBreak} disabled={breakBusy} className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Ending…' : 'Resume Work'}</button>
               </div>
             ) : (
               <div className="space-y-3">
-                <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-white border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]">
+                <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]">
                   <option value="Lunch">Lunch</option><option value="Tea">Tea / Coffee</option><option value="Personal">Personal</option><option value="Meeting">Meeting</option><option value="General">General</option>
                 </select>
-                <button onClick={handleStartBreak} className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(123,92,250,0.3)]">Go on Break</button>
+                <button onClick={handleStartBreak} disabled={breakBusy} className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(123,92,250,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Locating…' : 'Go on Break'}</button>
               </div>
             )}
             {breaksToday.length > 0 && (

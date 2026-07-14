@@ -1,6 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAuth, User } from './lib/auth';
+
+// Capacitor's packaged webview has no server to rewrite deep links to
+// index.html, so BrowserRouter 404s on a refresh of a nested route.
+// HashRouter avoids that and needs no server support. Only active for the
+// native build (VITE_CAPACITOR=true at build time, see CAPACITOR.md) —
+// unset (the normal web build) keeps BrowserRouter exactly as before.
+const Router = import.meta.env.VITE_CAPACITOR === 'true' ? HashRouter : BrowserRouter;
 
 // Route-level code splitting: each page (and everything it alone imports —
 // three.js/@react-three/fiber for the landing page, recharts for the
@@ -65,7 +72,7 @@ export default function AdminApp() {
   if (loading) return <div className="min-h-screen flex items-center justify-center font-mono text-xs uppercase tracking-widest text-slate-500">Loading Secure Environment...</div>;
 
   return (
-    <BrowserRouter>
+    <Router>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<App />} />
@@ -114,6 +121,6 @@ export default function AdminApp() {
           <Route path="/qr/:token" element={<QrDeepLink user={user} />} />
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </Router>
   );
 }

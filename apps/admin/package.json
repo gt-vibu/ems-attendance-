@@ -14,9 +14,14 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "node --test wfh.test.ts qr.test.ts"
+    "test": "node --test wfh.test.ts qr.test.ts",
+    "cap:sync:android": "cap sync android",
+    "cap:open:android": "cap open android",
+    "cap:sync:ios": "cap sync ios",
+    "cap:open:ios": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "^8.4.1",
     "@google/genai": "^2.4.0",
     "@react-oauth/google": "^0.13.5",
     "@react-three/drei": "^10.7.7",
@@ -53,6 +58,9 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.21",

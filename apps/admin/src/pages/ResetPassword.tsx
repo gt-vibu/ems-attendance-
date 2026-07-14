@@ -63,10 +63,10 @@ export default function ResetPassword() {
         {!done ? (
           <>
             <div className="text-center mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-soft)] flex items-center justify-center mx-auto mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-soft)] flex items-center justify-center mx-auto mb-4 float-c">
                 <Lock className="w-6 h-6 text-[var(--color-premium-accent)]" />
               </div>
-              <h1 className="font-display text-2xl font-bold tracking-tight text-[var(--color-premium-ink)]">Reset Password</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Reset Password</h1>
               <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">Choose a new password for your account.</p>
             </div>
 
@@ -124,7 +124,7 @@ export default function ResetPassword() {
             animate={{ opacity: 1, scale: 1 }}
             className="text-center py-4"
           >
-            <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center mx-auto mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center mx-auto mb-4 pulse-ring">
               <CheckCircle2 className="w-7 h-7 text-[var(--color-premium-accent-2)]" />
             </div>
             <h1 className="font-display text-xl font-bold tracking-tight text-[var(--color-premium-ink)]">Password updated</h1>
