@@ -11,6 +11,21 @@ import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
 import EmployeeDirectory from './EmployeeDirectory';
 import TeamsPage from './TeamsPage';
+import { useLedger } from './dashboard/hooks/useLedger';
+import { useSuperAdminData } from './dashboard/hooks/useSuperAdminData';
+import { useSelfService } from './dashboard/hooks/useSelfService';
+import { useQrAttendance, QR_ROTATION_CHOICES } from './dashboard/hooks/useQrAttendance';
+import { usePolicyAnnouncement } from './dashboard/hooks/usePolicyAnnouncement';
+import { useHolidays } from './dashboard/hooks/useHolidays';
+import { useCorrections, usePendingAttendance, useWfhLocationRequests, useAlerts } from './dashboard/hooks/useApprovalQueues';
+import { useWfhLedger, useWfhStats } from './dashboard/hooks/useWfhLedger';
+import { useRecruitment } from './dashboard/hooks/useRecruitment';
+import { useHomeWidgets } from './dashboard/hooks/useHomeWidgets';
+import { useDeviceRequests } from './dashboard/hooks/useDeviceRequests';
+import { useTenantConfig, WEEKDAY_OPTIONS } from './dashboard/hooks/useTenantConfig';
+import { createDirectoryColumns, wfhLedgerColumns, qrSessionColumns, createQrScanColumns, createPersonColumns } from './dashboard/columns';
+import LedgerTab from './dashboard/LedgerTab';
+import NotificationsTab from './dashboard/NotificationsTab';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 import {
@@ -86,334 +101,57 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const [success, setSuccess] = useState('');
 
   // ==========================================
-  // AUDIT LEDGER STATES & FUNCTIONS
+  // AUDIT LEDGER — see apps/admin/src/pages/dashboard/hooks/useLedger.ts
   // ==========================================
-  const [ledger, setLedger] = useState<any[]>([]);
-  const [ledgerVerifying, setLedgerVerifying] = useState(false);
-  const [ledgerVerificationResult, setLedgerVerificationResult] = useState<{
-    isValid: boolean;
-    invalidBlocks: number[];
-    verifiedBlocksCount: number;
-  } | null>(null);
-
-  const fetchLedgerData = async () => {
-    try {
-      const res = await fetch('/api/tenant/ledger', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.ledger) {
-        setLedger(data.ledger);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Zero-dependency CSV export — no export library exists anywhere in this
-  // app yet, and pulling in xlsx/jspdf for Excel/PDF is a bigger call than
-  // this task needs; a hand-built CSV blob covers the common case (opens
-  // straight into Excel/Sheets) without a new dependency.
-  const downloadCsv = (filename: string, rows: (string | number)[][]) => {
-    const escapeCell = (cell: string | number) => {
-      const str = String(cell ?? '');
-      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-    };
-    const csv = rows.map(row => row.map(escapeCell).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportLedgerCsv = () => {
-    const header = ['Timestamp', 'Actor', 'Actor ID', 'Action', 'IP Address', 'Device Info', 'Block Hash'];
-    const rows = ledger.map((log: any) => [
-      new Date(log.timestamp).toLocaleString(),
-      log.actorName,
-      log.actorId ?? 'SYS',
-      log.action,
-      log.ipAddress || '',
-      log.deviceInfo || '',
-      log.hash,
-    ]);
-    downloadCsv(`audit-ledger-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
-  };
-
-  const verifyLedgerIntegrity = async () => {
-    setLedgerVerifying(true);
-    setLedgerVerificationResult(null);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1200)); // premium verification scan feel
-      const res = await fetch('/api/tenant/ledger/verify', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setLedgerVerificationResult({
-        isValid: data.isValid,
-        invalidBlocks: data.invalidBlocks || [],
-        verifiedBlocksCount: data.verifiedBlocksCount || 0
-      });
-      fetchLedgerData();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLedgerVerifying(false);
-    }
-  };
+  const {
+    ledger, ledgerVerifying, ledgerVerificationResult,
+    fetchLedgerData, handleExportLedgerCsv, verifyLedgerIntegrity,
+  } = useLedger(token);
 
 
   // ==========================================
-  // SUPER ADMIN STATES & FUNCTIONS
+  // SUPER ADMIN — see apps/admin/src/pages/dashboard/hooks/useSuperAdminData.ts
   // ==========================================
-  const [tenancyRequests, setTenancyRequests] = useState<any[]>([]);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState<any>(null);
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['kyc', 'gps_geofence']);
-  const [selectedPlanOverride, setSelectedPlanOverride] = useState<string>('');
-  const [allTenants, setAllTenants] = useState<any[]>([]);
-  const [superAnalytics, setSuperAnalytics] = useState<any>(null);
-
-  const fetchSuperAdminData = async () => {
-    try {
-      const reqsRes = await fetch('/api/super/requests', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const reqsData = await reqsRes.json();
-      if (reqsData.requests) setTenancyRequests(reqsData.requests);
-
-      const notifyRes = await fetch('/api/super/notifications', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const notifyData = await notifyRes.json();
-      if (notifyData.notifications) setNotifications(notifyData.notifications);
-
-      const tenantsRes = await fetch('/api/super/tenants', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const tenantsData = await tenantsRes.json();
-      if (tenantsData.tenants) setAllTenants(tenantsData.tenants);
-
-      const analyticsRes = await fetch('/api/super/analytics', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const analyticsData = await analyticsRes.json();
-      setSuperAnalytics(analyticsData);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleToggleTenantStatus = async (tenantId: number, currentStatus: string) => {
-    const nextStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
-    if (!window.confirm(`${nextStatus === 'suspended' ? 'Suspend' : 'Reactivate'} this tenant? ${nextStatus === 'suspended' ? 'Their users will be immediately blocked from logging in or checking in.' : ''}`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/super/tenants/status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ tenantId, status: nextStatus })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update tenant status');
-      setSuccess(`Tenant ${nextStatus === 'suspended' ? 'suspended' : 'reactivated'} successfully.`);
-      fetchSuperAdminData();
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to update tenant status');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOpenApproveModal = (req: any) => {
-    setSelectedRequest(req);
-    setSelectedPlanOverride(req.plan || 'Standard');
-    setShowApprovalModal(true);
-  };
-
-  const handleApproveRequest = async () => {
-    if (!selectedRequest) return;
-    setLoading(true);
-    setError('');
-    
-    try {
-      const res = await fetch('/api/super/approve', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          requestId: selectedRequest.id,
-          featuresAllowed: selectedFeatures,
-          plan: selectedPlanOverride || selectedRequest.plan
-        })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to approve onboarding');
-
-      setSuccess(`Tenant "${selectedRequest.companyName}" approved successfully! Temporary credentials mailed.`);
-      setShowApprovalModal(false);
-      fetchSuperAdminData();
-      
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Approval failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
+    selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics,
+    fetchSuperAdminData, handleToggleTenantStatus, handleOpenApproveModal, handleApproveRequest, toggleFeature,
+  } = useSuperAdminData(token, setLoading, setError, setSuccess, setNotifications);
 
   // ==========================================
-  // TENANT ADMIN STATES & FUNCTIONS
+  // TENANT ADMIN — see apps/admin/src/pages/dashboard/hooks/{usePolicyAnnouncement,useTenantConfig,useQrAttendance}.ts
   // ==========================================
-  const [wifiSsid, setWifiSsid] = useState('');
-  const [officeIp, setOfficeIp] = useState('');
-  const [wifiCheckEnabled, setWifiCheckEnabled] = useState(false);
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [radius, setRadius] = useState('100');
+  const {
+    policyAnnouncement, policyExpanded, setPolicyExpanded, policyDraft, setPolicyDraft, policySaving,
+    fetchPolicyAnnouncement, handleSavePolicy,
+  } = usePolicyAnnouncement(token);
 
-  // Company Policy announcement banner — shown on both this dashboard and
-  // the employee dashboard; editing gated behind 'tenant.policy.manage'.
-  const [policyAnnouncement, setPolicyAnnouncement] = useState('');
-  const [policyExpanded, setPolicyExpanded] = useState(false);
-  const [policyDraft, setPolicyDraft] = useState('');
-  const [policySaving, setPolicySaving] = useState(false);
+  const {
+    wifiSsid, setWifiSsid, officeIp, setOfficeIp, wifiCheckEnabled, setWifiCheckEnabled,
+    lat, setLat, lng, setLng, radius, setRadius,
+    shiftStart, setShiftStart, shiftEnd, setShiftEnd, gracePeriodMins, setGracePeriodMins,
+    halfDayMins, setHalfDayMins, dailyBreakBudgetMins, setDailyBreakBudgetMins,
+    weekendConfig, setWeekendConfig, minAttendancePercent, setMinAttendancePercent,
+    wfhEnabled, setWfhEnabled, wfhAllowedRoles, setWfhAllowedRoles,
+    wfhMaxDaysPerMonth, setWfhMaxDaysPerMonth, wfhAllowedWeekdays, setWfhAllowedWeekdays,
+    wfhRadiusMeters, setWfhRadiusMeters, wfhApprovalRequired, setWfhApprovalRequired,
+    wfhRequireReason, setWfhRequireReason, wfhLateLoginGraceMins, setWfhLateLoginGraceMins,
+    toggleWfhRole, toggleWfhWeekday, toggleWeekendDay, hydrateFromConfig,
+    handleSaveConfig, handleGetCurrentLocation,
+  } = useTenantConfig(token, setLoading, setError, setSuccess);
 
-  const fetchPolicyAnnouncement = async () => {
-    try {
-      const res = await fetch('/api/tenant/policy', { headers: { 'Authorization': `Bearer ${token}` } });
-      const data = await res.json();
-      setPolicyAnnouncement(data.policyAnnouncement || '');
-      setPolicyDraft(data.policyAnnouncement || '');
-    } catch { /* non-critical, banner just stays hidden */ }
-  };
+  const {
+    qrEnabled, setQrEnabled, qrRotationSeconds, setQrRotationSeconds,
+    qrRequireGps, setQrRequireGps, qrRequireWifi, setQrRequireWifi,
+    qrRequireFace, setQrRequireFace, qrGeofenceRadiusMeters, setQrGeofenceRadiusMeters,
+    qrRequireDeviceTrust, setQrRequireDeviceTrust, qrConfigSaving,
+    fetchQrConfig, handleSaveQrConfig,
+    hasQrAccess, hasQrLogsAccess, qrSessionHistory, qrScanLogs,
+    fetchQrAccess, fetchQrLogs, handleOverrideQrScan,
+  } = useQrAttendance(token, setLoading, setError, setSuccess);
 
-  const handleSavePolicy = async () => {
-    setPolicySaving(true);
-    try {
-      const res = await fetch('/api/tenant/policy', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ policyAnnouncement: policyDraft }),
-      });
-      const data = await res.json();
-      if (res.ok) setPolicyAnnouncement(data.policyAnnouncement || '');
-    } finally {
-      setPolicySaving(false);
-    }
-  };
-
-  // Attendance policy fields — configurable by the tenant admin, actually
-  // used by the backend's late-arrival, half-day, and break-budget logic
-  // (previously these silently stayed at hardcoded defaults forever).
-  const [shiftStart, setShiftStart] = useState('09:00');
-  const [shiftEnd, setShiftEnd] = useState('18:00');
-  const [gracePeriodMins, setGracePeriodMins] = useState('15');
-  const [halfDayMins, setHalfDayMins] = useState('240');
-  const [dailyBreakBudgetMins, setDailyBreakBudgetMins] = useState('60');
-  const [weekendConfig, setWeekendConfig] = useState<string[]>(['Saturday', 'Sunday']);
-  const [minAttendancePercent, setMinAttendancePercent] = useState('75');
-
-  // Work From Home (WFH) policy — additive; mirrors the office policy
-  // fields above and is saved via the same /api/tenant/config/update call.
-  // Allowed-roles options come from `allRoleNames` (this tenant's real,
-  // possibly-custom role list — see refreshRoleSetupStatus above) rather
-  // than a hardcoded ['employee','manager','HR','GM'], so a custom role
-  // (e.g. "L1") actually shows up here instead of being un-selectable.
-  const WEEKDAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const [wfhEnabled, setWfhEnabled] = useState(false);
-  const [wfhAllowedRoles, setWfhAllowedRoles] = useState<string[]>([]);
-  const [wfhMaxDaysPerMonth, setWfhMaxDaysPerMonth] = useState('');
-  const [wfhAllowedWeekdays, setWfhAllowedWeekdays] = useState<string[]>(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
-  const [wfhRadiusMeters, setWfhRadiusMeters] = useState('200');
-  const [wfhApprovalRequired, setWfhApprovalRequired] = useState(true);
-  const [wfhRequireReason, setWfhRequireReason] = useState(true);
-  const [wfhLateLoginGraceMins, setWfhLateLoginGraceMins] = useState('');
-
-  const toggleWfhRole = (role: string) => {
-    setWfhAllowedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
-  };
-  const toggleWfhWeekday = (day: string) => {
-    setWfhAllowedWeekdays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
-  };
-
-  // Dynamic QR Attendance policy — its own PUT /api/qr/config endpoint
-  // (not bundled into handleSaveConfig/`/api/tenant/config/update`), so its
-  // own form/state/save handler, same pattern as the Holiday Calendar
-  // section below.
-  const QR_ROTATION_CHOICES = [15, 30, 60, 120];
-  const [qrEnabled, setQrEnabled] = useState(false);
-  const [qrRotationSeconds, setQrRotationSeconds] = useState(30);
-  const [qrRequireGps, setQrRequireGps] = useState(true);
-  const [qrRequireWifi, setQrRequireWifi] = useState(false);
-  const [qrRequireFace, setQrRequireFace] = useState(true);
-  const [qrGeofenceRadiusMeters, setQrGeofenceRadiusMeters] = useState('');
-  const [qrRequireDeviceTrust, setQrRequireDeviceTrust] = useState(false);
-  const [qrConfigSaving, setQrConfigSaving] = useState(false);
-
-  const fetchQrConfig = async () => {
-    try {
-      const res = await fetch('/api/qr/config', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.policy) {
-        setQrEnabled(data.policy.qrEnabled);
-        setQrRotationSeconds(data.policy.rotationSeconds);
-        setQrRequireGps(data.policy.requireGps);
-        setQrRequireWifi(data.policy.requireWifi);
-        setQrRequireFace(data.policy.requireFace);
-        setQrGeofenceRadiusMeters(data.policy.geofenceRadiusMeters ? String(data.policy.geofenceRadiusMeters) : '');
-        setQrRequireDeviceTrust(data.policy.requireDeviceTrust);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleSaveQrConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setQrConfigSaving(true);
-    setError('');
-    setSuccess('');
-    try {
-      const res = await fetch('/api/qr/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          qrEnabled,
-          qrRotationSeconds,
-          qrRequireGps,
-          qrRequireWifi,
-          qrRequireFace,
-          qrGeofenceRadiusMeters: qrGeofenceRadiusMeters ? parseInt(qrGeofenceRadiusMeters, 10) : null,
-          qrRequireDeviceTrust,
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save QR Attendance policy');
-      setSuccess('QR Attendance policy saved successfully.');
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save QR Attendance policy');
-    } finally {
-      setQrConfigSaving(false);
-    }
-  };
-
+  const { wfhStats, fetchWfhStats } = useWfhStats(token);
   const [tenantAnalytics, setTenantAnalytics] = useState<any>(null);
-  const [wfhStats, setWfhStats] = useState<any>(null);
 
   // ==========================================
   // DUAL-MODE HOME DASHBOARD STATE
@@ -425,28 +163,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const [tenantTrends, setTenantTrends] = useState<any[]>([]);
 
   // ==========================================
-  // SELF-SERVICE (My Space) STATE
+  // SELF-SERVICE (My Space) — see apps/admin/src/pages/dashboard/hooks/useSelfService.ts
   // ==========================================
-  // Personal attendance state for the logged-in admin (used in Self Service mode)
-  const [selfCheckInTime, setSelfCheckInTime] = useState<string | null>(null);
-  const [selfHoursWorked, setSelfHoursWorked] = useState('00:00:00');
-  const [selfActiveBreak, setSelfActiveBreak] = useState<any>(null);
-  const [selfBreakTimer, setSelfBreakTimer] = useState('00:00');
-  const [selfBreakType, setSelfBreakType] = useState('Lunch');
-  const [selfBreaksToday, setSelfBreaksToday] = useState<any[]>([]);
-  const [selfBudgetMins, setSelfBudgetMins] = useState(60);
-  const [selfRemainingMins, setSelfRemainingMins] = useState(60);
-  const [selfCheckingOut, setSelfCheckingOut] = useState(false);
-  const [selfTodayPending, setSelfTodayPending] = useState(false);
-  const [selfCorrections, setSelfCorrections] = useState<any[]>([]);
-  const [showSelfCorrectionModal, setShowSelfCorrectionModal] = useState(false);
-  const [selfCorrectionType, setSelfCorrectionType] = useState('check_in');
-  const [selfCorrectionDate, setSelfCorrectionDate] = useState('');
-  const [selfCorrectionTime, setSelfCorrectionTime] = useState('');
-  const [selfCorrectionReason, setSelfCorrectionReason] = useState('');
-  const [selfCorrectionSubmitting, setSelfCorrectionSubmitting] = useState(false);
-  // True after a correction is submitted (shows a thank-you state in the modal)
-  const [selfCorrectionSubmitted, setSelfCorrectionSubmitted] = useState(false);
+  const {
+    selfCheckInTime, selfHoursWorked, selfActiveBreak, selfBreakTimer,
+    selfBreakType, setSelfBreakType, selfBreaksToday, selfBudgetMins, selfRemainingMins,
+    selfCheckingOut, selfTodayPending, selfCorrections,
+    showSelfCorrectionModal, setShowSelfCorrectionModal,
+    selfCorrectionType, setSelfCorrectionType, selfCorrectionDate, setSelfCorrectionDate,
+    selfCorrectionTime, setSelfCorrectionTime, selfCorrectionReason, setSelfCorrectionReason,
+    selfCorrectionSubmitting, selfCorrectionSubmitted, setSelfCorrectionSubmitted,
+    fetchSelfServiceData, handleStartSelfBreak, handleEndSelfBreak, handleSelfCheckout, handleSubmitSelfCorrection,
+  } = useSelfService(token);
 
   // Attendance sub-tab state (used by the quick-access shortcut cards in the org view
   // to deep-link into the correct attendance sub-section)
@@ -458,57 +186,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // user explicitly expands them via this toggle.
   const [showOtherOptions, setShowOtherOptions] = useState(false);
   const [otherOptionsTab, setOtherOptionsTab] = useState<string | null>(null);
-
-  // Fetch current admin's personal attendance state for Self-Service mode
-  const fetchSelfServiceData = async () => {
-    try {
-      // Today's check-in
-      const todayRes = await fetch('/api/attendance/today', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (todayRes.ok) {
-        const d = await todayRes.json();
-        if (d.checkInTime) {
-          setSelfCheckInTime(d.checkInTime);
-          setSelfTodayPending(d.status === 'pending');
-        } else {
-          setSelfCheckInTime(null);
-          setSelfTodayPending(false);
-        }
-      }
-
-      // Active break
-      const breakRes = await fetch('/api/breaks/active', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (breakRes.ok) {
-        const bd = await breakRes.json();
-        setSelfActiveBreak(bd.activeBreak || null);
-      }
-
-      // Today's breaks + remaining budget
-      const breaksRes = await fetch('/api/breaks/today', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (breaksRes.ok) {
-        const bd = await breaksRes.json();
-        setSelfBreaksToday(bd.breaks || []);
-        if (bd.budgetMins != null) setSelfBudgetMins(bd.budgetMins);
-        if (bd.remainingMins != null) setSelfRemainingMins(bd.remainingMins);
-      }
-
-      // Personal correction requests
-      const corrRes = await fetch('/api/attendance/my-corrections', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (corrRes.ok) {
-        const cd = await corrRes.json();
-        setSelfCorrections(cd.corrections || []);
-      }
-    } catch (err) {
-      console.error('[self-service] fetch error:', err);
-    }
-  };
 
   // Fetch 30-day attendance trends for the AreaChart
   const fetchTenantTrends = async () => {
@@ -524,131 +201,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     }
   };
 
-  // Self-service: start a break
-  const handleStartSelfBreak = async () => {
-    if (!selfCheckInTime || selfActiveBreak) return;
-    try {
-      const res = await fetch('/api/breaks/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ breakType: selfBreakType })
-      });
-      if (res.ok) await fetchSelfServiceData();
-    } catch (err) {
-      console.error('[self-service] start break error:', err);
-    }
-  };
-
-  // Self-service: end the active break
-  const handleEndSelfBreak = async () => {
-    if (!selfActiveBreak) return;
-    try {
-      const res = await fetch('/api/breaks/end', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setSelfActiveBreak(null);
-        await fetchSelfServiceData();
-      }
-    } catch (err) {
-      console.error('[self-service] end break error:', err);
-    }
-  };
-
-  // Self-service: punch out
-  const handleSelfCheckout = async () => {
-    if (!selfCheckInTime || selfActiveBreak) return;
-    setSelfCheckingOut(true);
-    try {
-      const res = await fetch('/api/attendance/checkout', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        setSelfCheckInTime(null);
-        setSelfHoursWorked('00:00:00');
-        await fetchSelfServiceData();
-      }
-    } catch (err) {
-      console.error('[self-service] checkout error:', err);
-    } finally {
-      setSelfCheckingOut(false);
-    }
-  };
-
-  // Self-service: submit a correction request
-  const handleSubmitSelfCorrection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selfCorrectionDate || !selfCorrectionReason) return;
-    setSelfCorrectionSubmitting(true);
-    try {
-      const res = await fetch('/api/tenant/corrections/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          requestType: selfCorrectionType,
-          requestedDate: selfCorrectionDate,
-          requestedTime: selfCorrectionTime || undefined,
-          reason: selfCorrectionReason,
-        })
-      });
-      if (res.ok) {
-        setSelfCorrectionSubmitted(true);
-        setSelfCorrectionDate('');
-        setSelfCorrectionTime('');
-        setSelfCorrectionReason('');
-        await fetchSelfServiceData();
-        // Auto-close after a short delay so the user sees the success message
-        setTimeout(() => {
-          setShowSelfCorrectionModal(false);
-          setSelfCorrectionSubmitted(false);
-        }, 2000);
-      }
-    } catch (err) {
-      console.error('[self-service] correction submit error:', err);
-    } finally {
-      setSelfCorrectionSubmitting(false);
-    }
-  };
-
-  // Live work-hours ticker: updates every second when clocked in
-  useEffect(() => {
-    if (!selfCheckInTime) {
-      setSelfHoursWorked('00:00:00');
-      return;
-    }
-    const tick = () => {
-      const start = new Date(selfCheckInTime).getTime();
-      const elapsed = Math.max(0, Math.floor((Date.now() - start) / 1000));
-      const h = Math.floor(elapsed / 3600).toString().padStart(2, '0');
-      const m = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
-      const s = (elapsed % 60).toString().padStart(2, '0');
-      setSelfHoursWorked(`${h}:${m}:${s}`);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [selfCheckInTime]);
-
-  // Live break-timer ticker: updates every second when a break is active
-  useEffect(() => {
-    if (!selfActiveBreak?.startTime) {
-      setSelfBreakTimer('00:00');
-      return;
-    }
-    const tick = () => {
-      const start = new Date(selfActiveBreak.startTime).getTime();
-      const elapsed = Math.max(0, Math.floor((Date.now() - start) / 1000));
-      const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
-      const s = (elapsed % 60).toString().padStart(2, '0');
-      setSelfBreakTimer(`${m}:${s}`);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [selfActiveBreak]);
-
   // Fetch self-service data + trends when tenant admin loads the home tab
   useEffect(() => {
     if (user.role !== 'super_admin') {
@@ -657,411 +209,55 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     }
   }, [user]);
 
-  const fetchWfhStats = async () => {
-    try {
-      const res = await fetch('/api/tenant/wfh/stats', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) return; // user may not have reports.view — fail quietly, matches fetchLedgerData's convention
-      const data = await res.json();
-      setWfhStats(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  const [holidaysList, setHolidaysList] = useState<any[]>([]);
-  const [newHolidayDate, setNewHolidayDate] = useState('');
-  const [newHolidayName, setNewHolidayName] = useState('');
-  const [corrections, setCorrections] = useState<any[]>([]);
-  const [hasCorrectionsAccess, setHasCorrectionsAccess] = useState(false);
-  const [pendingAttendance, setPendingAttendance] = useState<any[]>([]);
-  const [hasAttendanceApprovalAccess, setHasAttendanceApprovalAccess] = useState(false);
+  // ==========================================
+  // HOLIDAYS / CORRECTIONS / PENDING ATTENDANCE — see apps/admin/src/pages/dashboard/hooks/{useHolidays,useApprovalQueues}.ts
+  // ==========================================
+  const {
+    holidaysList, newHolidayDate, setNewHolidayDate, newHolidayName, setNewHolidayName,
+    fetchHolidays, handleAddHoliday, handleDeleteHoliday,
+  } = useHolidays(token, setLoading, setError);
 
-  const fetchHolidays = async () => {
-    try {
-      const res = await fetch('/api/tenant/holidays', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.holidays) setHolidaysList(data.holidays);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  const approvalQueueSetters = { setLoading, setError, setSuccess };
+  const {
+    corrections, hasCorrectionsAccess, fetchCorrections, handleResolveCorrection,
+  } = useCorrections(token, approvalQueueSetters);
+  const {
+    pendingAttendance, hasAttendanceApprovalAccess, fetchPendingAttendance, handleResolveAttendance,
+  } = usePendingAttendance(token, approvalQueueSetters);
+  const {
+    wfhLocationRequests, hasWfhLocationAccess, fetchWfhLocationRequests, handleResolveWfhLocationRequest,
+  } = useWfhLocationRequests(token, approvalQueueSetters);
+  const {
+    attendanceAlerts, hasAlertsAccess, fetchAlerts, handleResolveAlert,
+  } = useAlerts(token, approvalQueueSetters);
+  const { wfhLedger, hasWfhLedgerAccess, fetchWfhLedger } = useWfhLedger(token);
 
-  const handleAddHoliday = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newHolidayDate || !newHolidayName) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/tenant/holidays', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ date: newHolidayDate, name: newHolidayName })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add holiday');
-      setNewHolidayDate('');
-      setNewHolidayName('');
-      fetchHolidays();
-    } catch (err: any) {
-      setError(err.message || 'Failed to add holiday');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteHoliday = async (id: number) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/tenant/holidays/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { const data = await res.json(); throw new Error(data.error); }
-      fetchHolidays();
-    } catch (err: any) {
-      setError(err.message || 'Failed to remove holiday');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCorrections = async () => {
-    try {
-      const res = await fetch('/api/tenant/corrections', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { setHasCorrectionsAccess(false); return; }
-      const data = await res.json();
-      setHasCorrectionsAccess(true);
-      if (data.corrections) setCorrections(data.corrections);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolveCorrection = async (correctionId: number, action: 'approve' | 'reject') => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/tenant/corrections/action', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ correctionId, action })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
-      setSuccess(`Correction request ${action === 'approve' ? 'approved' : 'rejected'}.`);
-      fetchCorrections();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resolve request');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Late check-ins awaiting approval — an employee checked in late,
-  // explained why, and the log was written as 'pending' instead of
-  // 'approved' until someone with 'attendance.approve' resolves it.
-  const fetchPendingAttendance = async () => {
-    try {
-      const res = await fetch('/api/tenant/attendance/pending', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { setHasAttendanceApprovalAccess(false); return; }
-      const data = await res.json();
-      setHasAttendanceApprovalAccess(true);
-      if (data.logs) setPendingAttendance(data.logs);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolveAttendance = async (logId: number, action: 'approve' | 'reject') => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/tenant/attendance/action', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ logId, action })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
-      setSuccess(`Late check-in ${action === 'approve' ? 'approved' : 'rejected — marked absent'}.`);
-      fetchPendingAttendance();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resolve request');
-    } finally {
-      setLoading(false);
-    }
-  };
-  // Dynamic QR Attendance — access gated purely by permission (see
-  // QR_PERMISSIONS in apps/admin/qr.ts), probed the same way every other
-  // privilege-gated tab in this file is: try the real endpoint, read
-  // whether it 403'd.
-  const [hasQrAccess, setHasQrAccess] = useState(false);
-  const [hasQrLogsAccess, setHasQrLogsAccess] = useState(false);
-  const [qrSessionHistory, setQrSessionHistory] = useState<any[]>([]);
-  const [qrScanLogs, setQrScanLogs] = useState<any[]>([]);
-
-  const fetchQrAccess = async () => {
-    try {
-      const res = await fetch('/api/qr/current', { headers: { 'Authorization': `Bearer ${token}` } });
-      setHasQrAccess(res.ok);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleOverrideQrScan = async (scanId: number) => {
-    const reason = window.prompt('Reason for manually approving this failed QR scan (required, logged in the audit ledger):');
-    if (!reason || !reason.trim()) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(`/api/qr/scans/${scanId}/override`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ reason: reason.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to override scan');
-      setSuccess('QR scan overridden — attendance recorded.');
-      fetchQrLogs();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to override scan');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchQrLogs = async () => {
-    try {
-      const [historyRes, logsRes] = await Promise.all([
-        fetch('/api/qr/history', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/qr/logs', { headers: { 'Authorization': `Bearer ${token}` } }),
-      ]);
-      if (!historyRes.ok) { setHasQrLogsAccess(false); return; }
-      setHasQrLogsAccess(true);
-      const historyData = await historyRes.json();
-      const logsData = await logsRes.json();
-      if (historyData.sessions) setQrSessionHistory(historyData.sessions);
-      if (logsData.scans) setQrScanLogs(logsData.scans);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // WFH home-location change requests — same approval convention as
-  // corrections/late-arrivals above ('attendance.approve').
-  const [wfhLocationRequests, setWfhLocationRequests] = useState<any[]>([]);
-  const [hasWfhLocationAccess, setHasWfhLocationAccess] = useState(false);
-
-  const fetchWfhLocationRequests = async () => {
-    try {
-      const res = await fetch('/api/tenant/wfh/location-change-requests', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { setHasWfhLocationAccess(false); return; }
-      const data = await res.json();
-      setHasWfhLocationAccess(true);
-      if (data.requests) setWfhLocationRequests(data.requests);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolveWfhLocationRequest = async (requestId: number, action: 'approve' | 'reject') => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/tenant/wfh/location-change-requests/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ requestId, action })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
-      setSuccess(`Home location request ${action === 'approve' ? 'approved' : 'rejected'}.`);
-      fetchWfhLocationRequests();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resolve request');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Per-employee/per-day WFH ledger — gated by wfh.view_logs (delegable to
-  // managers/HR/etc., same probe-the-endpoint pattern as QR logs above).
-  const [wfhLedger, setWfhLedger] = useState<any[]>([]);
-  const [hasWfhLedgerAccess, setHasWfhLedgerAccess] = useState(false);
-
-  const fetchWfhLedger = async () => {
-    try {
-      const res = await fetch('/api/tenant/wfh/ledger', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { setHasWfhLedgerAccess(false); return; }
-      const data = await res.json();
-      setHasWfhLedgerAccess(true);
-      if (data.ledger) setWfhLedger(data.ledger);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const [attendanceAlerts, setAttendanceAlerts] = useState<any[]>([]);
-  const [hasAlertsAccess, setHasAlertsAccess] = useState(false);
-
-  const fetchAlerts = async () => {
-    try {
-      const res = await fetch('/api/tenant/alerts', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) { setHasAlertsAccess(false); return; } // user may not have alerts.receive — fail quietly
-      const data = await res.json();
-      setHasAlertsAccess(true);
-      if (data.alerts) setAttendanceAlerts(data.alerts);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleResolveAlert = async (alertId: number, action: 'accept' | 'reject') => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/tenant/alerts/action', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ alertId, action })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to resolve alert');
-      setSuccess(`Alert ${action === 'accept' ? 'accepted' : 'rejected'}.`);
-      fetchAlerts();
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to resolve alert');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleWeekendDay = (day: string) => {
-    setWeekendConfig(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
-  };
-  
-  // Recruitment Form fields
-  const [recruitedUsers, setRecruitedUsers] = useState<any[]>([]);
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserName, setNewUserName] = useState('');
-  // Empty by default (not e.g. 'Employee') so the <datalist> below shows every
-  // suggestion — browsers filter datalist options to ones that substring-match
-  // whatever's already typed, so a pre-filled value used to hide every option
-  // that didn't literally contain that text.
-  const [newUserRole, setNewUserRole] = useState('');
-  const [newUserPrivileges, setNewUserPrivileges] = useState<string[]>([]);
-  const [hasRecruitmentAccess, setHasRecruitmentAccess] = useState(false);
-
-  // POST /api/tenant/users/create requires branchId/shiftId (every employee
-  // must belong to a real branch and a real shift from day one) — these
-  // fields drive that, sourced from the caller's own manageable branches
-  // (GET /api/tenant/my-branches, already branch-scoped server-side) rather
-  // than the unscoped /api/branches.
-  const [hireBranches, setHireBranches] = useState<any[]>([]);
-  const [hireShifts, setHireShifts] = useState<any[]>([]);
-  const [newUserBranchId, setNewUserBranchId] = useState('');
-  const [newUserShiftId, setNewUserShiftId] = useState('');
-
-  // Branch options for the Recruit Team Member form above — fetched once;
-  // not gated behind any tab check since it's cheap and the form needs it
-  // ready the moment Administration > Recruitment is opened.
-  useEffect(() => {
-    fetch('/api/tenant/my-branches', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => {
-        const list = Array.isArray(d.branches) ? d.branches : [];
-        setHireBranches(list);
-        if (list.length > 0) setNewUserBranchId((current) => current || String(list[0].id));
-      })
-      .catch(() => { /* Recruitment form just shows "no branches yet" below */ });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Shift options depend on which branch is selected above.
-  useEffect(() => {
-    if (!newUserBranchId) { setHireShifts([]); return; }
-    fetch(`/api/branches/${newUserBranchId}/shifts`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => {
-        const list = Array.isArray(d.shifts) ? d.shifts : [];
-        setHireShifts(list);
-        setNewUserShiftId((current) => (list.some((s: any) => String(s.id) === current) ? current : (list[0] ? String(list[0].id) : '')));
-      })
-      .catch(() => setHireShifts([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newUserBranchId]);
-
-  // "Set up this new role" prompt — a banner shown right after hiring the
-  // first person into a brand-new role (POST /api/tenant/users/create's
-  // isNewRole flag), plus a persistent list (derived fresh from real data
-  // every time this loads, not stored anywhere) of any role that has
-  // privilege defaults but no payroll role-default yet — so the reminder
-  // survives a dismiss/navigate-away instead of being a one-time toast.
-  const [newRolePrompt, setNewRolePrompt] = useState<string | null>(null);
-  const [allRoleNames, setAllRoleNames] = useState<string[]>([]);
-  const [payrollConfiguredRoleNames, setPayrollConfiguredRoleNames] = useState<string[]>([]);
-  const refreshRoleSetupStatus = () => {
-    fetch('/api/tenant/roles', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => setAllRoleNames(Array.isArray(d.roles) ? d.roles.map((r: any) => r.roleName) : []))
-      .catch(() => {});
-    fetch('/api/tenant/payroll/role-defaults', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((d) => setPayrollConfiguredRoleNames(Array.isArray(d.roleDefaults) ? d.roleDefaults.map((r: any) => r.roleName) : []))
-      .catch(() => {});
-  };
-  useEffect(() => { refreshRoleSetupStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const rolesNeedingPayrollSetup = allRoleNames.filter((r) => !payrollConfiguredRoleNames.includes(r));
+  // ==========================================
+  // RECRUITMENT — see apps/admin/src/pages/dashboard/hooks/useRecruitment.ts
+  // ==========================================
+  const {
+    recruitedUsers, setRecruitedUsers, newUserEmail, setNewUserEmail, newUserName, setNewUserName,
+    newUserRole, setNewUserRole, newUserPrivileges, setNewUserPrivileges,
+    hasRecruitmentAccess, setHasRecruitmentAccess,
+    hireBranches, hireShifts, newUserBranchId, setNewUserBranchId, newUserShiftId, setNewUserShiftId,
+    newRolePrompt, setNewRolePrompt, allRoleNames, rolesNeedingPayrollSetup, refreshRoleSetupStatus,
+    handleHireUser, togglePrivilege,
+  } = useRecruitment(token, setLoading, setError, setSuccess, () => fetchTenantAdminData());
 
   // Home tab (organization overview) — extra widgets: pending leave, payroll
   // this month, department breakdown, pending approvals, and manager "your
   // team" scoping. Each fetch fails quietly (mirrors the recruitedUsers/
   // hasRecruitmentAccess pattern above) so a caller without the underlying
   // privilege just doesn't see that widget, rather than erroring the page.
-  const [homeLeaveRequests, setHomeLeaveRequests] = useState<any[]>([]);
-  const [hasLeaveAccess, setHasLeaveAccess] = useState(false);
-  const [homePayrollOverview, setHomePayrollOverview] = useState<any>(null);
-  const [hasPayrollAccess, setHasPayrollAccess] = useState(false);
-  // Full employee roster (department + managerId) — reports.view/employee.read
-  // gated. Powers both the admin's Department Breakdown widget and a
-  // manager's "Your Team" direct-report scoping (data-derived, not role-name).
-  const [homeEmployees, setHomeEmployees] = useState<any[]>([]);
-  const [hasEmployeesAccess, setHasEmployeesAccess] = useState(false);
+  const {
+    homeLeaveRequests, setHomeLeaveRequests, hasLeaveAccess, setHasLeaveAccess,
+    homePayrollOverview, setHomePayrollOverview, hasPayrollAccess, setHasPayrollAccess,
+    homeEmployees, setHomeEmployees, hasEmployeesAccess, setHasEmployeesAccess,
+  } = useHomeWidgets();
 
-  // Device Requests fields
-  const [deviceRequests, setDeviceRequests] = useState<any[]>([]);
-  const [hasDevicesAccess, setHasDevicesAccess] = useState(false);
+  const {
+    deviceRequests, setDeviceRequests, hasDevicesAccess, setHasDevicesAccess, handleDeviceAction,
+  } = useDeviceRequests(token, setLoading, setError, setSuccess, () => fetchTenantAdminData());
 
   const fetchTenantAdminData = async () => {
     try {
@@ -1070,30 +266,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const configData = await configRes.json();
-      if (configData.tenant) {
-        setWifiSsid(configData.tenant.wifiSsid || '');
-        setOfficeIp(configData.tenant.officeIp || '');
-        setWifiCheckEnabled(!!configData.tenant.wifiCheckEnabled);
-        setLat(configData.tenant.locationLat ? configData.tenant.locationLat.toString() : '');
-        setLng(configData.tenant.locationLng ? configData.tenant.locationLng.toString() : '');
-        setRadius(configData.tenant.locationRadiusMeters ? configData.tenant.locationRadiusMeters.toString() : '100');
-        setShiftStart(configData.tenant.shiftStart || '09:00');
-        setShiftEnd(configData.tenant.shiftEnd || '18:00');
-        setGracePeriodMins(configData.tenant.gracePeriodMins != null ? configData.tenant.gracePeriodMins.toString() : '15');
-        setHalfDayMins(configData.tenant.halfDayMins != null ? configData.tenant.halfDayMins.toString() : '240');
-        setDailyBreakBudgetMins(configData.tenant.dailyBreakBudgetMins != null ? configData.tenant.dailyBreakBudgetMins.toString() : '60');
-        setMinAttendancePercent(configData.tenant.minAttendancePercent != null ? configData.tenant.minAttendancePercent.toString() : '75');
-        if (Array.isArray(configData.tenant.weekendConfig)) setWeekendConfig(configData.tenant.weekendConfig);
-
-        setWfhEnabled(!!configData.tenant.wfhEnabled);
-        if (Array.isArray(configData.tenant.wfhAllowedRoles)) setWfhAllowedRoles(configData.tenant.wfhAllowedRoles);
-        setWfhMaxDaysPerMonth(configData.tenant.wfhMaxDaysPerMonth != null ? configData.tenant.wfhMaxDaysPerMonth.toString() : '');
-        if (Array.isArray(configData.tenant.wfhAllowedWeekdays)) setWfhAllowedWeekdays(configData.tenant.wfhAllowedWeekdays);
-        setWfhRadiusMeters(configData.tenant.wfhRadiusMeters != null ? configData.tenant.wfhRadiusMeters.toString() : '200');
-        setWfhApprovalRequired(configData.tenant.wfhApprovalRequired !== false);
-        setWfhRequireReason(configData.tenant.wfhRequireReason !== false);
-        setWfhLateLoginGraceMins(configData.tenant.wfhLateLoginGraceMins != null ? configData.tenant.wfhLateLoginGraceMins.toString() : '');
-      }
+      hydrateFromConfig(configData.tenant);
 
       // 2. Fetch users (fails quietly if this user wasn't granted employee.read/employee.create)
       const usersRes = await fetch('/api/tenant/users', {
@@ -1200,150 +373,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     }
   };
 
-  const handleSaveConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const res = await fetch('/api/tenant/config/update', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          wifiSsid,
-          officeIp,
-          wifiCheckEnabled,
-          lat: lat ? parseFloat(lat) : undefined,
-          lng: lng ? parseFloat(lng) : undefined, 
-          radius: radius ? parseInt(radius, 10) : undefined,
-          shiftStart,
-          shiftEnd,
-          gracePeriodMins: parseInt(gracePeriodMins, 10),
-          halfDayMins: parseInt(halfDayMins, 10),
-          dailyBreakBudgetMins: parseInt(dailyBreakBudgetMins, 10),
-          minAttendancePercent: parseInt(minAttendancePercent, 10),
-          weekendConfig,
-          wfhEnabled,
-          wfhAllowedRoles,
-          wfhMaxDaysPerMonth: wfhMaxDaysPerMonth ? parseInt(wfhMaxDaysPerMonth, 10) : null,
-          wfhAllowedWeekdays,
-          wfhRadiusMeters: wfhRadiusMeters ? parseInt(wfhRadiusMeters, 10) : undefined,
-          wfhApprovalRequired,
-          wfhRequireReason,
-          wfhLateLoginGraceMins: wfhLateLoginGraceMins ? parseInt(wfhLateLoginGraceMins, 10) : null,
-        })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save configuration');
-      setSuccess('Tenant boundary and network configuration saved successfully.');
-      
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save configuration.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGetCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLat(position.coords.latitude.toString());
-          setLng(position.coords.longitude.toString());
-        },
-        () => {
-          setError('Unable to retrieve location. Please check browser permissions.');
-        }
-      );
-    } else {
-      setError('Geolocation not supported in this browser.');
-    }
-  };
-
-  const handleHireUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const res = await fetch('/api/tenant/users/create', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          email: newUserEmail,
-          name: newUserName,
-          role: newUserRole,
-          privileges: newUserPrivileges,
-          branchId: newUserBranchId ? Number(newUserBranchId) : undefined,
-          shiftId: newUserShiftId ? Number(newUserShiftId) : undefined,
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to register employee');
-
-      setSuccess(
-        data.emailDelivered
-          ? `Employee "${newUserName}" hired successfully. Temporary credentials sent.`
-          : `Employee "${newUserName}" hired successfully — but the credential email could NOT be delivered (no mail provider is configured or it failed). Share their temporary password with them manually, or check the SMTP/Resend setup.`
-      );
-      if (data.isNewRole && data.role) {
-        setNewRolePrompt(data.role);
-        refreshRoleSetupStatus();
-      }
-      setNewUserEmail('');
-      setNewUserName('');
-      setNewUserRole('');
-      setNewUserPrivileges([]);
-
-      fetchTenantAdminData();
-
-      setTimeout(() => setSuccess(''), data.emailDelivered ? 4000 : 10000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to register employee');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeviceAction = async (requestId: number, action: 'approve' | 'reject') => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      const res = await fetch('/api/tenant/device-requests/action', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ requestId, action })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to process request');
-
-      setSuccess(`Device request ${action}ed successfully.`);
-      fetchTenantAdminData();
-      
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Action failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Initialize data depending on user role. Land on whichever tile the user
   // was actually headed for — routeForAdminNav() (lib/adminPortalNav.ts)
   // sends cross-page nav clicks (from the standalone Payroll/Leave
@@ -1369,24 +398,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       fetchTenantAdminData();
     }
   }, [user]);
-
-  const toggleFeature = (feat: string) => {
-    if (selectedFeatures.includes(feat)) {
-      setSelectedFeatures(selectedFeatures.filter(f => f !== feat));
-    } else {
-      setSelectedFeatures([...selectedFeatures, feat]);
-    }
-  };
-
-  // Functional update — required because "Manage Employees" calls this twice
-  // in one handler (toggling both 'employee.create' and 'employee.read'
-  // together); reading the `newUserPrivileges` closure variable directly (as
-  // this used to) meant the second call saw the same stale pre-update array
-  // as the first, so it silently overwrote the first toggle instead of
-  // building on it. The functional form always sees the latest queued state.
-  const togglePrivilege = (priv: string) => {
-    setNewUserPrivileges(prev => prev.includes(priv) ? prev.filter(p => p !== priv) : [...prev, priv]);
-  };
 
   // Drill-down modal behind the clickable stat cards — one piece of state
   // drives a shared DataTable modal. Each card sets { title, rows, columns }.
@@ -1457,270 +468,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
   const directoryRoleOptions = [...new Set(recruitedUsers.map((u: any) => u.role))].sort() as string[];
 
-  const directoryColumns: ColumnDef<any, any>[] = [
-    {
-      accessorKey: 'name',
-      header: 'Name',
-      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-nexus-ink)]">{getValue() as string}</span>,
-    },
-    {
-      accessorKey: 'email',
-      header: 'Email',
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] font-mono">{getValue() as string}</span>,
-    },
-    {
-      accessorKey: 'role',
-      header: 'Role',
-      filterFn: 'equalsString',
-      cell: ({ getValue }) => <span className="font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
-    },
-    {
-      id: 'kyc',
-      accessorFn: (emp: any) => (emp.isKycCompleted ? 'Completed' : 'Pending'),
-      header: 'KYC State',
-      cell: ({ row }) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${row.original.isKycCompleted ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
-          {row.original.isKycCompleted ? 'Completed' : 'Pending'}
-        </span>
-      ),
-    },
-    {
-      id: 'devicePin',
-      accessorFn: (emp: any) => emp.registeredDeviceId || '',
-      header: 'Device Pin',
-      enableSorting: false,
-      cell: ({ row }) => (
-        <span className="font-mono text-[10px] text-[var(--color-nexus-muted)]">
-          {row.original.registeredDeviceId ? row.original.registeredDeviceId.substring(0, 12) + '...' : 'Unpinned'}
-        </span>
-      ),
-    },
-    {
-      id: 'access',
-      header: 'Feature Access',
-      enableSorting: false,
-      enablePinning: false,
-      cell: ({ row }) => (
-        <button
-          onClick={() => openAccessEditor(row.original)}
-          className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] bg-[var(--color-nexus-primary-fixed)] hover:bg-[var(--color-nexus-primary-fixed)] px-2.5 py-1 rounded-lg transition-colors"
-        >
-          {(Array.isArray(row.original.privileges) ? row.original.privileges : []).some((p: string) => p.startsWith('attendance.qr.') || p.startsWith('wfh.')) ? 'Manage' : 'Grant'}
-        </button>
-      ),
-    },
-  ];
-
-  const wfhLedgerColumns: ColumnDef<any, any>[] = [
-    {
-      accessorKey: 'userName',
-      header: 'Employee',
-      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-nexus-ink)]">{getValue() as string}</span>,
-    },
-    {
-      accessorKey: 'role',
-      header: 'Role',
-      filterFn: 'equalsString',
-      cell: ({ getValue }) => <span className="font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
-    },
-    {
-      accessorKey: 'date',
-      header: 'Date',
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)]">{new Date(getValue() as string).toLocaleDateString()}</span>,
-    },
-    {
-      id: 'checkInTime',
-      accessorKey: 'checkInTime',
-      header: 'Check-In',
-      cell: ({ getValue }) => <span className="font-mono text-[11px] text-[var(--color-nexus-muted)]">{new Date(getValue() as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>,
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ getValue }) => {
-        const s = getValue() as string;
-        return (
-          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : s === 'pending' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
-            {s}
-          </span>
-        );
-      },
-    },
-    {
-      id: 'distanceFromHomeMeters',
-      accessorKey: 'distanceFromHomeMeters',
-      header: 'Dist. From Home',
-      cell: ({ getValue }) => {
-        const d = getValue() as number | null;
-        return <span className="text-[var(--color-nexus-muted)] text-[11px]">{d == null ? '—' : `${Math.round(d)}m`}</span>;
-      },
-    },
-    {
-      accessorKey: 'wfhReason',
-      header: 'Reason',
-      enableSorting: false,
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] text-[11px] truncate max-w-[220px] block">{(getValue() as string) || '—'}</span>,
-    },
-  ];
-
-  const qrSessionColumns: ColumnDef<any, any>[] = [
-    {
-      accessorKey: 'generatedByName',
-      header: 'Started By',
-      cell: ({ getValue }) => <span className="font-semibold text-[var(--color-nexus-ink)]">{getValue() as string}</span>,
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ getValue }) => {
-        const s = getValue() as string;
-        return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'active' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]'}`}>{s}</span>;
-      },
-    },
-    {
-      accessorKey: 'rotationSeconds',
-      header: 'Rotation',
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] font-mono">{getValue() as number}s</span>,
-    },
-    { accessorKey: 'scansCount', header: 'Scans', cell: ({ getValue }) => <span className="text-[var(--color-nexus-ink)]">{getValue() as number}</span> },
-    { accessorKey: 'successCount', header: 'Success', cell: ({ getValue }) => <span className="text-[var(--color-nexus-success-text)]">{getValue() as number}</span> },
-    { accessorKey: 'failCount', header: 'Failed', cell: ({ getValue }) => <span className="text-[var(--color-nexus-error)]">{getValue() as number}</span> },
-    {
-      accessorKey: 'createdAt',
-      header: 'Started',
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
-    },
-  ];
-
-  const qrScanColumns: ColumnDef<any, any>[] = [
-    {
-      accessorKey: 'userName',
-      header: 'Employee',
-      cell: ({ row }) => (
-        <div>
-          <span className="font-semibold text-[var(--color-nexus-ink)] block">{row.original.userName}</span>
-          <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold">{row.original.userRole}</span>
-        </div>
-      ),
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      filterFn: 'equalsString',
-      cell: ({ getValue }) => {
-        const s = getValue() as string;
-        return (
-          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'success' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : s === 'failed' ? 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]'}`}>
-            {s}
-          </span>
-        );
-      },
-    },
-    {
-      id: 'checksPassed',
-      header: 'Checks Passed',
-      enableSorting: false,
-      cell: ({ row }) => {
-        const s = row.original;
-        return (
-          <span className="font-mono text-[10px] text-[var(--color-nexus-muted)]">
-            {[
-              s.gpsPassed != null && (s.gpsPassed ? 'GPS✓' : 'GPS✗'),
-              s.wifiPassed != null && (s.wifiPassed ? 'WiFi✓' : 'WiFi✗'),
-              s.facePassed != null && (s.facePassed ? 'Face✓' : 'Face✗'),
-              s.deviceTrustPassed != null && (s.deviceTrustPassed ? 'Device✓' : 'Device✗'),
-            ].filter(Boolean).join(' ') || '—'}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: 'failureReason',
-      header: 'Failure Reason',
-      enableSorting: false,
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)]">{(getValue() as string) || '—'}</span>,
-    },
-    {
-      accessorKey: 'ipAddress',
-      header: 'IP',
-      enableSorting: false,
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] font-mono text-[10px]">{(getValue() as string) || '—'}</span>,
-    },
-    {
-      accessorKey: 'createdAt',
-      header: 'Time',
-      cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] text-[11px]">{new Date(getValue() as string).toLocaleString()}</span>,
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      enableSorting: false,
-      enablePinning: false,
-      cell: ({ row }) => (
-        row.original.status === 'failed' ? (
-          <button
-            onClick={() => handleOverrideQrScan(row.original.id)}
-            className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-lg transition-colors"
-          >
-            Override
-          </button>
-        ) : null
-      ),
-    },
-  ];
-
-  // --- Stat-card drill-down column sets ---
-  const roleCell = ({ getValue }: any) => <span className="font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>;
-  // Clicking any person's name anywhere in the dashboard (drill-down tables,
-  // Pending Approvals, Your Team) opens the shared EmployeeDetailPanel —
-  // real attendance calendar + leave balance + payroll snapshot for that
-  // user, sourced entirely from existing endpoints (see EmployeeDetailPanel.tsx).
-  const nameCell = ({ getValue, row }: any) => {
-    const uid = row?.original?.userId ?? row?.original?.id;
-    if (!uid) return <span className="font-semibold text-[var(--color-nexus-ink)]">{getValue() as string}</span>;
-    return (
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setDetailUserId(uid); }}
-        className="font-semibold text-[var(--color-nexus-ink)] hover:text-[var(--color-nexus-primary)] hover:underline text-left"
-      >
-        {getValue() as string}
-      </button>
-    );
-  };
-  const modeBadge = ({ getValue }: any) => {
-    const m = (getValue() as string) || 'office';
-    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${m === 'wfh' ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]' : m === 'qr' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]'}`}>{m}</span>;
-  };
-  const statusBadge = ({ getValue }: any) => {
-    const s = (getValue() as string) || '';
-    return <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${s === 'approved' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : s === 'pending' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>{s}</span>;
-  };
-  const timeCell = ({ getValue }: any) => {
-    const v = getValue();
-    return <span className="font-mono text-[11px] text-[var(--color-nexus-muted)]">{v ? new Date(v as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>;
-  };
-
-  // Present / Late / Rejected / WFH-today rows (a check-in with time + mode + status)
-  const attendancePersonColumns: ColumnDef<any, any>[] = [
-    { accessorKey: 'name', header: 'Name', cell: nameCell },
-    { accessorKey: 'role', header: 'Role', filterFn: 'equalsString', cell: roleCell },
-    { accessorKey: 'checkInTime', header: 'Check-In', cell: timeCell },
-    { accessorKey: 'attendanceMode', header: 'Mode', cell: modeBadge },
-    { accessorKey: 'status', header: 'Status', cell: statusBadge },
-  ];
-  // Absent / Total rows (no check-in to show)
-  const simplePersonColumns: ColumnDef<any, any>[] = [
-    { accessorKey: 'name', header: 'Name', cell: nameCell },
-    { accessorKey: 'role', header: 'Role', filterFn: 'equalsString', cell: roleCell },
-  ];
-  // Pending home-location change requests
-  const locationRequestColumns: ColumnDef<any, any>[] = [
-    { accessorKey: 'name', header: 'Name', cell: nameCell },
-    { accessorKey: 'role', header: 'Role', filterFn: 'equalsString', cell: roleCell },
-    { accessorKey: 'newLocation', header: 'Requested Location', enableSorting: false, cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] text-[11px]">{(getValue() as string) || '—'}</span> },
-    { accessorKey: 'reason', header: 'Reason', enableSorting: false, cell: ({ getValue }) => <span className="text-[var(--color-nexus-muted)] text-[11px] truncate max-w-[200px] block">{(getValue() as string) || '—'}</span> },
-  ];
+  // DataTable column definitions — see apps/admin/src/pages/dashboard/columns.tsx
+  const directoryColumns = createDirectoryColumns(openAccessEditor);
+  const qrScanColumns = createQrScanColumns(handleOverrideQrScan);
+  const { attendancePersonColumns, simplePersonColumns, locationRequestColumns } = createPersonColumns(setDetailUserId);
 
   // Sidebar navigation — the standard left-nav pattern used across Zoho
   // People, Keka, BambooHR, Darwinbox, etc., rather than a marketing-site
@@ -4588,137 +3339,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             its own 'notifications' nav item; everyone else reaches it as an
             Administration sub-section. */}
         {((user.role === 'super_admin' && activeTab === 'notifications') || (activeTab === 'administration' && adminSubTab === 'notifications')) && (
-          <div className="nexus-card rounded-3xl p-6">
-            <h2 className="text-lg font-bold text-gradient mb-6 font-sans">System Notifications</h2>
-            {notifications.length === 0 ? (
-              <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No notifications found.</p>
-            ) : (
-              <div className="space-y-4">
-                {notifications.map((notif) => (
-                  <div key={notif.id} className="p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)] flex justify-between items-start gap-4">
-                    <div>
-                      <h4 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">{notif.title}</h4>
-                      <p className="text-xs text-[var(--color-nexus-muted)] mt-1">{notif.message}</p>
-                      <span className="text-[10px] text-[var(--color-nexus-muted)] mt-2 block">{new Date(notif.createdAt).toLocaleString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <NotificationsTab notifications={notifications} />
         )}
 
         {/* Immutable Audit Ledger Tab */}
         {activeTab === 'administration' && adminSubTab === 'ledger' && (
-          <div className="space-y-6">
-            <div className="nexus-card rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-gradient font-sans">Immutable Cryptographic Audit Ledger</h2>
-                  <span className="px-2 py-0.5 bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)] text-[10px] uppercase font-bold rounded-md border border-[color:var(--color-nexus-success-text)]/20 flex items-center gap-1">
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2.166 11.37h7.478l2.5-8.333a1 1 0 011.902.008L15.344 7.62h2.49a1 1 0 110 2H14.656a1 1 0 01-.95-.678L12.5 5.03l-2.5 8.333a1 1 0 01-1.902-.008L6.804 9.38H2.166a1 1 0 110-2z" clipRule="evenodd" /></svg>
-                    SHA-256 Chained
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Verify that database logs have not been tampered with or modified since creation.</p>
-              </div>
-              <div className="flex gap-2 self-start md:self-auto">
-                <button
-                  onClick={handleExportLedgerCsv}
-                  className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3 px-5 rounded-xl hover:bg-[var(--color-nexus-primary-fixed)] transition-colors flex items-center gap-2"
-                >
-                  <Download size={14} />
-                  Export CSV
-                </button>
-                <button
-                  onClick={verifyLedgerIntegrity}
-                  disabled={ledgerVerifying}
-                  className="bg-[var(--color-nexus-primary)] text-white font-bold text-xs uppercase tracking-wider py-3 px-6 rounded-xl hover:bg-[var(--color-nexus-primary-hover)] transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {ledgerVerifying ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                      Scanning Chain...
-                    </>
-                  ) : 'Verify Chain Integrity'}
-                </button>
-              </div>
-            </div>
-
-            {ledgerVerificationResult && (
-              <div className={`p-5 rounded-3xl border flex items-start gap-4 ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10 border-[color:var(--color-nexus-success-text)]/20 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)]/20 text-[var(--color-nexus-error)]'}`}>
-                <div className={`p-2 rounded-2xl ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10' : 'bg-[var(--color-nexus-error-soft)]'}`}>
-                  {ledgerVerificationResult.isValid ? (
-                    <svg className="w-6 h-6 text-[var(--color-nexus-success-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                  ) : (
-                    <svg className="w-6 h-6 text-[var(--color-nexus-error)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                  )}
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm">{ledgerVerificationResult.isValid ? 'Ledger Verification Succeeded' : 'Ledger Verification Failed!'}</h4>
-                  <p className="text-xs opacity-90 mt-0.5">
-                    {ledgerVerificationResult.isValid 
-                      ? `Cryptographic chain matches root block. Scanned ${ledgerVerificationResult.verifiedBlocksCount} operational entries. Zero tempering detected.` 
-                      : `Alert! Tampering detected. Signature mismatch at log blocks: [${ledgerVerificationResult.invalidBlocks.join(', ')}].`
-                    }
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="nexus-card rounded-3xl p-6">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] text-[10px] text-[var(--color-nexus-muted)] font-bold uppercase tracking-wider">
-                      <th className="py-3 px-4">Timestamp</th>
-                      <th className="py-3 px-4">Actor</th>
-                      <th className="py-3 px-4">Security Action</th>
-                      <th className="py-3 px-4">Context</th>
-                      <th className="py-3 px-4 font-mono">Block Hash</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledger.map((log) => {
-                      const isFraud = log.action.startsWith('FRAUD') || log.action.includes('VIOLATION');
-                      return (
-                        <tr key={log.id} className="border-b border-[var(--color-nexus-border)] text-xs hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                          <td className="py-4 px-4 text-[var(--color-nexus-muted)] whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
-                          <td className="py-4 px-4">
-                            <span className="font-semibold text-[var(--color-nexus-ink)] block">{log.actorName}</span>
-                            <span className="text-[10px] text-[var(--color-nexus-muted)] font-mono">ID: #{log.actorId || 'SYS'}</span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                              isFraud ? 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]' :
-                              log.action.startsWith('WFH_') ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]' :
-                              log.action === 'CHECK_IN' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' :
-                              log.action === 'CHECK_OUT' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' :
-                              'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-ink)]'
-                            }`}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className="text-[var(--color-nexus-muted)] block">{log.ipAddress || 'No IP'}</span>
-                            <span className="text-[10px] text-[var(--color-nexus-muted)] block truncate max-w-[200px]">{log.deviceInfo || 'System Agent'}</span>
-                          </td>
-                          <td className="py-4 px-4 font-mono text-[10px] text-[var(--color-nexus-muted)]" title={log.hash}>
-                            {log.hash.substring(0, 8)}...
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {ledger.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-12 text-center text-[var(--color-nexus-muted)] text-sm">No ledger block records created yet.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <LedgerTab
+            ledger={ledger}
+            ledgerVerifying={ledgerVerifying}
+            ledgerVerificationResult={ledgerVerificationResult}
+            verifyLedgerIntegrity={verifyLedgerIntegrity}
+            handleExportLedgerCsv={handleExportLedgerCsv}
+          />
         )}
 
         {/* Feature Access Modal — grants/revokes the delegable QR + WFH
