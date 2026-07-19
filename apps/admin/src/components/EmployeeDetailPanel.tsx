@@ -530,7 +530,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
             {/* Payroll breakdown — every real salary component (Basic, HRA,
                 Fixed Allowance, PF, etc.) from summary.annualBreakdown, plus
                 the actual leave/half-day deduction already computed
-                server-side (buildPayrollSummary in leavePayroll.routes.ts:
+                server-side (buildPayrollSummary in leavePayrollShared.ts:
                 chargeableLeaveDays * dailyRate * excessLeavePenaltyPercent),
                 so the take-home figure shown here is the real number after
                 this month's approved leave — never a flat CTC/12 guess. */}

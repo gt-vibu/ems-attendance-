@@ -117,7 +117,7 @@ router.get('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
 
   // Delegable via the `holiday.manage` privilege — same catalog entry
   // already honored by the bulk public-holiday import endpoint
-  // (leavePayroll.routes.ts), so a role granted holiday.manage can add/
+  // (holidays.routes.ts), so a role granted holiday.manage can add/
   // delete individual holidays too instead of only bulk-importing.
 router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
     try {
