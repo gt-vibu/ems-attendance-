@@ -100,6 +100,9 @@ docker run -p 8001:8001 smart-teams-face-service
   action wasn't confirmed.
 - `GET /health` — `{ "status": "ok", "modelLoaded": true }` once ready.
 
+`POST /verify`'s response also includes `moireScore` (0–1) — see the "Honest
+limitations" entry below.
+
 ## Honest limitations
 
 - **This code has not been run in this environment.** I don't have Python,
@@ -135,3 +138,18 @@ docker run -p 8001:8001 smart-teams-face-service
   `server.ts`). This is a commonly-cited InsightFace starting point, not a
   number calibrated against your specific users/cameras — expect to tune it
   after real-world testing.
+- **`moireScore` is a diagnostics-only heuristic, not a certified anti-spoof
+  signal, and does not gate anything today.** It's a classical frequency-
+  domain check (2D FFT of the face crop; a real face's spectrum is dominated
+  by smooth low-frequency content, while an LCD/OLED screen re-photographed
+  by another camera injects extra energy into the high-frequency bands from
+  its own subpixel raster) — see `moire_score()` in `main.py`. The scaling
+  constant (`MOIRE_SCALE`) was set from exactly one synthetic sanity check
+  (a smooth gradient vs. the same image with a sinusoidal raster pattern
+  added), not from real spoof attempts or a real webcam population. Node
+  logs it on every attendance check (pass or fail) via `attendance.routes.ts`
+  but never rejects a check-in on it — the intent is to review real logged
+  values for a while and pick a real threshold before ever wiring it into a
+  pass/fail decision, exactly like `matchThreshold`/the liveness threshold
+  above needed. It also only catches screen-replay-style spoofing; it says
+  nothing about depth, printed-photo texture, or anything else.

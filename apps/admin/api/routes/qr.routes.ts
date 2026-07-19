@@ -20,6 +20,7 @@ import { logToAuditLedger } from '../services/audit';
 import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
+import { getEffectiveShiftId } from '../services/shiftOverrides';
 
 export const router = Router();
 
@@ -386,14 +387,25 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
         }
       }
 
-      // --- GPS: same office geofence tenant already configures, with an
-      // optional QR-specific radius override. ---
+      // Geofence/Wi-Fi/shift source: the scanning employee's own branch,
+      // falling back to tenant-wide fields — same convention as the office
+      // check-in flow (attendance.routes.ts). QR session generation/policy
+      // toggles (qrEnabled, requireFace, etc.) stay tenant-wide, since a QR
+      // session is inherently one broadcast per tenant, not per branch.
+      const qrBranch = user.branchId
+        ? (await db.select().from(schema.branches).where(eq(schema.branches.id, user.branchId)))[0]
+        : null;
+
+      // --- GPS: same office geofence tenant/branch already configures, with
+      // an optional QR-specific radius override. ---
       if (policy.requireGps) {
         if (lat == null || lng == null) {
           return res.status(400).json({ error: 'GPS location is required for this QR check-in policy.' });
         }
-        if (tenant.locationLat && tenant.locationLng) {
-          const geofence = evaluateQrGeofence({ currentLat: lat, currentLng: lng, officeLat: tenant.locationLat, officeLng: tenant.locationLng, radiusMeters: policy.geofenceRadiusMeters });
+        const qrGeoLat = qrBranch?.locationLat ?? tenant.locationLat;
+        const qrGeoLng = qrBranch?.locationLng ?? tenant.locationLng;
+        if (qrGeoLat && qrGeoLng) {
+          const geofence = evaluateQrGeofence({ currentLat: lat, currentLng: lng, officeLat: qrGeoLat, officeLng: qrGeoLng, radiusMeters: policy.geofenceRadiusMeters ?? qrBranch?.locationRadiusMeters });
           gpsPassedFlag = geofence.passed;
           distanceMeters = geofence.distanceMeters;
           if (!geofence.passed) {
@@ -410,11 +422,12 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       // resolveActiveIp and the Corporate Network Locking explanation in
       // the tenant settings UI). ---
       if (policy.requireWifi) {
-        if (tenant.officeIp) {
+        const qrOfficeIp = qrBranch?.officeIp ?? tenant.officeIp;
+        if (qrOfficeIp) {
           const activeIp = resolveActiveIp(req, simulatedIp);
-          wifiPassedFlag = tenant.officeIp === activeIp || tenant.officeIp === '127.0.0.1';
+          wifiPassedFlag = qrOfficeIp === activeIp || qrOfficeIp === '127.0.0.1';
           if (!wifiPassedFlag) {
-            errors.push(`Network verification failed: You must connect to the corporate Wi-Fi (Required Public IP: ${tenant.officeIp}, Your IP: ${activeIp}).`);
+            errors.push(`Network verification failed: You must connect to the corporate Wi-Fi (Required Public IP: ${qrOfficeIp}, Your IP: ${activeIp}).`);
             if (!fraudType) fraudType = 'FRAUD_NETWORK_BYPASS';
           }
         } else {
@@ -442,8 +455,17 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       }
 
       let isLate = false;
-      const shiftStartStr = tenant.shiftStart || '09:00';
-      const gracePeriod = tenant.gracePeriodMins || 15;
+      // Resolves through any active dated shiftOverrides row for today first
+      // (see apps/admin/api/services/shiftOverrides.ts), falling back to the
+      // user's permanent shiftId — so a temporary shift change actually
+      // changes lateness math on the days it's active, not just the display.
+      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const effectiveShiftId = await getEffectiveShiftId(user.tenantId || 1, user.id, todayDateStr);
+      const qrShift = effectiveShiftId
+        ? (await db.select().from(schema.shifts).where(eq(schema.shifts.id, effectiveShiftId)))[0]
+        : null;
+      const shiftStartStr = qrShift?.checkInTime || qrBranch?.shiftStart || tenant.shiftStart || '09:00';
+      const gracePeriod = qrShift?.gracePeriodMins ?? qrBranch?.gracePeriodMins ?? tenant.gracePeriodMins ?? 15;
       if (isVerified && logType === 'check_in') {
         const [shiftHour, shiftMinute] = shiftStartStr.split(':').map(Number);
         const shiftTime = new Date();
@@ -460,6 +482,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       const log = await db.insert(schema.attendanceLogs).values({
         userId: user.id,
         tenantId: user.tenantId || 1,
+        branchId: user.branchId || null,
         status: pendingApproval ? 'pending' : status,
         type: logType,
         clientTimestamp: clientTimestamp ? new Date(clientTimestamp) : new Date(),

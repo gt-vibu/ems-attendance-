@@ -27,6 +27,15 @@ const EmployeeHome = lazy(() => import('./pages/EmployeeHome'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const QrScan = lazy(() => import('./pages/QrScan'));
+const BranchSetupWizard = lazy(() => import('./pages/BranchSetupWizard'));
+const Branches = lazy(() => import('./pages/Branches'));
+const BranchDetail = lazy(() => import('./pages/BranchDetail'));
+const RolePermissions = lazy(() => import('./pages/RolePermissions'));
+const LeaveManagementPage = lazy(() => import('./pages/LeaveManagementPage'));
+const PayrollPage = lazy(() => import('./pages/PayrollPage'));
+const PayrollWizardPage = lazy(() => import('./pages/PayrollWizardPage'));
+const EmployeeDirectory = lazy(() => import('./pages/EmployeeDirectory'));
+const TeamsPage = lazy(() => import('./pages/TeamsPage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
 // and complete biometric KYC — Employee, Manager, HR, GM, Intern, or any
@@ -39,10 +48,20 @@ const canClockIn = (role?: string) => !!role && role !== 'super_admin' && role !
 // granted) can reach it — the backend enforces exactly what each of them can
 // actually do once there. A plain 'employee' has no reason to be there.
 const canSeeDashboard = (role?: string) => !!role && role !== 'employee';
+const canManageLeaveDesk = (role?: string) => role === 'tenant_admin' || role === 'super_admin';
+// Teams is a personal "my team" workspace for delegated roles — the tenant
+// admin already administers the whole org via Administration, so they're
+// excluded here even though they otherwise satisfy canSeeDashboard (the
+// backend's own team.manage check mirrors this, see teams.routes.ts).
+const canManageTeams = (role?: string) => canSeeDashboard(role) && role !== 'tenant_admin';
 
 function landingPathFor(user: User) {
-  if (canSeeDashboard(user.role)) return '/dashboard';
+  // Attendance is mandatory for every non-admin operating role. Managers,
+  // HR, GM, and custom staff roles may also have dashboard access, but they
+  // should land in the employee workspace first so "mark attendance" and
+  // break controls are never hidden behind the management UI.
   if (canClockIn(user.role)) return '/employee/dashboard';
+  if (canSeeDashboard(user.role)) return '/dashboard';
   return '/login';
 }
 
@@ -58,11 +77,17 @@ const RouteFallback = () => (
 // all. "Do not lose QR session during login": bounce through
 // /employee/login?next=/qr/:token and EmployeeLogin.tsx's routeAfterLogin
 // honors that param once login (and KYC, if still pending) completes.
+// KYC is a company-wide switch (tenant.kycEnabled) — when a tenant has
+// turned it off, no employee there is ever routed to the KYC wizard.
+// user.kycEnabled is undefined only for stale cached sessions predating this
+// field, treated as enabled (the pre-existing behavior) until next login.
+const kycRequired = (user: User) => user.kycEnabled !== false && !user.isKycCompleted;
+
 function QrDeepLink({ user }: { user: User | null }) {
   const params = useParams<{ token: string }>();
   if (!user) return <Navigate to={`/employee/login?next=/qr/${params.token}`} />;
   if (!canClockIn(user.role)) return <Navigate to="/" />;
-  if (!user.isKycCompleted) return <Navigate to="/employee/kyc" />;
+  if (kycRequired(user)) return <Navigate to="/employee/kyc" />;
   return <QrScan user={user} />;
 }
 
@@ -82,6 +107,24 @@ export default function AdminApp() {
           <Route path="/forgot-password" element={!user ? <ForgotPassword /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/reset-password" element={!user ? <ResetPassword /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/dashboard" element={user && canSeeDashboard(user.role) ? <Dashboard user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/branch-setup" element={
+            !user ? <Navigate to="/login" />
+            : user.role !== 'tenant_admin' ? <Navigate to={landingPathFor(user)} />
+            : <BranchSetupWizard user={user} updateSession={updateSession} />
+          } />
+          <Route path="/tenant/branches" element={user && canSeeDashboard(user.role) ? <Branches user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/branches/:id" element={user && canSeeDashboard(user.role) ? <BranchDetail user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/roles" element={user && canSeeDashboard(user.role) ? <RolePermissions user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/leave" element={
+            !user ? <Navigate to="/login" />
+            : canManageLeaveDesk(user.role) ? <LeaveManagementPage user={user} onLogout={logout} />
+            : <Navigate to={landingPathFor(user)} replace />
+          } />
+          <Route path="/tenant/payroll" element={user && canSeeDashboard(user.role) ? <PayrollPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/payroll/setup/employee/:userId/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/payroll/setup/role/:roleName/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/directory" element={user && canSeeDashboard(user.role) ? <EmployeeDirectory user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/teams" element={user && canManageTeams(user.role) ? <TeamsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
 
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
@@ -90,13 +133,13 @@ export default function AdminApp() {
           <Route path="/employee/dashboard" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : !user.isKycCompleted ? <Navigate to="/employee/kyc" />
+            : kycRequired(user) ? <Navigate to="/employee/kyc" />
             : <EmployeeDashboard user={user} onLogout={logout} />
           } />
           <Route path="/employee/attendance" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : !user.isKycCompleted ? <Navigate to="/employee/kyc" />
+            : kycRequired(user) ? <Navigate to="/employee/kyc" />
             : <EmployeeAttendance user={user} onLogout={logout} />
           } />
           {/* Old post-check-in page folded into the new dashboard's Breaks &
@@ -106,7 +149,7 @@ export default function AdminApp() {
           <Route path="/employee/home-legacy" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : !user.isKycCompleted ? <Navigate to="/employee/kyc" />
+            : kycRequired(user) ? <Navigate to="/employee/kyc" />
             : <EmployeeHome user={user} onLogout={logout} />
           } />
 
@@ -114,7 +157,7 @@ export default function AdminApp() {
           <Route path="/employee/qr-scan" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : !user.isKycCompleted ? <Navigate to="/employee/kyc" />
+            : kycRequired(user) ? <Navigate to="/employee/kyc" />
             : <QrScan user={user} />
           } />
           {/* Public deep link — opened by any QR scanner/camera app, not just this one's built-in scanner */}

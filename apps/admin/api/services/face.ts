@@ -23,6 +23,24 @@ export async function callFaceService(endpoint: string, payload: any): Promise<a
   return body;
 }
 
+export async function getFaceServiceHealth(): Promise<{ status: string; modelLoaded: boolean }> {
+  const baseUrl = process.env.FACE_SERVICE_URL || 'http://127.0.0.1:8001';
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/health`);
+  } catch (_networkErr: any) {
+    throw new Error(`Could not reach the face service at ${baseUrl} — is it running? (services/face-service)`);
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.detail || `Face service returned HTTP ${response.status}`);
+  }
+  return {
+    status: body.status === 'ok' ? 'ok' : 'degraded',
+    modelLoaded: body.modelLoaded === true,
+  };
+}
+
 // Cosine similarity between two face embeddings. InsightFace's ArcFace
 // embeddings (buffalo_l) are meant to be compared this way — a value near 1
 // means "almost certainly the same person", near 0 (or negative) means

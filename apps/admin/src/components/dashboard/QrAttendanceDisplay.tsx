@@ -151,34 +151,34 @@ export default function QrAttendanceDisplay() {
   }, []);
 
   if (loading) {
-    return <div className="text-center py-16 text-sm text-[var(--color-premium-muted)]">Loading QR Attendance...</div>;
+    return <div className="text-center py-16 text-sm text-[var(--color-nexus-muted)]">Loading QR Attendance...</div>;
   }
 
   return (
     <div
       ref={containerRef}
-      className={`glass-card rounded-3xl ${isFullscreen ? 'fixed inset-0 z-50 flex flex-col items-center justify-center rounded-none' : 'p-8'}`}
+      className={`nexus-card rounded-3xl ${isFullscreen ? 'fixed inset-0 z-50 flex flex-col items-center justify-center rounded-none' : 'p-8'}`}
     >
       {error && (
-        <div className="bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)] text-xs p-3 rounded-xl mb-4 border border-[var(--color-premium-danger)]/20 font-medium max-w-md mx-auto">{error}</div>
+        <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-3 rounded-xl mb-4 border border-[var(--color-nexus-error)]/20 font-medium max-w-md mx-auto">{error}</div>
       )}
 
       {!session ? (
         <div className="text-center py-12 max-w-sm mx-auto">
-          <h2 className="text-lg font-bold text-gradient font-display mb-2">Start QR Attendance Session</h2>
-          <p className="text-xs text-[var(--color-premium-muted)] mb-6">Displays a rotating QR code employees can scan with their phone to mark attendance.</p>
-          <label className="block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider">Rotation Interval</label>
+          <h2 className="text-lg font-bold text-gradient font-sans mb-2">Start QR Attendance Session</h2>
+          <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Displays a rotating QR code employees can scan with their phone to mark attendance.</p>
+          <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Rotation Interval</label>
           <select
             value={rotationSeconds}
             onChange={e => setRotationSeconds(parseInt(e.target.value, 10))}
-            className="w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm mb-4 focus:outline-none focus:border-[var(--color-premium-accent)]"
+            className="w-full px-4 py-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-sm mb-4 focus:outline-none focus:border-[var(--color-nexus-primary)]"
           >
             {ROTATION_OPTIONS.map(s => <option key={s} value={s}>{s} seconds</option>)}
           </select>
           <button
             onClick={handleStart}
             disabled={starting}
-            className="w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(123,92,250,0.3)]"
+            className="w-full bg-[var(--color-nexus-primary)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-nexus-primary-hover)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(37,99,235,0.3)]"
           >
             <Play size={14} />
             {starting ? 'Starting...' : 'Start Session'}
@@ -187,43 +187,43 @@ export default function QrAttendanceDisplay() {
       ) : (
         <div className="flex flex-col items-center text-center">
           <div className="flex items-center gap-3 mb-4">
-            <span className="px-3 py-1 bg-[color:var(--color-premium-success)]/10 text-[var(--color-premium-success)] rounded-full text-[10px] font-bold uppercase tracking-wider border border-[color:var(--color-premium-success)]/20 pulse-ring">
+            <span className="px-3 py-1 bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)] rounded-full text-[10px] font-bold uppercase tracking-wider border border-[color:var(--color-nexus-success-text)]/20 pulse-ring">
               Session Active
             </span>
-            <button onClick={toggleFullscreen} className="text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] transition-colors" aria-label="Toggle fullscreen">
+            <button onClick={toggleFullscreen} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors" aria-label="Toggle fullscreen">
               {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
             </button>
           </div>
 
           {qrImageUrl && (
-            <div className="relative p-4 rounded-3xl bg-white border-2 border-[var(--color-premium-accent-soft)] shadow-[0_10px_40px_-12px_rgba(123,92,250,0.35)]">
+            <div className="relative p-4 rounded-3xl bg-white border-2 border-[var(--color-nexus-primary-fixed)] shadow-[0_10px_40px_-12px_rgba(37,99,235,0.35)]">
               <img src={qrImageUrl} alt="Scan to mark attendance" className={isFullscreen ? 'w-[70vmin] h-[70vmin]' : 'w-72 h-72 md:w-96 md:h-96'} />
-              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-[var(--color-premium-accent)] text-white text-xs font-mono font-bold px-4 py-1.5 rounded-full shadow-lg">
+              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-[var(--color-nexus-primary)] text-white text-xs font-mono font-bold px-4 py-1.5 rounded-full shadow-lg">
                 {secondsLeft}s
               </div>
             </div>
           )}
 
-          <p className="text-xs text-[var(--color-premium-muted)] mt-6 mb-4">Refreshes automatically every {session.rotationSeconds}s — no need to reload.</p>
+          <p className="text-xs text-[var(--color-nexus-muted)] mt-6 mb-4">Refreshes automatically every {session.rotationSeconds}s — no need to reload.</p>
 
           <div className="grid grid-cols-3 gap-3 w-full max-w-sm mb-6">
-            <div className="glass-card card-3d rounded-xl p-3">
-              <span className="block text-[9px] text-[var(--color-premium-muted)] uppercase font-bold tracking-wider">Scans</span>
-              <span className="text-xl font-black text-[var(--color-premium-ink)]">{counts.scansCount}</span>
+            <div className="nexus-card  rounded-xl p-3">
+              <span className="block text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider">Scans</span>
+              <span className="text-xl font-black text-[var(--color-nexus-ink)]">{counts.scansCount}</span>
             </div>
-            <div className="rounded-xl p-3 border border-[color:var(--color-premium-success)]/20 bg-[color:var(--color-premium-success)]/10">
-              <span className="block text-[9px] text-[var(--color-premium-success)] uppercase font-bold tracking-wider">Success</span>
-              <span className="text-xl font-black text-[var(--color-premium-success)]">{counts.successCount}</span>
+            <div className="rounded-xl p-3 border border-[color:var(--color-nexus-success-text)]/20 bg-[color:var(--color-nexus-success-text)]/10">
+              <span className="block text-[9px] text-[var(--color-nexus-success-text)] uppercase font-bold tracking-wider">Success</span>
+              <span className="text-xl font-black text-[var(--color-nexus-success-text)]">{counts.successCount}</span>
             </div>
-            <div className="rounded-xl p-3 border border-[var(--color-premium-danger)]/20 bg-[var(--color-premium-danger-soft)]">
-              <span className="block text-[9px] text-[var(--color-premium-danger)] uppercase font-bold tracking-wider">Failed</span>
-              <span className="text-xl font-black text-[var(--color-premium-danger)]">{counts.failCount}</span>
+            <div className="rounded-xl p-3 border border-[var(--color-nexus-error)]/20 bg-[var(--color-nexus-error-soft)]">
+              <span className="block text-[9px] text-[var(--color-nexus-error)] uppercase font-bold tracking-wider">Failed</span>
+              <span className="text-xl font-black text-[var(--color-nexus-error)]">{counts.failCount}</span>
             </div>
           </div>
 
           <button
             onClick={handleStop}
-            className="bg-[var(--color-premium-danger-soft)] hover:brightness-95 text-[var(--color-premium-danger)] font-bold text-xs uppercase tracking-wider py-2.5 px-6 rounded-xl transition-all flex items-center gap-2"
+            className="bg-[var(--color-nexus-error-soft)] hover:brightness-95 text-[var(--color-nexus-error)] font-bold text-xs uppercase tracking-wider py-2.5 px-6 rounded-xl transition-all flex items-center gap-2"
           >
             <Square size={12} />
             Stop Session

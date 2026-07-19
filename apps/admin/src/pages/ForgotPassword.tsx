@@ -77,7 +77,7 @@ export default function ForgotPassword() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-2 shadow-[0_8px_24px_rgba(123,92,250,0.3)]"
+                className="w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-2 shadow-[0_8px_24px_rgba(37,99,235,0.3)]"
               >
                 {loading ? 'Sending...' : 'Send Reset Link'}
               </button>

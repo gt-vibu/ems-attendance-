@@ -47,7 +47,9 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
   }, [searchParams]);
 
   const routeAfterLogin = (user: User) => {
-    if (!user.isKycCompleted) {
+    // KYC is a company-wide switch — skip the wizard entirely for a company
+    // that has turned it off, regardless of isKycCompleted.
+    if (user.kycEnabled !== false && !user.isKycCompleted) {
       navigate('/employee/kyc');
       return;
     }
@@ -153,7 +155,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
 
   const inputClasses = "w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all font-medium text-[var(--color-premium-ink)]";
   const labelClasses = "block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider";
-  const buttonClasses = "w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-4 shadow-[0_8px_24px_rgba(123,92,250,0.3)]";
+  const buttonClasses = "w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-4 shadow-[0_8px_24px_rgba(37,99,235,0.3)]";
 
   return (
     <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans relative overflow-hidden">

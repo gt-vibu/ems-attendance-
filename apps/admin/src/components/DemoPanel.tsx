@@ -14,7 +14,6 @@ import { attendanceEngine, LogEvent, CorrectionState } from '../state/attendance
 import { SessionStatus, BreakStatus, PresenceStatus } from '../types';
 import { useLiveTheme } from '../hooks/useLiveTheme';
 import EventLog from './EventLog';
-import EnterpriseSandbox from './EnterpriseSandbox';
 
 function DemoBadge({ state, correctionState, presenceState }: { state: SessionStatus; correctionState: CorrectionState; presenceState: PresenceStatus }) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -51,15 +50,15 @@ function DemoBadge({ state, correctionState, presenceState }: { state: SessionSt
     }
   });
 
-  // State colors corresponding to palette
-  let badgeColor = '#6B7A80'; // NOT_STARTED
-  if (state === SessionStatus.PENDING_VERIFICATION) badgeColor = '#E8B95B';
-  else if (state === SessionStatus.ACTIVE) badgeColor = '#4FD1A5';
-  else if (state === SessionStatus.ON_BREAK) badgeColor = '#3FA9C9';
-  else if (state === SessionStatus.NEEDS_REVIEW) badgeColor = '#E8843F';
-  else if (state === SessionStatus.CLOSED) badgeColor = '#2E7D5B';
-  else if (state === SessionStatus.REJECTED) badgeColor = '#E05959';
-  else if (state === SessionStatus.ABSENT) badgeColor = '#8A8F92';
+  // State colors corresponding to the Ledger palette
+  let badgeColor = '#8A9089'; // NOT_STARTED
+  if (state === SessionStatus.PENDING_VERIFICATION) badgeColor = '#B8873A';
+  else if (state === SessionStatus.ACTIVE) badgeColor = '#0F6E5B';
+  else if (state === SessionStatus.ON_BREAK) badgeColor = '#2E6F8E';
+  else if (state === SessionStatus.NEEDS_REVIEW) badgeColor = '#B8873A';
+  else if (state === SessionStatus.CLOSED) badgeColor = '#14805F';
+  else if (state === SessionStatus.REJECTED) badgeColor = '#B3432B';
+  else if (state === SessionStatus.ABSENT) badgeColor = '#8A9089';
 
   return (
     <mesh ref={meshRef}>
@@ -83,9 +82,6 @@ function DemoBadge({ state, correctionState, presenceState }: { state: SessionSt
 
 export default function DemoPanel() {
   const theme = useLiveTheme();
-  
-  // Choose between interactive developer shift simulator and multi-tenant enterprise suite
-  const [activeMode, setActiveMode] = useState<'SIMULATOR' | 'ENTERPRISE'>('ENTERPRISE');
 
   // Local state mirrored from atomic store engine
   const [session, setSession] = useState<SessionStatus>(SessionStatus.NOT_STARTED);
@@ -160,82 +156,51 @@ export default function DemoPanel() {
 
   // State palette map
   const stateColorMap: Record<string, string> = {
-    NOT_STARTED: '#6B7A80',
-    PENDING_VERIFICATION: '#E8B95B',
-    ACTIVE: '#4FD1A5',
-    ON_BREAK: '#3FA9C9',
-    NEEDS_REVIEW: '#E8843F',
-    PENDING_APPROVAL: '#9C8CE8',
-    CLOSED: '#2E7D5B',
-    REJECTED: '#E05959',
-    ABSENT: '#8A8F92'
+    NOT_STARTED: '#8A9089',
+    PENDING_VERIFICATION: '#B8873A',
+    ACTIVE: '#0F6E5B',
+    ON_BREAK: '#2E6F8E',
+    NEEDS_REVIEW: '#B8873A',
+    PENDING_APPROVAL: '#7C6FB0',
+    CLOSED: '#14805F',
+    REJECTED: '#B3432B',
+    ABSENT: '#8A9089'
   };
 
-  if (activeMode === 'ENTERPRISE') {
-    return (
-      <div id="interactive-demo-panel" className="scroll-mt-28 py-12 px-4 max-w-6xl mx-auto select-none space-y-8 animate-fade-in">
-        {/* Toggle Mode */}
-        <div className="flex justify-center">
-          <div className="inline-flex bg-slate-950/85 border border-[#143239]/50 rounded-full p-1.5 shadow-xl backdrop-blur-md">
-            <button
-              onClick={() => setActiveMode('SIMULATOR')}
-              className="px-5 py-2 rounded-full text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer text-slate-400 hover:text-[#8FE3C0]"
-            >
-              🕹️ Shift Simulator
-            </button>
-            <button
-              onClick={() => setActiveMode('ENTERPRISE')}
-              className="px-5 py-2 rounded-full text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer bg-[#0B2A2E] text-[#8FE3C0] border border-[#8FE3C0]/15"
-            >
-              🏢 Enterprise SaaS Console
-            </button>
-          </div>
-        </div>
-        <EnterpriseSandbox />
-      </div>
-    );
-  }
+  const SESSION_LABELS: Record<string, string> = {
+    NOT_STARTED: 'Not started', PENDING_VERIFICATION: 'Verifying', ACTIVE: 'Active',
+    ON_BREAK: 'On break', NEEDS_REVIEW: 'Needs review', CLOSED: 'Closed',
+    REJECTED: 'Rejected', ABSENT: 'Absent',
+  };
 
   return (
     <div id="interactive-demo-panel" className="scroll-mt-28 py-12 px-4 max-w-4xl mx-auto select-none space-y-8 animate-fade-in">
-      {/* Toggle Mode */}
-      <div className="flex justify-center">
-        <div className="inline-flex bg-slate-950/85 border border-slate-900 rounded-full p-1.5 shadow-xl backdrop-blur-md">
-          <button
-            onClick={() => setActiveMode('SIMULATOR')}
-            className="px-5 py-2 rounded-full text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer bg-[#0B2A2E] text-[#8FE3C0] border border-[#8FE3C0]/15"
-          >
-            🕹️ Shift Simulator
-          </button>
-          <button
-            onClick={() => setActiveMode('ENTERPRISE')}
-            className="px-5 py-2 rounded-full text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer text-slate-400 hover:text-[#8FE3C0]"
-          >
-            🏢 Enterprise SaaS Console
-          </button>
-        </div>
+      <div className="text-center">
+        <span className="inline-block px-4 py-1.5 rounded-full bg-[var(--color-premium-ink)] text-[#5FBFA0] text-xs font-bold uppercase tracking-wider">
+          Shift Simulator
+        </span>
       </div>
 
-      <div className="glass-panel-heavy rounded-[32px] border border-slate-200/50 p-6 md:p-10 shadow-2xl relative overflow-hidden flex flex-col items-stretch">
-        
+      <div className="glass-card rounded-[32px] p-6 md:p-10 relative overflow-hidden flex flex-col items-stretch" style={{ boxShadow: 'var(--shadow-elevation-2)' }}>
+
         {/* Toast Warning Anomaly overlay banner */}
         {activeToast && (
-          <div className="absolute top-4 left-4 right-4 bg-orange-500 border border-orange-600/30 text-white rounded-2xl py-3 px-5 shadow-xl flex items-center gap-3 animate-pulse z-50">
+          <div className="absolute top-4 left-4 right-4 bg-[var(--color-premium-warning)] text-white rounded-2xl py-3 px-5 shadow-xl flex items-center gap-3 z-50">
             <AlertTriangle className="w-5 h-5 shrink-0" />
             <div className="text-xs font-sans">
-              <span className="font-bold block uppercase tracking-wider text-[10px] text-orange-100">SYSTEM ANOMALY REJECTED</span>
+              <span className="font-bold block uppercase tracking-wider text-[10px] text-white/80">Anomaly flagged</span>
               {activeToast}
             </div>
           </div>
         )}
 
         {/* Column layout: Top 3D Badge Canvas */}
-        <div className="grid md:grid-cols-12 gap-8 items-center border-b border-slate-200/40 pb-8 mb-8">
-          
+        <div className="grid md:grid-cols-12 gap-8 items-center border-b border-[var(--color-premium-border)] pb-8 mb-8">
+
           <div className="md:col-span-4 flex flex-col items-center justify-center">
-            <div className="relative w-40 h-40 bg-slate-950 border border-slate-900 rounded-full shadow-inner flex items-center justify-center overflow-hidden">
-              <div className="absolute inset-0 bg-radial-[circle_at_center,transparent_30%,rgba(0,0,0,0.8)_100%]" />
-              
+            <div className="relative w-40 h-40 bg-[var(--color-premium-ink)] rounded-full shadow-inner flex items-center justify-center overflow-hidden">
+              <div className="absolute inset-0 bg-radial-[circle_at_center,transparent_30%,rgba(0,0,0,0.6)_100%]" />
+
               <Canvas camera={{ position: [0, 0, 2.5] }} style={{ pointerEvents: 'none' }}>
                 <ambientLight intensity={1.5} />
                 <directionalLight position={[2, 3, 2]} intensity={2.0} />
@@ -243,24 +208,24 @@ export default function DemoPanel() {
               </Canvas>
 
               {/* Small live colored chip overlay */}
-              <div 
-                style={{ backgroundColor: stateColorMap[session] }} 
-                className="absolute bottom-2 px-2.5 py-0.5 rounded-full text-[8px] font-mono text-white tracking-widest font-extrabold uppercase border border-white/20 shadow-md"
+              <div
+                style={{ backgroundColor: stateColorMap[session] }}
+                className="absolute bottom-2 px-2.5 py-0.5 rounded-full text-[9px] text-white tracking-wide font-bold uppercase border border-white/20 shadow-md"
               >
-                {session}
+                {SESSION_LABELS[session] || session}
               </div>
             </div>
           </div>
 
           <div className="md:col-span-8 space-y-4">
             <div>
-              <span className="font-mono text-[9px] tracking-widest text-slate-400 font-extrabold uppercase block mb-1">
-                IMMUTABLE CONSOLE CONTROLLER
+              <span className="text-[11px] tracking-wide text-[var(--color-premium-accent)] font-bold uppercase block mb-1">
+                Interactive demo
               </span>
-              <h3 className="font-display font-black text-2xl text-slate-950 tracking-tight leading-tight">
+              <h3 className="font-display font-semibold text-2xl text-[var(--color-premium-ink)] tracking-tight leading-tight">
                 Run a shift simulation
               </h3>
-              <p className="font-sans text-xs text-slate-500 max-w-lg leading-relaxed mt-1">
+              <p className="font-sans text-sm text-[var(--color-premium-muted)] max-w-lg leading-relaxed mt-1">
                 Interact with the real-time attendance state machines. Toggle geofences, trigger breaks, and review correction requests as Manager or HR.
               </p>
             </div>
@@ -274,8 +239,8 @@ export default function DemoPanel() {
                   onChange={(e) => setLowConfidence(e.target.checked)}
                   className="rounded text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
                 />
-                <span className="font-sans text-xs font-semibold text-slate-600 flex items-center gap-1">
-                  <Smartphone className="w-3.5 h-3.5 text-slate-400" />
+                <span className="font-sans text-xs font-semibold text-[var(--color-premium-muted)] flex items-center gap-1">
+                  <Smartphone className="w-3.5 h-3.5 text-[var(--color-premium-muted)]" />
                   Simulate low confidence check-in (62%)
                 </span>
               </label>
@@ -283,10 +248,10 @@ export default function DemoPanel() {
               <button
                 onClick={handleGeofenceToggle}
                 disabled={session === SessionStatus.NOT_STARTED || session === SessionStatus.CLOSED}
-                className={`px-3 py-1.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase transition-all flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border ${
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide uppercase transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border ${
                   presence === PresenceStatus.OUTSIDE_OFFICE
-                    ? 'bg-rose-50 border-rose-200 text-rose-700'
-                    : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    ? 'bg-[var(--color-premium-danger-soft)] border-[var(--color-premium-danger)]/20 text-[var(--color-premium-danger)]'
+                    : 'bg-[var(--color-premium-success-soft)] border-[var(--color-premium-success)]/20 text-[var(--color-premium-success)]'
                 }`}
               >
                 <MapPin className="w-3.5 h-3.5" />
@@ -299,87 +264,87 @@ export default function DemoPanel() {
 
         {/* Primary State Machine Controls */}
         <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          
+
           {/* Action 1: Check In */}
           <button
             onClick={handleCheckIn}
             disabled={session !== SessionStatus.NOT_STARTED && session !== SessionStatus.CLOSED}
-            className="flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
-            <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mb-3 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 rounded-full bg-[var(--color-premium-success-soft)] flex items-center justify-center text-[var(--color-premium-success)] mb-3 group-hover:scale-105 transition-transform">
               <Play className="w-4 h-4 fill-current" />
             </div>
-            <span className="font-display font-extrabold text-xs text-slate-950 uppercase tracking-tight">Check-In</span>
-            <span className="font-mono text-[8px] text-slate-400 mt-1">START VERIFICATION</span>
+            <span className="font-display font-semibold text-xs text-[var(--color-premium-ink)] uppercase tracking-tight">Check-In</span>
+            <span className="text-[10px] text-[var(--color-premium-muted)] mt-1">Start verification</span>
           </button>
 
           {/* Action 2: Coffee break toggle */}
           <button
             onClick={handleBreak}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
-            <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 mb-3 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 rounded-full bg-[var(--color-premium-info-soft)] flex items-center justify-center text-[var(--color-premium-info)] mb-3 group-hover:scale-105 transition-transform">
               <Coffee className="w-4 h-4" />
             </div>
-            <span className="font-display font-extrabold text-xs text-slate-950 uppercase tracking-tight">
+            <span className="font-display font-semibold text-xs text-[var(--color-premium-ink)] uppercase tracking-tight">
               {session === SessionStatus.ON_BREAK ? 'End Break' : 'Start Break'}
             </span>
-            <span className="font-mono text-[8px] text-slate-400 mt-1">SUSPEND GEOFENCE</span>
+            <span className="text-[10px] text-[var(--color-premium-muted)] mt-1">Suspends geofence</span>
           </button>
 
           {/* Action 3: Checkout */}
           <button
             onClick={handleCheckOut}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
-            <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 mb-3 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 rounded-full bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center text-[var(--color-premium-accent-2)] mb-3 group-hover:scale-105 transition-transform">
               <CheckCircle className="w-4 h-4" />
             </div>
-            <span className="font-display font-extrabold text-xs text-slate-950 uppercase tracking-tight">Check-Out</span>
-            <span className="font-mono text-[8px] text-slate-400 mt-1">SEAL SHIFT RECORD</span>
+            <span className="font-display font-semibold text-xs text-[var(--color-premium-ink)] uppercase tracking-tight">Check-Out</span>
+            <span className="text-[10px] text-[var(--color-premium-muted)] mt-1">Seals the shift record</span>
           </button>
 
           {/* Action 4: Reset platform */}
           <button
             onClick={handleReset}
-            className="flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/50 shadow-xs hover:shadow-md transition-all cursor-pointer group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer group text-center"
           >
-            <div className="w-10 h-10 rounded-full bg-slate-50 border border-slate-150 flex items-center justify-center text-slate-600 mb-3 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 rounded-full bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-[var(--color-premium-muted)] mb-3 group-hover:scale-105 transition-transform">
               <RefreshCw className="w-4 h-4" />
             </div>
-            <span className="font-display font-extrabold text-xs text-slate-950 uppercase tracking-tight">Reset Ledger</span>
-            <span className="font-mono text-[8px] text-slate-400 mt-1">FLUSH SIMULATOR</span>
+            <span className="font-display font-semibold text-xs text-[var(--color-premium-ink)] uppercase tracking-tight">Reset Demo</span>
+            <span className="text-[10px] text-[var(--color-premium-muted)] mt-1">Clears the simulator</span>
           </button>
 
         </div>
 
         {/* Manager Review Stepper Flow panel (displays if NEEDS_REVIEW is active) */}
         {session === SessionStatus.NEEDS_REVIEW && (
-          <div className="bg-slate-50 border border-slate-200/50 rounded-2xl p-5 mb-8 space-y-4">
-            <div className="flex justify-between items-center border-b border-slate-200/40 pb-2">
-              <span className="font-mono text-[9px] text-[#E8843F] font-black uppercase flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-[#E8843F]" />
-                Verification Anomaly unresolved
+          <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-2xl p-5 mb-8 space-y-4">
+            <div className="flex justify-between items-center border-b border-[var(--color-premium-border)] pb-2">
+              <span className="text-[11px] text-[var(--color-premium-warning)] font-bold uppercase flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Verification needs review
               </span>
-              <span className="font-mono text-[9px] text-slate-400 font-bold uppercase">SECURE_CORRECTION_WORKFLOW</span>
+              <span className="text-[10px] text-[var(--color-premium-muted)] font-semibold uppercase tracking-wide">Correction workflow</span>
             </div>
 
             <div className="flex flex-wrap gap-4 items-center justify-between">
               <div className="space-y-1">
-                <h5 className="font-display font-bold text-xs text-slate-950 tracking-tight">
-                  Manager & HR Correction approval chain
+                <h5 className="font-display font-semibold text-xs text-[var(--color-premium-ink)] tracking-tight">
+                  Manager &amp; HR correction approval chain
                 </h5>
-                <p className="text-[11px] font-sans text-slate-500 max-w-md">
-                  Correct coordinates discrepancy. Employee files request, Manager checks timeline evidence, and HR injects block into timesheet database.
+                <p className="text-[11px] font-sans text-[var(--color-premium-muted)] max-w-md">
+                  A coordinate discrepancy needs correcting. The employee files a request, a manager checks the timeline evidence, and HR approves the final record.
                 </p>
               </div>
 
               {correction === 'NONE' && (
                 <button
                   onClick={handleStartCorrection}
-                  className="px-4 py-2 rounded-full bg-[#0B2A2E] text-[#EAF6FB] text-xs font-semibold cursor-pointer shadow-md hover:opacity-90 flex items-center gap-1"
+                  className="px-4 py-2 rounded-full bg-[var(--color-premium-ink)] text-white text-xs font-semibold cursor-pointer shadow-md hover:opacity-90 flex items-center gap-1"
                 >
                   File Correction
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -391,40 +356,40 @@ export default function DemoPanel() {
               <div className="pt-2 space-y-4">
                 {/* Micro avatar-actor nodes path */}
                 <div className="flex items-center justify-between relative px-4 max-w-md mx-auto py-2">
-                  <div className="absolute top-1/2 left-0 right-0 h-[1.5px] bg-slate-200 -translate-y-1/2 z-0" />
+                  <div className="absolute top-1/2 left-0 right-0 h-[1.5px] bg-[var(--color-premium-border)] -translate-y-1/2 z-0" />
 
                   {/* Node 1: Employee */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className="w-7 h-7 rounded-full bg-[#0B2A2E] border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">
+                    <div className="w-7 h-7 rounded-full bg-[var(--color-premium-ink)] border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">
                       EM
                     </div>
-                    <span className="font-sans text-[8px] font-bold text-slate-500 mt-1 uppercase">Employee</span>
+                    <span className="font-sans text-[9px] font-bold text-[var(--color-premium-muted)] mt-1 uppercase">Employee</span>
                   </div>
 
                   {/* Connector arrow */}
-                  <div className="text-slate-400 font-mono text-[10px]">···</div>
+                  <div className="text-[var(--color-premium-muted)] text-[10px]">···</div>
 
                   {/* Node 2: Manager */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-all ${
-                      correction === 'SUBMITTED' ? 'bg-[#E8B95B] animate-pulse' : correction === 'MANAGER_APPROVED' || correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[#4FD1A5]' : 'bg-slate-200 text-slate-500'
+                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
+                      correction === 'SUBMITTED' ? 'bg-[var(--color-premium-warning)]' : correction === 'MANAGER_APPROVED' || correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[var(--color-premium-success)]' : 'bg-[var(--color-premium-border)] text-[var(--color-premium-muted)]'
                     }`}>
                       MN
                     </div>
-                    <span className="font-sans text-[8px] font-bold text-slate-500 mt-1 uppercase">Manager</span>
+                    <span className="font-sans text-[9px] font-bold text-[var(--color-premium-muted)] mt-1 uppercase">Manager</span>
                   </div>
 
                   {/* Connector arrow */}
-                  <div className="text-slate-400 font-mono text-[10px]">···</div>
+                  <div className="text-[var(--color-premium-muted)] text-[10px]">···</div>
 
                   {/* Node 3: HR Compliance */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-all ${
-                      correction === 'MANAGER_APPROVED' ? 'bg-[#9C8CE8] animate-pulse' : correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[#4FD1A5]' : 'bg-slate-200 text-slate-500'
+                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
+                      correction === 'MANAGER_APPROVED' ? 'bg-[#7C6FB0]' : correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[var(--color-premium-success)]' : 'bg-[var(--color-premium-border)] text-[var(--color-premium-muted)]'
                     }`}>
                       HR
                     </div>
-                    <span className="font-sans text-[8px] font-bold text-slate-500 mt-1 uppercase">HR BP</span>
+                    <span className="font-sans text-[9px] font-bold text-[var(--color-premium-muted)] mt-1 uppercase">HR</span>
                   </div>
                 </div>
 
@@ -434,13 +399,13 @@ export default function DemoPanel() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleManagerDecision(true)}
-                        className="px-3.5 py-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:bg-emerald-600"
+                        className="px-3.5 py-1.5 rounded-full bg-[var(--color-premium-success)] text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:opacity-90"
                       >
                         Manager Approve
                       </button>
                       <button
                         onClick={() => handleManagerDecision(false)}
-                        className="px-3.5 py-1.5 rounded-full bg-rose-500 text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:bg-rose-600"
+                        className="px-3.5 py-1.5 rounded-full bg-[var(--color-premium-danger)] text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:opacity-90"
                       >
                         Manager Reject
                       </button>
@@ -450,22 +415,22 @@ export default function DemoPanel() {
                   {correction === 'MANAGER_APPROVED' && (
                     <button
                       onClick={handleHRAudit}
-                      className="px-4 py-1.5 rounded-full bg-indigo-500 text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:bg-indigo-600"
+                      className="px-4 py-1.5 rounded-full bg-[#7C6FB0] text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:opacity-90"
                     >
-                      HR Audit & Inject Ledger
+                      HR Audit &amp; Approve
                     </button>
                   )}
 
                   {correction === 'HR_APPROVED' && (
-                    <div className="text-[10px] font-mono text-[#4FD1A5] font-black animate-pulse uppercase">
-                      Queueing block insertion into timesheet database...
+                    <div className="text-[11px] text-[var(--color-premium-success)] font-bold">
+                      Applying the correction to the record...
                     </div>
                   )}
 
                   {correction === 'APPLIED' && (
-                    <div className="text-[10px] font-mono text-emerald-600 font-black flex items-center gap-1 uppercase">
+                    <div className="text-[11px] text-[var(--color-premium-success)] font-bold flex items-center gap-1">
                       <Check className="w-3.5 h-3.5" />
-                      Correction applied. Ledger sealed.
+                      Correction applied. Record sealed.
                     </div>
                   )}
                 </div>

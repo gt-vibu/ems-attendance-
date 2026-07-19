@@ -36,14 +36,14 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
         <button
           onClick={goBack}
           aria-label="Back"
-          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-[var(--color-premium-accent-soft)] transition-colors"
+          className="p-2 rounded-lg text-[var(--color-nexus-muted,#64748b)] hover:text-[var(--color-nexus-ink,#0f172a)] hover:bg-[var(--color-nexus-primary-fixed)] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <button
           onClick={goToLanding}
           aria-label="Visit landing page"
-          className="p-2 rounded-lg text-[var(--color-premium-muted,#64748b)] hover:text-[var(--color-premium-ink,#0f172a)] hover:bg-[var(--color-premium-accent-soft)] transition-colors"
+          className="p-2 rounded-lg text-[var(--color-nexus-muted,#64748b)] hover:text-[var(--color-nexus-ink,#0f172a)] hover:bg-[var(--color-nexus-primary-fixed)] transition-colors"
         >
           <Globe className="w-4 h-4" />
         </button>
@@ -61,7 +61,7 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
       <button
         onClick={goBack}
         aria-label="Back"
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--color-premium-surface)]/90 backdrop-blur-md border border-[var(--color-premium-border)] shadow-[0_4px_20px_rgba(123,92,250,0.08)] text-xs font-semibold text-[var(--color-premium-ink)] hover:border-[var(--color-premium-accent)] hover:text-[var(--color-premium-accent)] transition-colors"
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--color-nexus-surface)]/90 backdrop-blur-md border border-[var(--color-nexus-border)] shadow-[0_4px_20px_rgba(37,99,235,0.08)] text-xs font-semibold text-[var(--color-nexus-ink)] hover:border-[var(--color-nexus-primary)] hover:text-[var(--color-nexus-primary)] transition-colors"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
         Back
@@ -69,7 +69,7 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
       <button
         onClick={goToLanding}
         aria-label="Visit landing page"
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--color-premium-surface)]/90 backdrop-blur-md border border-[var(--color-premium-border)] shadow-[0_4px_20px_rgba(123,92,250,0.08)] text-xs font-semibold text-[var(--color-premium-ink)] hover:border-[var(--color-premium-accent)] hover:text-[var(--color-premium-accent)] transition-colors"
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--color-nexus-surface)]/90 backdrop-blur-md border border-[var(--color-nexus-border)] shadow-[0_4px_20px_rgba(37,99,235,0.08)] text-xs font-semibold text-[var(--color-nexus-ink)] hover:border-[var(--color-nexus-primary)] hover:text-[var(--color-nexus-primary)] transition-colors"
       >
         <Globe className="w-3.5 h-3.5" />
         Landing Page

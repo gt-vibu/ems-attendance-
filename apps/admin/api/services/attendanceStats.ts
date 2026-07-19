@@ -51,7 +51,7 @@ export async function computeAttendancePercent(userId: number, tenant: any, asOf
 // with the "up" role in the tenant, plus every tenant_admin. There's no
 // per-employee assigned-manager relationship in this schema — alerts go to
 // the whole role pool rather than one specific superior.
-export async function getHierarchyAlertRecipients(tenantId: number, subjectRole: string): Promise<any[]> {
+export async function getHierarchyAlertRecipients(tenantId: number, subjectRole: string, subjectUserId?: number): Promise<any[]> {
   const upRole: Record<string, string | null> = {
     employee: 'manager',
     manager: 'HR',
@@ -60,5 +60,20 @@ export async function getHierarchyAlertRecipients(tenantId: number, subjectRole:
   };
   const tenantUsers = await db.select().from(schema.users).where(eq(schema.users.tenantId, tenantId));
   const target = upRole[subjectRole];
-  return tenantUsers.filter((u: any) => u.role === 'tenant_admin' || (target && u.role === target));
+
+  let directManager: any = null;
+  if (subjectUserId) {
+    const subjectUser = tenantUsers.find((u: any) => u.id === subjectUserId);
+    if (subjectUser && subjectUser.managerId) {
+      directManager = tenantUsers.find((u: any) => u.id === subjectUser.managerId);
+    }
+  }
+
+  const poolRecipients = tenantUsers.filter((u: any) => u.role === 'tenant_admin' || (target && u.role === target));
+
+  if (directManager) {
+    const filteredPool = poolRecipients.filter((u: any) => u.id !== directManager.id);
+    return [directManager, ...filteredPool];
+  }
+  return poolRecipients;
 }

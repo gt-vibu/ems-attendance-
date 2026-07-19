@@ -14,7 +14,17 @@ interface EmailOptions {
   html: string;
 }
 
-export async function sendEmail(options: EmailOptions) {
+export interface EmailResult {
+  // 'simulated' means no real provider is configured (or all configured
+  // providers failed) — the message was only written to emails/ on disk,
+  // nobody actually received anything. Callers that promise the recipient
+  // "an email was sent" (e.g. the hire flow) should check this before
+  // claiming success.
+  delivered: boolean;
+  provider: 'resend' | 'smtp' | 'simulated';
+}
+
+export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   const { to, subject, text, html } = options;
 
   console.log(`\n==================================================`);
@@ -62,7 +72,7 @@ export async function sendEmail(options: EmailOptions) {
           throw new Error(result.error.message || JSON.stringify(result.error));
         }
         console.log(`[RESEND SUCCESS] Email sent to ${to}`);
-        return;
+        return { delivered: true, provider: 'resend' };
       } catch (err) {
         console.error(`[RESEND ERROR]`, err);
         // Fall through to SMTP / simulation instead of silently dropping the email.
@@ -92,7 +102,7 @@ export async function sendEmail(options: EmailOptions) {
         to, subject, text, html
       });
       console.log(`[SMTP SUCCESS] Email sent to ${to}`);
-      return;
+      return { delivered: true, provider: 'smtp' };
     } catch (err: any) {
       console.error(`[SMTP ERROR]`, err?.message || err);
       if (err?.responseCode === 535 || /invalid login|username and password not accepted/i.test(err?.message || '')) {
@@ -108,6 +118,7 @@ export async function sendEmail(options: EmailOptions) {
 
   // --- OPTION 3: Simulation fallback ---
   console.log(`[EMAIL SIMULATED] No mail provider configured. Check emails/ folder.`);
+  return { delivered: false, provider: 'simulated' };
 }
 
 // --- Premium HTML Email Templates ---
@@ -445,5 +456,55 @@ export async function sendWfhLocationChangeDecisionEmail(to: string, name: strin
     </div>
   `;
   const text = `Hello ${name},\n\nYour Work From Home location change request has been ${status.toUpperCase()}.`;
+  await sendEmail({ to, subject, text, html });
+}
+
+export async function sendLeaveApprovalRequestEmail(to: string, approverName: string, employeeName: string, leaveType: string, startDate: string, endDate: string, totalDays: number, reason: string) {
+  const subject = `Leave Approval Needed: ${employeeName}`;
+  const html = `
+    <div style="${emailStyles}">
+      <div style="${containerStyles}">
+        <h2 style="${headerStyles}; color: #0F766E;">Leave Request Awaiting Approval</h2>
+        <p>Hello ${approverName},</p>
+        <p><strong>${employeeName}</strong> submitted a leave request that needs review.</p>
+        <div style="${cardStyles}">
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Type:</strong> ${leaveType}</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Dates:</strong> ${startDate} to ${endDate}</p>
+          <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Total Days:</strong> ${totalDays}</p>
+          <p style="margin: 12px 0 0 0; font-size: 13px; color: #475569;"><strong>Reason:</strong> ${reason}</p>
+        </div>
+        <p style="font-size: 13px; color: #475569;">Please approve or reject this leave request from the dashboard.</p>
+        <div style="${footerStyles}">
+          <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  const text = `Hello ${approverName},\n\n${employeeName} submitted a ${leaveType} leave request from ${startDate} to ${endDate} for ${totalDays} day(s).\n\nReason: ${reason}\n\nPlease review it from the dashboard.`;
+  await sendEmail({ to, subject, text, html });
+}
+
+export async function sendLeaveDecisionEmail(to: string, employeeName: string, leaveType: string, startDate: string, endDate: string, status: 'approved' | 'rejected', comment?: string) {
+  const subject = `Leave Request ${status.toUpperCase()}: ${leaveType}`;
+  const accentColor = status === 'approved' ? '#10B981' : '#EF4444';
+  const html = `
+    <div style="${emailStyles}">
+      <div style="${containerStyles}">
+        <h2 style="${headerStyles}">Leave Request Reviewed</h2>
+        <p>Hello ${employeeName},</p>
+        <p>Your <strong>${leaveType}</strong> leave request for <strong>${startDate}</strong> to <strong>${endDate}</strong> has been reviewed.</p>
+        <div style="${cardStyles}">
+          <p style="margin: 0; font-size: 14px; font-weight: bold; color: ${accentColor}; uppercase tracking-wider;">
+            Status: ${status.toUpperCase()}
+          </p>
+          ${comment ? `<p style="margin: 12px 0 0 0; font-size: 13px; color: #475569;"><strong>Reviewer Comment:</strong> ${comment}</p>` : ''}
+        </div>
+        <div style="${footerStyles}">
+          <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  const text = `Hello ${employeeName},\n\nYour ${leaveType} leave request for ${startDate} to ${endDate} has been ${status.toUpperCase()}.${comment ? `\n\nReviewer comment: ${comment}` : ''}`;
   await sendEmail({ to, subject, text, html });
 }

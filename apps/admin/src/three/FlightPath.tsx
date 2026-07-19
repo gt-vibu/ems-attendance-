@@ -18,11 +18,11 @@ interface Waypoint {
 }
 
 const WAYPOINTS: Waypoint[] = [
-  { id: 'checkin', label: '1. Check-In', caption: 'Facial & IMEI checks start.', pos: [-4.0, 0.5, 0], color: '#6B7A80' },
-  { id: 'verify', label: '2. Verification', caption: 'Liveness validation run.', pos: [-2.2, -0.5, 0], color: '#E8B95B' },
-  { id: 'active', label: '3. Active Duty', caption: 'Geofence active guard.', pos: [-0.4, 0.6, 0], color: '#4FD1A5' },
-  { id: 'break', label: '4. Coffee Break', caption: 'Presence gap reconciled.', pos: [1.4, -0.4, 0], color: '#3FA9C9' },
-  { id: 'checkout', label: '5. Check-Out', caption: 'Coordinates signature seal.', pos: [3.2, 0.5, 0], color: '#2E7D5B' }
+  { id: 'checkin', label: '1. Check-In', caption: 'Face and device checks begin.', pos: [-4.0, 0.5, 0], color: '#8A9089' },
+  { id: 'verify', label: '2. Verification', caption: 'Liveness is confirmed.', pos: [-2.2, -0.5, 0], color: '#B8873A' },
+  { id: 'active', label: '3. Active Duty', caption: 'Location is actively tracked.', pos: [-0.4, 0.6, 0], color: '#0F6E5B' },
+  { id: 'break', label: '4. Break', caption: 'Time away is reconciled.', pos: [1.4, -0.4, 0], color: '#2E6F8E' },
+  { id: 'checkout', label: '5. Check-Out', caption: 'The record is sealed.', pos: [3.2, 0.5, 0], color: '#14805F' }
 ];
 
 function ScenePath({ progress, onReached }: { progress: number; onReached: (idx: number) => void }) {
@@ -71,7 +71,7 @@ function ScenePath({ progress, onReached }: { progress: number; onReached: (idx:
       {/* Visual dotted path */}
       <line>
         <primitive object={curveGeom} attach="geometry" />
-        <lineBasicMaterial color="#8FE3C0" linewidth={1.5} transparent opacity={0.3} />
+        <lineBasicMaterial color="#0F6E5B" linewidth={1.5} transparent opacity={0.3} />
       </line>
 
       {/* Waypoint nodes */}
@@ -82,10 +82,10 @@ function ScenePath({ progress, onReached }: { progress: number; onReached: (idx:
             {/* Mesh Node */}
             <mesh>
               <sphereGeometry args={[0.15, 16, 16]} />
-              <meshStandardMaterial 
-                color={active ? wp.color : '#2A3C44'} 
-                emissive={active ? wp.color : '#000000'} 
-                emissiveIntensity={0.6}
+              <meshStandardMaterial
+                color={active ? wp.color : '#D8D4C8'}
+                emissive={active ? wp.color : '#000000'}
+                emissiveIntensity={0.5}
               />
             </mesh>
 
@@ -100,10 +100,10 @@ function ScenePath({ progress, onReached }: { progress: number; onReached: (idx:
             {/* HTML Annotation label beneath */}
             <Html distanceFactor={6} center style={{ pointerEvents: 'none' }}>
               <div className="w-28 text-center mt-6 select-none">
-                <span className="block font-display font-bold text-[11px] text-[#EAF6FB] uppercase tracking-tight">
+                <span className="block font-display font-semibold text-[12px] text-[var(--color-premium-ink)] tracking-tight">
                   {wp.label}
                 </span>
-                <span className="block text-[9px] text-[#9FB4BC] font-sans font-medium mt-0.5 leading-tight">
+                <span className="block text-[10px] text-[var(--color-premium-muted)] font-sans font-medium mt-0.5 leading-tight">
                   {wp.caption}
                 </span>
               </div>
@@ -115,11 +115,11 @@ function ScenePath({ progress, onReached }: { progress: number; onReached: (idx:
       {/* Flying Badge Indicator Node */}
       <mesh ref={badgeRef}>
         <octahedronGeometry args={[0.22, 0]} />
-        <meshStandardMaterial 
-          color="#8FE3C0" 
-          emissive="#0B2A2E" 
-          roughness={0.1}
-          metalness={0.9} 
+        <meshStandardMaterial
+          color="#0F6E5B"
+          emissive="#0B4136"
+          roughness={0.15}
+          metalness={0.85}
         />
       </mesh>
     </group>
@@ -174,26 +174,27 @@ export default function FlightPath() {
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="glass-panel-heavy rounded-[32px] border border-slate-200/50 p-6 md:p-8 shadow-xl max-w-4xl mx-auto backdrop-blur-md relative overflow-hidden"
+      className="glass-card rounded-[32px] p-6 md:p-8 max-w-4xl mx-auto relative overflow-hidden"
+      style={{ boxShadow: 'var(--shadow-elevation-2)' }}
     >
       <div className="flex justify-between items-center mb-6">
         <div>
-          <span className="font-mono text-[9px] tracking-widest text-[#8FE3C0] font-black uppercase">
-            IMMUTABLE WORKFLOW FLIGHT_PATH
+          <span className="text-[11px] tracking-wide text-[var(--color-premium-accent)] font-bold uppercase">
+            How it works
           </span>
-          <h4 className="font-display font-black text-lg text-slate-950 tracking-tight mt-0.5">
-            Five Waypoints of Verified Presence
+          <h4 className="font-display font-semibold text-xl text-[var(--color-premium-ink)] tracking-tight mt-0.5">
+            From check-in to check-out
           </h4>
         </div>
 
         <button
           onClick={handleReplay}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-850 text-white text-[10px] font-mono tracking-wider font-extrabold cursor-pointer transition-all shadow-md uppercase"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white text-[11px] font-bold tracking-wide cursor-pointer transition-colors shadow-sm"
         >
-          <RefreshCw className={`w-3 h-3 ${playing ? 'animate-spin' : ''}`} />
-          Replay Flight
+          <RefreshCw className={`w-3.5 h-3.5 ${playing ? 'animate-spin' : ''}`} />
+          Replay
         </button>
       </div>
 
@@ -202,21 +203,21 @@ export default function FlightPath() {
         <Canvas camera={{ position: [0, 0, 5], fov: 45 }} style={{ pointerEvents: 'none' }}>
           <ambientLight intensity={1.5} />
           <pointLight position={[5, 5, 5]} intensity={1} />
-          <ScenePath 
-            progress={progress} 
-            onReached={(idx) => setActiveStep(idx)} 
+          <ScenePath
+            progress={progress}
+            onReached={(idx) => setActiveStep(idx)}
           />
         </Canvas>
       </div>
 
-      {/* Bottom active waypoint summary readouts */}
-      <div className="pt-4 border-t border-slate-200/40 flex justify-between items-center text-[11px] font-mono select-none text-slate-500">
-        <span className="font-bold flex items-center gap-1">
-          <Play className="w-3.5 h-3.5 text-[#8FE3C0]" />
-          ACTIVE WAYPOINT STATE:
+      {/* Bottom active waypoint summary readout */}
+      <div className="pt-4 border-t border-[var(--color-premium-border)] flex justify-between items-center text-[12px] select-none text-[var(--color-premium-muted)]">
+        <span className="font-semibold flex items-center gap-1.5">
+          <Play className="w-3.5 h-3.5 text-[var(--color-premium-accent)]" />
+          Current step
         </span>
-        <span className="font-black px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-950 uppercase">
-          {WAYPOINTS[activeStep]?.label || 'Awaiting launch...'}
+        <span className="font-bold px-3 py-1 rounded-full bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)]">
+          {WAYPOINTS[activeStep]?.label || 'Ready to begin'}
         </span>
       </div>
     </div>

@@ -30,11 +30,13 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
   Promise<{ ok: true; token: string; user: any } | { ok: false; status: number; body: any }> {
   // Block access for users of a suspended tenant (super_admin has no
   // tenantId and is exempt).
+  let tenant: any = null;
   if (user.tenantId) {
     const tenantCheck = await db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId));
     if (tenantCheck.length > 0 && tenantCheck[0].status === 'suspended') {
       return { ok: false, status: 403, body: { error: 'Your organization\'s access has been suspended. Please contact your administrator.' } };
     }
+    tenant = tenantCheck[0] || null;
   }
 
   // Device Pinning Check (for anyone who can clock in — every role except
@@ -86,23 +88,29 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
     }
   }
 
-  // Single-active-session enforcement: reject a second login attempt while a
-  // still-valid session exists. A naturally-expired session (or no prior
-  // session) is treated as "not logged in" so a crashed browser that never
-  // hit /logout doesn't lock the account out beyond the token's own 24h life.
-  const now = new Date();
-  if (user.activeSessionId && user.sessionExpiresAt && new Date(user.sessionExpiresAt) > now) {
-    return { ok: false, status: 409, body: {
-      error: 'already_logged_in',
-      message: 'This account is already logged in. Please log out first.'
-    }};
-  }
-
+  // A fresh, successful login (correct password just verified above) is
+  // itself strong proof of identity — same reasoning /api/auth/reset-password
+  // already relies on. So rather than blocking a second login attempt with a
+  // 409 "already logged in" (which false-positived whenever a browser was
+  // closed without hitting /logout, since activeSessionId/sessionExpiresAt
+  // stay set until the token's own 24h expiry), a new login simply issues a
+  // fresh session outright. issueNewSession() overwrites activeSessionId, so
+  // the previous session's sid stops matching on its very next request and
+  // is invalidated by authenticate() — at most one session is ever live,
+  // just without ever hard-blocking a legitimate re-login.
   const token = await issueNewSession(user);
 
   return {
     ok: true,
     token,
-    user: { id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId, isKycCompleted: user.isKycCompleted }
+    user: {
+      id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId,
+      isKycCompleted: user.isKycCompleted,
+      // Frontend needs these to decide the post-login redirect: skip the KYC
+      // wizard entirely when the company has turned it off, and only ever
+      // send a tenant_admin to the branch-setup wizard, and only once.
+      kycEnabled: tenant ? tenant.kycEnabled !== false : true,
+      branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
+    }
   };
 }

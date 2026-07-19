@@ -97,6 +97,40 @@ router.post('/api/kyc', authenticate, async (req: any, res: any) => {
     }
   });
 
+router.post('/api/kyc/verify-step', authenticate, async (req: any, res: any) => {
+    try {
+      const { action, images } = req.body || {};
+      if (!action || !KYC_ACTIONS.includes(action)) {
+        return res.status(400).json({ error: 'A valid KYC action is required.' });
+      }
+      if (!Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: 'images are required.' });
+      }
+
+      let enrollResult: any;
+      try {
+        enrollResult = await callFaceService('/enroll', { actions: { [action]: images } });
+      } catch (faceErr: any) {
+        return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
+      }
+
+      if (Array.isArray(enrollResult.failedActions) && enrollResult.failedActions.includes(action)) {
+        return res.status(422).json({
+          passed: false,
+          error: `We couldn't confirm ${action.replace('_', ' ')}. Please keep your face visible and repeat the action more clearly.`,
+        });
+      }
+
+      res.json({
+        passed: true,
+        action,
+        actionLog: enrollResult.actionLog?.[action] || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Liveness Verification Challenge Endpoint — issues a fresh random subset
   // of actions AND remembers it server-side (keyed by user) so /verify-face
   // below has something authoritative to check the capture burst against.

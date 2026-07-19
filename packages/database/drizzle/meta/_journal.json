@@ -8,6 +8,41 @@
       "when": 1783756512721,
       "tag": "0000_round_sue_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784031355129,
+      "tag": "0001_blue_supernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784044637009,
+      "tag": "0002_lovely_whizzer",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784109584693,
+      "tag": "0003_blue_ted_forrester",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784198967523,
+      "tag": "0004_wandering_invisible_woman",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784199161533,
+      "tag": "0005_groovy_kulan_gath",
+      "breakpoints": true
     }
   ]
 }

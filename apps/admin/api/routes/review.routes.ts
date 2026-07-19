@@ -15,6 +15,7 @@ import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToke
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { notifyUsers } from '../services/notifications';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
@@ -114,12 +115,14 @@ router.get('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
     }
   });
 
-  // Only the tenant admin sets the holiday calendar — it's a policy, same
-  // reasoning as /api/tenant/config/update.
+  // Delegable via the `holiday.manage` privilege — same catalog entry
+  // already honored by the bulk public-holiday import endpoint
+  // (leavePayroll.routes.ts), so a role granted holiday.manage can add/
+  // delete individual holidays too instead of only bulk-importing.
 router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'tenant_admin') {
-        return res.status(403).json({ error: 'Access denied: Only the tenant admin can manage the holiday calendar.' });
+      if (!await hasPrivilege(req.user, 'holiday.manage')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const { date, name } = req.body;
       if (!date || !name) {
@@ -130,6 +133,14 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
         date,
         name
       }).returning();
+      // Notify every employee in the tenant — a declared holiday affects
+      // everyone's leave/attendance calendar.
+      const tenantUsers = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId));
+      await notifyUsers(
+        tenantUsers.map((u) => u.id),
+        'New holiday declared',
+        `${name} on ${date} has been added to the company holiday calendar.`
+      );
       res.json({ holiday: created[0] });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -138,8 +149,8 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
 
 router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'tenant_admin') {
-        return res.status(403).json({ error: 'Access denied: Only the tenant admin can manage the holiday calendar.' });
+      if (!await hasPrivilege(req.user, 'holiday.manage')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
       if (holidayList.length === 0) {

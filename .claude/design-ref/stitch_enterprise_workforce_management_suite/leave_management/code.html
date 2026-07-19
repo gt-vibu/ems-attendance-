@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EnterpriseHR - Leave Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary": "#000000",
+                    "on-surface": "#191c1e",
+                    "on-tertiary": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "on-background": "#191c1e",
+                    "primary-fixed-dim": "#bec6e0",
+                    "tertiary-container": "#002113",
+                    "on-error": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "secondary-fixed": "#d3e4fe",
+                    "tertiary-fixed": "#6ffbbe",
+                    "inverse-surface": "#2d3133",
+                    "error-container": "#ffdad6",
+                    "surface-variant": "#e0e3e5",
+                    "inverse-primary": "#bec6e0",
+                    "primary-container": "#131b2e",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#38485d",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container-low": "#f2f4f6",
+                    "outline-variant": "#c6c6cd",
+                    "primary": "#000000",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-container": "#d0e1fb",
+                    "on-secondary-fixed": "#0b1c30",
+                    "tertiary-fixed-dim": "#4edea3",
+                    "surface": "#f7f9fb",
+                    "on-primary-container": "#7c839b",
+                    "surface-dim": "#d8dadc",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-surface-variant": "#45464d",
+                    "inverse-on-surface": "#eff1f3",
+                    "primary-fixed": "#dae2fd",
+                    "background": "#f7f9fb",
+                    "on-tertiary-fixed": "#002113",
+                    "on-tertiary-fixed-variant": "#005236",
+                    "surface-tint": "#565e74",
+                    "secondary": "#505f76",
+                    "on-secondary-container": "#54647a",
+                    "outline": "#76777d",
+                    "on-primary-fixed-variant": "#3f465c",
+                    "on-primary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "surface-container": "#eceef0",
+                    "on-primary-fixed": "#131b2e",
+                    "on-tertiary-container": "#009668"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "md": "16px",
+                    "margin-mobile": "16px",
+                    "base": "4px",
+                    "margin-desktop": "32px",
+                    "xs": "4px",
+                    "xl": "48px",
+                    "sm": "8px",
+                    "lg": "24px",
+                    "gutter": "20px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "data-tabular": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-tabular": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(226, 232, 240, 0.5);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen pb-20 md:pb-0">
+<!-- TopAppBar from JSON -->
+<header class="w-full top-0 sticky bg-surface dark:bg-surface-container border-b border-outline-variant dark:border-outline z-50">
+<div class="flex justify-between items-center h-14 px-margin-mobile md:px-margin-desktop w-full">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A minimalist professional company logo featuring abstract geometric shapes in deep navy and silver, set against a clean white background, conveying corporate reliability and modern technological agility." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrIZwQoqtdveRBc6ocDB446CaXVsaD0ysZd9qZ5oAcSn8NA0aHN9j3u9AZNiMwcc3o0kkcXpXysyiK-Lko4Si8C0DcTaI7znbyIEwL78zV5tWc56iSzoXmfpQD9JyHx5z4SvXcG8s5Iqwl1ClpdP3yJuBaYCk85faM4vzn06QJKIFsVXIKrKWjnx6FQvTkWwaBXVa7AJ-550tcKNrag-jFjmGizLSdfr1K2ONycKwPpsn3KB2WGamWQAPWHyiAEeg2a1I0eVUAJO_O"/>
+</div>
+<h1 class="text-headline-md font-headline-md font-bold text-primary dark:text-primary-fixed-dim">EnterpriseHR</h1>
+</div>
+<!-- Desktop Nav Items -->
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant dark:text-on-surface-variant font-label-sm text-label-sm hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant font-label-sm text-label-sm hover:text-primary transition-colors" href="#">Attendance</a>
+<a class="text-primary dark:text-primary-fixed-dim font-label-sm text-label-sm border-b-2 border-primary pb-1" href="#">Leave</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant font-label-sm text-label-sm hover:text-primary transition-colors" href="#">Profile</a>
+</nav>
+<div class="flex items-center gap-2">
+<button class="p-2 rounded-full hover:bg-surface-container-high transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center cursor-pointer">
+<span class="material-symbols-outlined text-on-secondary-container">person</span>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1440px] mx-auto px-margin-mobile md:px-margin-desktop py-lg">
+<!-- Dashboard Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-xl gap-lg">
+<div>
+<h2 class="font-headline-lg text-headline-lg md:font-headline-lg text-headline-lg text-on-surface mb-2">Leave Management</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Manage your time off requests and track your annual allowance.</p>
+</div>
+<!-- Leave Balance Stats -->
+<div class="grid grid-cols-2 sm:flex gap-md">
+<div class="glass-panel p-md rounded-xl flex flex-col min-w-[120px]">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Total Entitlement</span>
+<span class="font-headline-md text-headline-md text-primary">25 Days</span>
+</div>
+<div class="glass-panel p-md rounded-xl flex flex-col min-w-[120px]">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider mb-1">Days Taken</span>
+<span class="font-headline-md text-headline-md text-primary">12 Days</span>
+</div>
+<div class="glass-panel p-md rounded-xl border-l-4 border-l-on-tertiary-container flex flex-col min-w-[120px]">
+<span class="font-label-sm text-label-sm text-on-tertiary-container uppercase tracking-wider mb-1">Available</span>
+<span class="font-headline-md text-headline-md text-on-tertiary-container">13 Days</span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Request Form (Left Column) -->
+<aside class="lg:col-span-4 space-y-gutter">
+<div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-sm">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-lg flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">add_circle</span>
+                        New Request
+                    </h3>
+<form class="space-y-md">
+<div class="space-y-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Leave Type</label>
+<select class="w-full bg-surface border border-outline-variant rounded-lg p-3 font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-transparent outline-none appearance-none">
+<option>Annual Leave</option>
+<option>Sick Leave</option>
+<option>Personal Leave</option>
+<option>Maternity/Paternity</option>
+</select>
+</div>
+<div class="grid grid-cols-2 gap-md">
+<div class="space-y-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Start Date</label>
+<input class="w-full bg-surface border border-outline-variant rounded-lg p-3 font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-transparent outline-none" type="date"/>
+</div>
+<div class="space-y-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">End Date</label>
+<input class="w-full bg-surface border border-outline-variant rounded-lg p-3 font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-transparent outline-none" type="date"/>
+</div>
+</div>
+<div class="space-y-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Reason for Absence</label>
+<textarea class="w-full bg-surface border border-outline-variant rounded-lg p-3 font-body-md text-body-md focus:ring-2 focus:ring-primary focus:border-transparent outline-none resize-none" placeholder="Briefly explain the reason for your leave..." rows="4"></textarea>
+</div>
+<button class="w-full bg-primary text-on-primary font-label-sm text-label-sm py-4 rounded-lg hover:bg-slate-800 transition-all shadow-lg active:scale-[0.98]" type="submit">
+                            Submit Request
+                        </button>
+</form>
+</div>
+<!-- Admin Perspective Toggle (UX Simulation) -->
+<div class="glass-panel p-md rounded-xl border border-dashed border-outline text-center">
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-3">View as Manager</p>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" id="adminToggle" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</aside>
+<!-- Request History / Approval Queue (Right Column) -->
+<section class="lg:col-span-8 space-y-gutter">
+<!-- Admin Queue (Visible if adminToggle is on) -->
+<div class="hidden animate-in fade-in slide-in-from-top-4 duration-500" id="adminQueue">
+<div class="bg-surface-container-lowest border border-primary/20 p-lg rounded-xl shadow-md ring-1 ring-primary/5">
+<div class="flex items-center justify-between mb-lg">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">pending_actions</span>
+                                Pending Approvals
+                            </h3>
+<span class="bg-primary text-on-primary px-3 py-1 rounded-full text-label-sm font-label-sm">3 Waiting</span>
+</div>
+<div class="space-y-md">
+<!-- Admin Request Card 1 -->
+<div class="flex flex-col md:flex-row md:items-center justify-between p-md border border-outline-variant rounded-lg hover:border-primary/40 transition-colors bg-surface-bright">
+<div class="flex items-center gap-md mb-md md:mb-0">
+<div class="w-12 h-12 rounded-full overflow-hidden bg-surface-variant">
+<img class="w-full h-full object-cover" data-alt="A professional corporate headshot of a female employee with a friendly expression, wearing business casual attire, softly lit in a modern office environment with blurred plants in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBPgFnxvGiDeUoVNhm17qDPqBuAHhQpjUjSmO7dKT8NholBbBjgjTdwCeppaNU0ViYpTrunVdhKmm5DxRGsyNzHHBYSOz1X5BmvgEPFVIeHwWKmEL-CQ1WwTzvWC5tWhqVwQ_gOQJd0rjwQlReO73aef9BmIHWsdq3Jy8LIOwDf1EOPWUTCMQdlexQI7QDanZ8joKRAmd8a__JNTtfj-puWQW4MK1mb2pnqigNqCP2o2FTtHzGjPWzgEsLY2pKJ3Ufo7jDMMp87bu86"/>
+</div>
+<div>
+<h4 class="font-label-sm text-body-lg font-bold text-on-surface">Sarah Jenkins</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Annual Leave • 3 Days (Oct 12 - Oct 14)</p>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<button class="flex items-center gap-1 px-4 py-2 rounded-lg text-label-sm font-label-sm bg-surface-container-lowest border border-error text-error hover:bg-error/5 transition-colors">
+<span class="material-symbols-outlined text-[18px]">close</span> Reject
+                                    </button>
+<button class="flex items-center gap-1 px-4 py-2 rounded-lg text-label-sm font-label-sm bg-primary text-on-primary hover:bg-slate-800 transition-colors">
+<span class="material-symbols-outlined text-[18px]">check</span> Approve
+                                    </button>
+</div>
+</div>
+<!-- Admin Request Card 2 -->
+<div class="flex flex-col md:flex-row md:items-center justify-between p-md border border-outline-variant rounded-lg hover:border-primary/40 transition-colors bg-surface-bright">
+<div class="flex items-center gap-md mb-md md:mb-0">
+<div class="w-12 h-12 rounded-full overflow-hidden bg-surface-variant">
+<img class="w-full h-full object-cover" data-alt="A professional studio portrait of a male executive in a sleek dark blazer, neutral gray background, high-end commercial photography style with soft key lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBfGFTRUmIErodTZb-7-FUycYJr7gcqkYVoygc1h2vY1w216BpxVncNxi9iocgmqydgMYhz9-rnk08999vRPFc3JyfJGPCOQyyzUgwnewFy8Zpf-StVrx9bJgFfWr5DKTNdYlVRiqvVYvaQ7q2Fhr6u3WCdzmDtXkhgT2NY3-vX4ZWcY6WOT9P-afaZyV1kzuS4kZiByuYi30KshA_ieoRnsRP8jDNUgCBt_sRujmqNpasgt8wc9Z8EuG4lVkUKMFMyLED9DpEqn9af"/>
+</div>
+<div>
+<h4 class="font-label-sm text-body-lg font-bold text-on-surface">Marcus Chen</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Sick Leave • 1 Day (Oct 08)</p>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<button class="flex items-center gap-1 px-4 py-2 rounded-lg text-label-sm font-label-sm bg-surface-container-lowest border border-error text-error hover:bg-error/5 transition-colors">
+<span class="material-symbols-outlined text-[18px]">close</span> Reject
+                                    </button>
+<button class="flex items-center gap-1 px-4 py-2 rounded-lg text-label-sm font-label-sm bg-primary text-on-primary hover:bg-slate-800 transition-colors">
+<span class="material-symbols-outlined text-[18px]">check</span> Approve
+                                    </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Personal History -->
+<div class="bg-surface-container-lowest border border-outline-variant p-lg rounded-xl shadow-sm">
+<div class="flex items-center justify-between mb-lg">
+<h3 class="font-headline-md text-headline-md text-on-surface">Request History</h3>
+<div class="flex items-center gap-2">
+<button class="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant">
+<th class="pb-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Type</th>
+<th class="pb-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Dates</th>
+<th class="pb-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Duration</th>
+<th class="pb-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider text-right">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/50">
+<!-- History Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-lg">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">calendar_month</span>
+</div>
+<div>
+<div class="font-data-tabular text-data-tabular text-on-surface">Annual Leave</div>
+<div class="text-[12px] text-on-surface-variant">Family Vacation</div>
+</div>
+</div>
+</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface">Sep 20 - Sep 24, 2023</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface-variant">5 Days</td>
+<td class="py-lg text-right">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-label-sm font-label-sm bg-on-tertiary-container/10 text-on-tertiary-container">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-container mr-2"></span> Approved
+                                        </span>
+</td>
+</tr>
+<!-- History Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-lg">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">medical_services</span>
+</div>
+<div>
+<div class="font-data-tabular text-data-tabular text-on-surface">Sick Leave</div>
+<div class="text-[12px] text-on-surface-variant">Doctor's Appointment</div>
+</div>
+</div>
+</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface">Aug 05, 2023</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface-variant">1 Day</td>
+<td class="py-lg text-right">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-label-sm font-label-sm bg-on-tertiary-container/10 text-on-tertiary-container">
+<span class="w-1.5 h-1.5 rounded-full bg-on-tertiary-container mr-2"></span> Approved
+                                        </span>
+</td>
+</tr>
+<!-- History Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-lg">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">emergency</span>
+</div>
+<div>
+<div class="font-data-tabular text-data-tabular text-on-surface">Personal Leave</div>
+<div class="text-[12px] text-on-surface-variant">Urgent Home Repair</div>
+</div>
+</div>
+</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface">Jul 12, 2023</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface-variant">2 Days</td>
+<td class="py-lg text-right">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-label-sm font-label-sm bg-error-container text-error">
+<span class="w-1.5 h-1.5 rounded-full bg-error mr-2"></span> Rejected
+                                        </span>
+</td>
+</tr>
+<!-- History Row 4 (Pending) -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-lg">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">hourglass_empty</span>
+</div>
+<div>
+<div class="font-data-tabular text-data-tabular text-on-surface">Annual Leave</div>
+<div class="text-[12px] text-on-surface-variant">Christmas Break</div>
+</div>
+</div>
+</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface">Dec 24 - Dec 31, 2023</td>
+<td class="py-lg font-data-tabular text-data-tabular text-on-surface-variant">6 Days</td>
+<td class="py-lg text-right">
+<span class="inline-flex items-center px-3 py-1 rounded-full text-label-sm font-label-sm bg-secondary-container text-on-secondary-container">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary mr-2"></span> Pending
+                                        </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="mt-lg pt-lg border-t border-outline-variant flex items-center justify-between">
+<p class="text-label-sm font-label-sm text-on-surface-variant">Showing 4 of 12 requests</p>
+<div class="flex gap-2">
+<button class="px-4 py-2 rounded-lg border border-outline-variant text-label-sm font-label-sm hover:bg-surface-container-high transition-colors">Previous</button>
+<button class="px-4 py-2 rounded-lg border border-outline-variant text-label-sm font-label-sm hover:bg-surface-container-high transition-colors">Next</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar from JSON -->
+<footer class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 bg-surface dark:bg-surface-container-high px-2 border-t border-outline-variant dark:border-outline shadow-md rounded-t-lg">
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 flex-1 h-full transition-transform active:scale-95">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-label-sm font-label-sm">Dashboard</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 flex-1 h-full transition-transform active:scale-95">
+<span class="material-symbols-outlined">event_available</span>
+<span class="text-label-sm font-label-sm">Attendance</span>
+</button>
+<button class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim font-bold hover:bg-surface-variant/50 flex-1 h-full transition-transform active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">event_busy</span>
+<span class="text-label-sm font-label-sm">Leave</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 flex-1 h-full transition-transform active:scale-95">
+<span class="material-symbols-outlined">person</span>
+<span class="text-label-sm font-label-sm">Profile</span>
+</button>
+</footer>
+<script>
+        // Simple UI Interaction for Admin View Toggle
+        const toggle = document.getElementById('adminToggle');
+        const adminQueue = document.getElementById('adminQueue');
+
+        toggle.addEventListener('change', function() {
+            if (this.checked) {
+                adminQueue.classList.remove('hidden');
+            } else {
+                adminQueue.classList.add('hidden');
+            }
+        });
+
+        // Add some interaction for buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if(btn.type === 'submit') {
+                    e.preventDefault();
+                    btn.textContent = 'Submitting...';
+                    setTimeout(() => {
+                        btn.textContent = 'Request Sent!';
+                        btn.classList.add('bg-green-600');
+                    }, 1000);
+                }
+            });
+        });
+    </script>
+</body></html>

@@ -16,6 +16,12 @@ export interface ReverseGeocodeResult {
   address: string;
 }
 
+export interface ForwardGeocodeResult {
+  lat: number;
+  lng: number;
+  displayName: string;
+}
+
 // Nominatim usage policy (https://operations.osmfoundation.org/policies/nominatim/):
 //   - at most ~1 request per second
 //   - a valid, identifying User-Agent is REQUIRED
@@ -30,11 +36,14 @@ const REQUEST_TIMEOUT_MS = 4000;
 const MIN_INTERVAL_MS = 1100; // keep comfortably under 1 req/sec
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // a home location's address is stable
 
-// --- In-memory cache, keyed by coords rounded to ~11m (4 decimal places) ---
-type CacheEntry = { value: ReverseGeocodeResult | null; expires: number };
+// --- In-memory cache, keyed by coords (reverse) or normalized query (forward) ---
+type CacheEntry = { value: ReverseGeocodeResult | ForwardGeocodeResult | null; expires: number };
 const cache = new Map<string, CacheEntry>();
 function cacheKey(lat: number, lng: number): string {
   return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+}
+function forwardCacheKey(query: string): string {
+  return `fwd:${query.trim().toLowerCase()}`;
 }
 
 // --- Serialize + throttle outbound requests to honor the 1 req/sec policy ---
@@ -59,7 +68,7 @@ export async function reverseGeocode(lat: number, lng: number): Promise<ReverseG
 
   const key = cacheKey(lat, lng);
   const cached = cache.get(key);
-  if (cached && cached.expires > Date.now()) return cached.value;
+  if (cached && cached.expires > Date.now()) return cached.value as ReverseGeocodeResult | null;
 
   try {
     const value = await throttle(() => fetchFromNominatim(lat, lng));
@@ -85,6 +94,48 @@ async function fetchFromNominatim(lat: number, lng: number): Promise<ReverseGeoc
     const data: any = await res.json();
     const address = data?.display_name;
     return typeof address === 'string' && address.trim() ? { address } : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Forward geocoding — turns a free-text address into coordinates, for the
+// branch-location picker ("search an address, it fixes the coordinates").
+// Same never-throw/throttle/cache discipline as reverseGeocode above.
+export async function forwardGeocode(query: string): Promise<ForwardGeocodeResult | null> {
+  if (!query || !query.trim()) return null;
+
+  const key = forwardCacheKey(query);
+  const cached = cache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value as ForwardGeocodeResult | null;
+
+  try {
+    const value = await throttle(() => fetchForwardFromNominatim(query));
+    cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+    return value;
+  } catch (err: any) {
+    console.error('[geocoding] Nominatim forward geocode failed:', err?.message || err);
+    return null;
+  }
+}
+
+async function fetchForwardFromNominatim(query: string): Promise<ForwardGeocodeResult | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=1`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const first = Array.isArray(data) ? data[0] : null;
+    if (!first) return null;
+    const lat = parseFloat(first.lat);
+    const lng = parseFloat(first.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng, displayName: first.display_name };
   } finally {
     clearTimeout(timer);
   }

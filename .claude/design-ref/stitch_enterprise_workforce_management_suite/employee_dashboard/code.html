@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Employee Dashboard | EnterpriseHR</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary": "#000000",
+                    "on-surface": "#191c1e",
+                    "on-tertiary": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "on-background": "#191c1e",
+                    "primary-fixed-dim": "#bec6e0",
+                    "tertiary-container": "#002113",
+                    "on-error": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "secondary-fixed": "#d3e4fe",
+                    "tertiary-fixed": "#6ffbbe",
+                    "inverse-surface": "#2d3133",
+                    "error-container": "#ffdad6",
+                    "surface-variant": "#e0e3e5",
+                    "inverse-primary": "#bec6e0",
+                    "primary-container": "#131b2e",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#38485d",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container-low": "#f2f4f6",
+                    "outline-variant": "#c6c6cd",
+                    "primary": "#000000",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-container": "#d0e1fb",
+                    "on-secondary-fixed": "#0b1c30",
+                    "tertiary-fixed-dim": "#4edea3",
+                    "surface": "#f7f9fb",
+                    "on-primary-container": "#7c839b",
+                    "surface-dim": "#d8dadc",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-surface-variant": "#45464d",
+                    "inverse-on-surface": "#eff1f3",
+                    "primary-fixed": "#dae2fd",
+                    "background": "#f7f9fb",
+                    "on-tertiary-fixed": "#002113",
+                    "on-tertiary-fixed-variant": "#005236",
+                    "surface-tint": "#565e74",
+                    "secondary": "#505f76",
+                    "on-secondary-container": "#54647a",
+                    "outline": "#76777d",
+                    "on-primary-fixed-variant": "#3f465c",
+                    "on-primary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "surface-container": "#eceef0",
+                    "on-primary-fixed": "#131b2e",
+                    "on-tertiary-container": "#009668"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "md": "16px",
+                    "margin-mobile": "16px",
+                    "base": "4px",
+                    "margin-desktop": "32px",
+                    "xs": "4px",
+                    "xl": "48px",
+                    "sm": "8px",
+                    "lg": "24px",
+                    "gutter": "20px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "data-tabular": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-tabular": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen pb-20 md:pb-0">
+<!-- TopAppBar -->
+<header class="w-full top-0 sticky z-40 bg-surface dark:bg-surface-container border-b border-outline-variant dark:border-outline flex justify-between items-center h-14 px-margin-mobile md:px-margin-desktop">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional corporate logo design for EnterpriseHR, featuring minimalist geometric shapes in black and white. The aesthetic is clean, modern, and trustworthy, with high-contrast sharp edges. This digital illustration represents corporate reliability and efficiency in a bright light-mode studio setting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBznQYrJ4_tKrzYQQm9OFzX31ATvF3VUoYtQl1VtJthkLtQYbSnTZozAqi_zPFiOIIWYQ7O9Fi4rHi3qnjFp7pkiro0L6CGV9Mc6FekAcIhlvimoX-_K7gZJEJviT9t9e-GslWJbSCiua69b3N95KqsYtcMIoEUofVM3Ica51W3cj9pztTxKVCILT1NTKBdd58jLS1gzCFGDhsm1zXnSOCJtkIgH2PiPDBicB1w-ZoAFZZOJxwV93eqXdael8E9ioF78p5yO-xQnN41"/>
+</div>
+<span class="text-headline-md font-headline-md font-bold text-primary dark:text-primary-fixed-dim">EnterpriseHR</span>
+</div>
+<!-- Desktop Nav -->
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-primary dark:text-primary-fixed-dim font-bold font-label-sm text-label-sm" href="#">Dashboard</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high transition-colors px-3 py-1 rounded-full font-label-sm text-label-sm" href="#">Attendance</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high transition-colors px-3 py-1 rounded-full font-label-sm text-label-sm" href="#">Leave</a>
+<a class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-high transition-colors px-3 py-1 rounded-full font-label-sm text-label-sm" href="#">Profile</a>
+</nav>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:bg-surface-container-high p-2 rounded-full transition-colors" data-icon="notifications">notifications</span>
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A high-resolution professional headshot of a young business professional with a friendly smile. The lighting is soft and natural, against a clean, minimalist office background. The composition is circular, conveying a sense of corporate approachable leadership within a high-density modern UI environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAYcEZAgqZHcDaK3TffxwbBigIJRcjf0wrDxaB567nkaSTw6HLn4neax48A4yF6NazVD3RiGcUj8xnw2rs-OqhOGrFeQAgH6AuICTy6Q3UChSbJrqGEYFRwqHxtYjbtvpaBhXa29bcprd2NITocffAV2TMrN0HpBLt09RhDIWg4b1ceE7gKemZk3GWSt4jYzwIx2WtiU_7cSqkcrrOy5ACwoORbycrZoXvhX2uzOdEoDu9t8BxbyUgJEk80KaMVBee36oe_y-WU22u4"/>
+</div>
+</div>
+</header>
+<main class="max-w-[1440px] mx-auto px-margin-mobile md:px-margin-desktop py-lg space-y-lg">
+<!-- Welcome Section & Hero Action -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
+<div class="lg:col-span-2 space-y-2">
+<h1 class="font-headline-lg text-headline-lg text-primary tracking-tight">Welcome back, Alex</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Here's a summary of your work week and upcoming schedule.</p>
+</div>
+<div class="flex items-center justify-end">
+<!-- Prominent Check-In Button -->
+<button class="w-full md:w-auto flex items-center justify-center gap-3 bg-primary text-on-primary px-8 py-4 rounded-xl font-headline-md text-headline-md shadow-lg hover:bg-slate-800 active:scale-95 transition-all duration-200" id="checkInBtn">
+<span class="material-symbols-outlined" data-icon="login" id="checkInIcon">login</span>
+<span id="checkInText">Check-In</span>
+</button>
+</div>
+</section>
+<!-- Bento Grid Dashboard -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter">
+<!-- Attendance Summary -->
+<div class="col-span-1 md:col-span-2 lg:col-span-2 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg flex flex-col justify-between">
+<div>
+<div class="flex justify-between items-start mb-md">
+<h3 class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Attendance Summary</h3>
+<span class="text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-xs font-bold">This Month</span>
+</div>
+<div class="grid grid-cols-3 gap-md mt-lg">
+<div class="text-center">
+<div class="text-headline-lg font-headline-lg text-primary">21</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Present</div>
+</div>
+<div class="text-center border-x border-outline-variant">
+<div class="text-headline-lg font-headline-lg text-primary">02</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">On Leave</div>
+</div>
+<div class="text-center">
+<div class="text-headline-lg font-headline-lg text-error">01</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Absent</div>
+</div>
+</div>
+</div>
+<!-- Mini Chart Visual -->
+<div class="mt-xl h-16 flex items-end gap-1">
+<div class="flex-1 bg-primary/10 rounded-t h-[60%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t h-[80%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t h-[70%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t h-[90%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t h-[100%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t h-[85%]"></div>
+<div class="flex-1 bg-primary rounded-t h-[95%]"></div>
+</div>
+</div>
+<!-- Last Leave Status -->
+<div class="col-span-1 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg space-y-md">
+<h3 class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Last Leave Request</h3>
+<div class="pt-2">
+<div class="flex justify-between items-center mb-1">
+<span class="font-headline-md text-headline-md">Sick Leave</span>
+<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">Pending</span>
+</div>
+<p class="text-body-md font-body-md text-on-surface-variant">Oct 12 - Oct 14 (3 days)</p>
+</div>
+<div class="bg-surface-container p-3 rounded-lg flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-white flex items-center justify-center">
+<span class="material-symbols-outlined text-sm" data-icon="history">history</span>
+</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">Waiting for Manager approval</div>
+</div>
+</div>
+<!-- Total Work Hours -->
+<div class="col-span-1 bg-primary text-on-primary rounded-xl p-lg flex flex-col justify-between relative overflow-hidden">
+<div class="z-10">
+<h3 class="font-label-sm text-label-sm uppercase tracking-widest opacity-70">Total Hours</h3>
+<div class="text-headline-lg font-headline-lg mt-2">164.5h</div>
+<p class="text-xs opacity-60">+12% from last month</p>
+</div>
+<div class="z-10 mt-xl">
+<button class="text-xs font-bold flex items-center gap-1 hover:underline">
+                        VIEW TIMESHEET <span class="material-symbols-outlined text-xs" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<!-- Abstract visual element -->
+<div class="absolute -right-4 -bottom-4 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+</div>
+<!-- Upcoming Holidays -->
+<div class="col-span-1 md:col-span-2 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg">
+<div class="flex justify-between items-center mb-md">
+<h3 class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant">Upcoming Holidays</h3>
+<span class="text-primary font-bold text-xs cursor-pointer hover:underline">View Calendar</span>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between p-3 bg-surface rounded-lg hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-secondary-container text-on-secondary-container rounded-lg flex flex-col items-center justify-center">
+<span class="text-[10px] font-bold uppercase">Oct</span>
+<span class="text-sm font-bold">24</span>
+</div>
+<div>
+<div class="font-body-md font-bold text-on-surface">Dussehra</div>
+<div class="text-xs text-on-surface-variant">Regional Holiday</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="chevron_right">chevron_right</span>
+</div>
+<div class="flex items-center justify-between p-3 bg-surface rounded-lg hover:bg-surface-container-high transition-colors">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-secondary-container text-on-secondary-container rounded-lg flex flex-col items-center justify-center">
+<span class="text-[10px] font-bold uppercase">Nov</span>
+<span class="text-sm font-bold">12</span>
+</div>
+<div>
+<div class="font-body-md font-bold text-on-surface">Diwali</div>
+<div class="text-xs text-on-surface-variant">National Holiday</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="chevron_right">chevron_right</span>
+</div>
+</div>
+</div>
+<!-- Personal Notes / Tasks -->
+<div class="col-span-1 md:col-span-2 bg-surface-container-lowest border border-outline-variant rounded-xl p-lg relative">
+<h3 class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant mb-md">Quick Tasks</h3>
+<div class="space-y-3">
+<label class="flex items-center gap-3 p-2 hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer">
+<input class="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="text-body-md font-body-md text-on-surface">Complete self-assessment review</span>
+</label>
+<label class="flex items-center gap-3 p-2 hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer">
+<input class="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="text-body-md font-body-md text-on-surface">Update professional certificates</span>
+</label>
+<label class="flex items-center gap-3 p-2 hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer opacity-50 line-through">
+<input checked="" class="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="text-body-md font-body-md text-on-surface">Submit travel expense report</span>
+</label>
+</div>
+<div class="mt-4 pt-4 border-t border-outline-variant">
+<div class="flex items-center gap-2 text-primary font-bold text-xs cursor-pointer">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                        ADD NEW TASK
+                    </div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 bg-surface dark:bg-surface-container-high px-2 border-t border-outline-variant dark:border-outline shadow-md">
+<a class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim font-bold active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-label-sm font-label-sm">Dashboard</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" data-icon="event_available">event_available</span>
+<span class="text-label-sm font-label-sm">Attendance</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" data-icon="event_busy">event_busy</span>
+<span class="text-label-sm font-label-sm">Leave</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="text-label-sm font-label-sm">Profile</span>
+</a>
+</nav>
+<script>
+        const checkInBtn = document.getElementById('checkInBtn');
+        const checkInIcon = document.getElementById('checkInIcon');
+        const checkInText = document.getElementById('checkInText');
+        let isCheckedIn = false;
+
+        checkInBtn.addEventListener('click', () => {
+            isCheckedIn = !isCheckedIn;
+            
+            if (isCheckedIn) {
+                checkInBtn.classList.remove('bg-primary');
+                checkInBtn.classList.add('bg-emerald-600');
+                checkInText.innerText = 'Checked-In';
+                checkInIcon.innerText = 'logout';
+                // Trigger a small pulse effect
+                checkInBtn.animate([
+                    { transform: 'scale(1)' },
+                    { transform: 'scale(1.05)' },
+                    { transform: 'scale(1)' }
+                ], { duration: 200 });
+            } else {
+                checkInBtn.classList.remove('bg-emerald-600');
+                checkInBtn.classList.add('bg-primary');
+                checkInText.innerText = 'Check-In';
+                checkInIcon.innerText = 'login';
+            }
+        });
+
+        // Add some atmospheric micro-interactions
+        document.querySelectorAll('.bg-surface-container-lowest').forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                card.style.transform = 'translateY(-2px)';
+                card.style.transition = 'transform 0.3s ease, box-shadow 0.3s ease';
+                card.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05)';
+            });
+            card.addEventListener('mouseleave', () => {
+                card.style.transform = 'translateY(0)';
+                card.style.boxShadow = 'none';
+            });
+        });
+    </script>
+</body></html>

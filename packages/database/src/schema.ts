@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
@@ -45,6 +45,75 @@ export const tenants = pgTable('tenants', {
   qrRequireFace: boolean('qr_require_face').default(true),
   qrGeofenceRadiusMeters: integer('qr_geofence_radius_meters'), // null = reuse locationRadiusMeters above
   qrRequireDeviceTrust: boolean('qr_require_device_trust').default(false), // reuses the existing users.registeredDeviceId pinning, not a separate device list
+  // Company-wide KYC/face-verification switch (see /api/tenant/config/update)
+  // and the first-login branch-setup-wizard completion flag (see
+  // /api/branches/bulk) — both columns already existed via a boot-time
+  // ALTER TABLE but were missing here, so Drizzle silently dropped them from
+  // every select/update, making the wizard reappear on every login and the
+  // KYC toggle never persist.
+  kycEnabled: boolean('kyc_enabled').default(true),
+  branchSetupCompleted: boolean('branch_setup_completed').default(false),
+  // Company-wide announcement shown on both the admin and employee
+  // dashboards — plain text, admin-editable, gated behind the
+  // 'tenant.policy.manage' privilege (see featureCatalog.ts). Null/empty
+  // means no banner renders anywhere.
+  policyAnnouncement: text('policy_announcement'),
+  policyAnnouncementUpdatedAt: timestamp('policy_announcement_updated_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Named departments scoped to a tenant. Employees reference a department by
+// name (free text on the users row), but this table lets admins manage the
+// canonical list and assign a department head.
+export const departments = pgTable('departments', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  headUserId: integer('head_user_id'), // references users.id — FK defined after users table
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const branches = pgTable('branches', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(),
+  address: text('address'),
+  locationLat: real('location_lat'),
+  locationLng: real('location_lng'),
+  locationRadiusMeters: integer('location_radius_meters').default(100),
+  isMainBranch: boolean('is_main_branch').default(false),
+  status: text('status').notNull().default('active'),
+  shiftStart: text('shift_start').default('09:00'),
+  shiftEnd: text('shift_end').default('18:00'),
+  gracePeriodMins: integer('grace_period_mins').default(15),
+  halfDayMins: integer('half_day_mins').default(240),
+  weekendConfig: jsonb('weekend_config').default('["Saturday", "Sunday"]'),
+  dailyBreakBudgetMins: integer('daily_break_budget_mins').default(60),
+  minAttendancePercent: integer('min_attendance_percent').default(75),
+  wifiSsid: text('wifi_ssid'),
+  officeIp: text('office_ip'),
+  wifiCheckEnabled: boolean('wifi_check_enabled').default(false),
+  qrEnabled: boolean('qr_enabled').default(false),
+  qrRotationSeconds: integer('qr_rotation_seconds').default(30),
+  qrRequireGps: boolean('qr_require_gps').default(true),
+  qrRequireWifi: boolean('qr_require_wifi').default(false),
+  qrRequireFace: boolean('qr_require_face').default(true),
+  qrGeofenceRadiusMeters: integer('qr_geofence_radius_meters'),
+  qrRequireDeviceTrust: boolean('qr_require_device_trust').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const shifts = pgTable('shifts', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  branchId: integer('branch_id').references(() => branches.id).notNull(),
+  name: text('name').notNull(),
+  checkInTime: text('check_in_time').notNull(),
+  checkOutTime: text('check_out_time').notNull(),
+  gracePeriodMins: integer('grace_period_mins'),
+  isDefault: boolean('is_default').default(false),
+  status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -55,29 +124,28 @@ export const users = pgTable('users', {
   password: text('password').notNull(),
   name: text('name').notNull(),
   tenantId: integer('tenant_id').references(() => tenants.id),
+  branchId: integer('branch_id').references(() => branches.id),
+  shiftId: integer('shift_id').references(() => shifts.id),
   role: text('role').notNull().default('employee'), // 'super_admin' | 'tenant_admin' | 'manager' | 'HR' | 'GM' | 'employee'
-  privileges: jsonb('privileges'), // Array of granted privileges, e.g. ['verify_attendance', 'manage_settings', 'approve_requests']
+  privileges: jsonb('privileges'), // Array of granted privileges
+  // Employee profile fields
+  department: text('department'), // free-text dept name, mirrors departments.name for fast reads
+  designation: text('designation'), // job title e.g. 'Senior Engineer', 'HR Manager'
+  employmentType: text('employment_type').default('full_time'), // 'full_time' | 'part_time' | 'contract' | 'intern'
+  managerId: integer('manager_id'), // direct reporting manager — references users.id
+  dateOfJoining: text('date_of_joining'), // ISO date string 'YYYY-MM-DD'
+  phone: text('phone'), // mobile phone
+  employeeStatus: text('employee_status').default('active'), // 'active' | 'inactive' | 'terminated'
   mustChangePassword: boolean('must_change_password').default(false),
   tempPassword: text('temp_password'),
   isKycCompleted: boolean('is_kyc_completed').default(false),
   faceEmbeddings: jsonb('face_embeddings'),
-  // Per-action enrollment record from the guided KYC wizard — which of the
-  // 8 poses (look_center, turn_left, turn_right, look_up, look_down, smile,
-  // open_mouth, blink) were captured, frame/detection counts, timestamps.
-  // Kept separate from faceEmbeddings (which stays a flat number[][] so the
-  // existing cosine-similarity matching code doesn't need to change shape).
+  // Per-action enrollment record from the guided KYC wizard
   kycActionLog: jsonb('kyc_action_log'),
   registeredDeviceId: text('registered_device_id'),
   deviceApprovalPending: boolean('device_approval_pending').default(false),
-  // Single-active-session enforcement: activeSessionId mirrors the JWT's
-  // `sid` claim for whichever token is currently "live"; sessionExpiresAt
-  // mirrors the JWT's own 24h expiry so a crashed/never-logged-out browser
-  // self-heals instead of permanently locking the account out.
   activeSessionId: text('active_session_id'),
   sessionExpiresAt: timestamp('session_expires_at'),
-  // Last-known GPS from the attendance heartbeat ping (see attendanceLogs
-  // heartbeat endpoint) — used by the end-of-day auto-checkout job to guess
-  // whether someone who forgot to check out is actually still on-premises.
   lastHeartbeatLat: real('last_heartbeat_lat'),
   lastHeartbeatLng: real('last_heartbeat_lng'),
   lastHeartbeatAt: timestamp('last_heartbeat_at'),
@@ -129,6 +197,7 @@ export const breakSessions = pgTable('break_sessions', {
   endLng: real('end_lng'),
   isViolation: boolean('is_violation').default(false), // exceeded the tenant's daily break budget
   outsideGeofence: boolean('outside_geofence').default(false), // returned from outside the office boundary
+  note: text('note'), // optional free-text reason the employee gave when starting the break
   status: text('status').notNull().default('active'), // 'active' | 'completed'
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -182,6 +251,10 @@ export const attendanceLogs = pgTable('attendance_logs', {
   homeLng: real('home_lng'),
   distanceFromHomeMeters: real('distance_from_home_meters'),
   wfhReason: text('wfh_reason'), // employee-provided reason, when the tenant's wfhRequireReason policy is on
+  // Working hours tracking — populated when employee checks out
+  checkoutAt: timestamp('checkout_at'),
+  workedMinutes: real('worked_minutes'), // minutes worked (check-in to checkout) minus break time
+  branchId: integer('branch_id').references(() => branches.id),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -285,6 +358,26 @@ export const attendanceCorrectionsRelations = relations(attendanceCorrections, (
     references: [tenants.id],
   }),
 }));
+
+export const departmentsRelations = relations(departments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [departments.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+// Manual leave balance adjustments by admin — adds or deducts days from
+// an employee's leave bucket outside of the normal request/approve flow.
+export const leaveBalanceAdjustments = pgTable('leave_balance_adjustments', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  leaveType: text('leave_type').notNull(),
+  adjustmentDays: real('adjustment_days').notNull(), // positive = add, negative = deduct
+  reason: text('reason').notNull(),
+  adjustedByUserId: integer('adjusted_by_user_id').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 
 export const attendanceLogsRelations = relations(attendanceLogs, ({ one }) => ({
   user: one(users, {
@@ -455,6 +548,252 @@ export const auditLedgerRelations = relations(auditLedger, ({ one }) => ({
   }),
   user: one(users, {
     fields: [auditLedger.actorId],
+    references: [users.id],
+  }),
+}));
+
+export const rolePrivilegeDefaults = pgTable('role_privilege_defaults', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  roleName: text('role_name').notNull(),
+  privileges: jsonb('privileges').notNull().default('[]'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const userBranchAccess = pgTable('user_branch_access', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  branchId: integer('branch_id').references(() => branches.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const leavePolicies = pgTable('leave_policies', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  branchId: integer('branch_id').references(() => branches.id),
+  name: text('name').notNull(),
+  code: text('code').notNull(),
+  maxDaysPerYear: real('max_days_per_year').notNull().default(12),
+  allowHalfDay: boolean('allow_half_day').notNull().default(true),
+  requiresApproval: boolean('requires_approval').notNull().default(true),
+  medicalOnlyNoAdvanceNoticeDays: real('medical_only_no_advance_notice_days').default(0),
+  defaultDeductionPercent: real('default_deduction_percent').notNull().default(100),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const leaveRequests = pgTable('leave_requests', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  policyId: integer('policy_id').references(() => leavePolicies.id),
+  leaveType: text('leave_type').notNull(),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date').notNull(),
+  totalDays: real('total_days').notNull(),
+  medicalCause: boolean('medical_cause').notNull().default(false),
+  reason: text('reason').notNull(),
+  status: text('status').notNull().default('pending'),
+  reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id),
+  reviewerComment: text('reviewer_comment'),
+  reviewedAt: timestamp('reviewed_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const payrollSettings = pgTable('payroll_settings', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  workingDaysPerMonth: integer('working_days_per_month').notNull().default(26),
+  maxPaidLeaveDaysPerMonth: real('max_paid_leave_days_per_month').notNull().default(0),
+  excessLeavePenaltyPercent: real('excess_leave_penalty_percent').notNull().default(100),
+  overtimeHourlyRate: real('overtime_hourly_rate').notNull().default(0),
+  optionalHolidayLimit: integer('optional_holiday_limit').notNull().default(2),
+  holidayCountryCode: text('holiday_country_code').default('IN'),
+  holidayRegionCode: text('holiday_region_code'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const employeeCompensationProfiles = pgTable('employee_compensation_profiles', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  annualCtc: real('annual_ctc').notNull(),
+  overtimeHourlyRate: real('overtime_hourly_rate'),
+  effectiveFrom: text('effective_from').notNull(),
+  status: text('status').notNull().default('active'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const employeeSalaryComponents = pgTable('employee_salary_components', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  profileId: integer('profile_id').references(() => employeeCompensationProfiles.id).notNull(),
+  componentName: text('component_name').notNull(),
+  componentType: text('component_type').notNull().default('earning'),
+  calculationType: text('calculation_type').notNull().default('percent_of_ctc'),
+  value: real('value').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One row per (userId, year, month) — a snapshot of what buildPayrollSummary()
+// computed the FIRST time that period was observed by GET /api/payroll/history.
+// Never updated after insert (see the route), so a later salary change never
+// silently rewrites a past payslip. The unique index below is what makes the
+// route's "INSERT ... ON CONFLICT DO NOTHING" idempotent.
+export const payrollRuns = pgTable('payroll_runs', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  profileId: integer('profile_id').references(() => employeeCompensationProfiles.id),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(),
+  workingDays: real('working_days').notNull(),
+  approvedLeaveDays: real('approved_leave_days').notNull().default(0),
+  overtimeHours: real('overtime_hours').notNull().default(0),
+  grossPay: real('gross_pay').notNull().default(0),
+  leaveDeduction: real('leave_deduction').notNull().default(0),
+  overtimePay: real('overtime_pay').notNull().default(0),
+  netPay: real('net_pay').notNull().default(0),
+  breakdown: jsonb('breakdown'),
+  status: text('status').notNull().default('draft'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  userPeriodUnique: uniqueIndex('payroll_runs_user_period_unique').on(table.userId, table.year, table.month),
+}));
+
+// Role-level default compensation template — "every Employee gets this CTC
+// + these components" — configured once per role name per tenant, mirroring
+// the one-row-per-role-name shape of rolePrivilegeDefaults above. An
+// individual's own employeeCompensationProfiles row (if present) always
+// takes precedence over this; this is only the fallback used to build a
+// payroll summary for someone who hasn't been given a personal override yet.
+export const roleCompensationDefaults = pgTable('role_compensation_defaults', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  roleName: text('role_name').notNull(),
+  annualCtc: real('annual_ctc').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Component rows for a role's default template, mirroring the shape of
+// employeeSalaryComponents (same componentType/calculationType vocabulary)
+// so buildPayrollSummary() can be reused unmodified against either source.
+export const roleCompensationComponents = pgTable('role_compensation_components', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  roleDefaultId: integer('role_default_id').references(() => roleCompensationDefaults.id).notNull(),
+  componentName: text('component_name').notNull(),
+  componentType: text('component_type').notNull().default('earning'),
+  calculationType: text('calculation_type').notNull().default('percent_of_ctc'),
+  value: real('value').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const roleCompensationDefaultsRelations = relations(roleCompensationDefaults, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [roleCompensationDefaults.tenantId],
+    references: [tenants.id],
+  }),
+  components: many(roleCompensationComponents),
+}));
+
+export const roleCompensationComponentsRelations = relations(roleCompensationComponents, ({ one }) => ({
+  roleDefault: one(roleCompensationDefaults, {
+    fields: [roleCompensationComponents.roleDefaultId],
+    references: [roleCompensationDefaults.id],
+  }),
+}));
+
+export const optionalHolidayChoices = pgTable('optional_holiday_choices', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  holidayId: integer('holiday_id').references(() => holidays.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Dated, TEMPORARY shift overrides — additive alongside `users.shiftId`
+// (the permanent shift, still edited in place via PUT /api/tenant/employees/:id).
+// A row here means "for this user, on any date in [startDate, endDate], use
+// `shiftId` instead of their permanent shift". Both dates are required —
+// there is no open-ended/"until superseded" override by design: a genuinely
+// permanent change should go through the existing users.shiftId path
+// instead, not this table. See getEffectiveShiftId() in
+// apps/admin/api/services/shiftOverrides.ts, which is the single place that
+// should be asked "what shift applies to this user on date X" — nothing
+// else should compare a check-in against `users.shiftId` directly anymore
+// for a specific day's lateness/shift math.
+export const shiftOverrides = pgTable('shift_overrides', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  shiftId: integer('shift_id').references(() => shifts.id).notNull(), // the temporary shift to apply
+  startDate: text('start_date').notNull(), // 'YYYY-MM-DD', inclusive
+  endDate: text('end_date').notNull(), // 'YYYY-MM-DD', inclusive
+  reason: text('reason'),
+  createdBy: integer('created_by').references(() => users.id), // the admin who made the change
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const shiftOverridesRelations = relations(shiftOverrides, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [shiftOverrides.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [shiftOverrides.userId],
+    references: [users.id],
+  }),
+  shift: one(shifts, {
+    fields: [shiftOverrides.shiftId],
+    references: [shifts.id],
+  }),
+}));
+
+// A manager's own team — gated by the 'team.manage' privilege (see
+// featureCatalog.ts). One team per manager by design (see
+// routes/teams.routes.ts): membership is drawn from users.department, so a
+// manager can only pull in colleagues who already share their department.
+export const teams = pgTable('teams', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  managerId: integer('manager_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const teamMembers = pgTable('team_members', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').references(() => teams.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  addedAt: timestamp('added_at').defaultNow(),
+});
+
+export const teamsRelations = relations(teams, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [teams.tenantId],
+    references: [tenants.id],
+  }),
+  manager: one(users, {
+    fields: [teams.managerId],
+    references: [users.id],
+  }),
+  members: many(teamMembers),
+}));
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamMembers.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [teamMembers.userId],
     references: [users.id],
   }),
 }));

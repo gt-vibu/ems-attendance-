@@ -295,21 +295,21 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
 
   if (loading) {
     return (
-      <div className="min-h-screen premium-gradient-bg flex items-center justify-center font-mono text-xs uppercase tracking-widest text-[var(--color-premium-muted)]">
+      <div className="min-h-screen premium-gradient-bg flex items-center justify-center font-mono text-xs uppercase tracking-widest text-[var(--color-nexus-muted)]">
         Loading...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen premium-gradient-bg flex items-center justify-center p-6 font-sans text-[var(--color-premium-ink)] selection:bg-[var(--color-premium-accent)] selection:text-white relative overflow-hidden">
+    <div className="min-h-screen premium-gradient-bg flex items-center justify-center p-6 font-sans text-[var(--color-nexus-ink)] selection:bg-[var(--color-nexus-primary)] selection:text-white relative overflow-hidden">
       <AuroraField />
       <PageChrome fallbackHref="/employee/dashboard" />
 
       <div className="absolute top-6 right-6 z-40">
         <button
           onClick={onLogout}
-          className="text-xs font-bold text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] transition-colors uppercase tracking-widest bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] px-5 py-2.5 rounded-full shadow-sm"
+          className="text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-5 py-2.5 rounded-full shadow-sm"
         >
           Sign Out
         </button>
@@ -319,34 +319,34 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full glass-card rounded-3xl p-8 space-y-6 relative z-10"
+        className="max-w-md w-full nexus-card rounded-3xl p-8 space-y-6 relative z-10"
       >
 
         {/* Header / status */}
         <div className="text-center">
-          <span className="px-3 py-1 bg-[var(--color-premium-accent-soft)] border border-[var(--color-premium-border)] text-[var(--color-premium-accent)] rounded-full text-[9px] font-mono tracking-widest uppercase">
+          <span className="px-3 py-1 bg-[var(--color-nexus-primary-fixed)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-primary)] rounded-full text-[9px] font-mono tracking-widest uppercase">
             Portal: {user.role}
           </span>
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-[var(--color-premium-ink)] mt-4">
+          <h1 className="font-sans text-2xl font-extrabold tracking-tight text-[var(--color-nexus-ink)] mt-4">
             Welcome, {user.name?.split(' ')[0] || 'there'}
           </h1>
         </div>
 
         <AnimatePresence>
         {error && (
-          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)] text-xs p-4 rounded-xl border border-[var(--color-premium-danger)]/20 font-medium text-center">
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl border border-[var(--color-nexus-error)]/20 font-medium text-center">
             ⚠️ {error}
           </motion.div>
         )}
         {success && (
-          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)] text-xs p-4 rounded-xl border border-[var(--color-premium-accent-2)]/30 font-medium text-center">
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)] text-xs p-4 rounded-xl border border-[var(--color-nexus-secondary)]/30 font-medium text-center">
             {success}
           </motion.div>
         )}
         </AnimatePresence>
         {todayPending && (
-          <div className="p-3 rounded-xl bg-[var(--color-premium-gold-soft)] border border-[var(--color-premium-gold)]/40 text-center">
-            <p className="text-[10px] font-bold text-[var(--color-premium-gold)] uppercase tracking-wider">Late check-in pending manager approval</p>
+          <div className="p-3 rounded-xl bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 text-center">
+            <p className="text-[10px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-wider">Late check-in pending manager approval</p>
           </div>
         )}
 
@@ -355,52 +355,52 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
-          className="card-3d bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-2xl p-5 grid grid-cols-2 gap-4"
+          className=" bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-2xl p-5 grid grid-cols-2 gap-4"
         >
           <div>
-            <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Checked In</span>
-            <span className="text-lg font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">
+            <span className="block text-[9px] text-[var(--color-nexus-muted)] font-mono uppercase tracking-wider">Checked In</span>
+            <span className="text-lg font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">
               {checkInTime ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
             </span>
           </div>
           <div>
-            <span className="block text-[9px] text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">Hours Worked</span>
-            <span className="text-lg font-mono font-bold text-[var(--color-premium-accent-2)] mt-1 block">{hoursWorked}</span>
+            <span className="block text-[9px] text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">Hours Worked</span>
+            <span className="text-lg font-mono font-bold text-[var(--color-nexus-secondary)] mt-1 block">{hoursWorked}</span>
           </div>
-          <div className="col-span-2 pt-3 border-t border-[var(--color-premium-border)]">
-            <span className="block text-[9px] text-[var(--color-premium-muted)] font-mono uppercase tracking-wider">Attendance This Month</span>
-            <span className={`text-lg font-mono font-bold mt-1 block ${attendancePercent !== null && attendancePercent < attendanceThreshold ? 'text-[var(--color-premium-danger)]' : 'text-[var(--color-premium-ink)]'}`}>
+          <div className="col-span-2 pt-3 border-t border-[var(--color-nexus-border)]">
+            <span className="block text-[9px] text-[var(--color-nexus-muted)] font-mono uppercase tracking-wider">Attendance This Month</span>
+            <span className={`text-lg font-mono font-bold mt-1 block ${attendancePercent !== null && attendancePercent < attendanceThreshold ? 'text-[var(--color-nexus-error)]' : 'text-[var(--color-nexus-ink)]'}`}>
               {attendancePercent !== null ? `${attendancePercent}%` : '—'}
-              <span className="text-[10px] text-[var(--color-premium-muted)] font-normal ml-2">min. required {attendanceThreshold}%</span>
+              <span className="text-[10px] text-[var(--color-nexus-muted)] font-normal ml-2">min. required {attendanceThreshold}%</span>
             </span>
           </div>
         </motion.div>
 
         {/* Break Management */}
-        <div className="border-t border-[var(--color-premium-border)] pt-6">
+        <div className="border-t border-[var(--color-nexus-border)] pt-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-widest font-mono">Break Management</h3>
-            <span className="text-[10px] font-mono text-[var(--color-premium-muted)]">{remainingMins}m left of {budgetMins}m</span>
+            <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Break Management</h3>
+            <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{remainingMins}m left of {budgetMins}m</span>
           </div>
 
-          <div className="w-full bg-[var(--color-premium-border)] rounded-full h-1.5 mb-4 overflow-hidden">
+          <div className="w-full bg-[var(--color-nexus-border)] rounded-full h-1.5 mb-4 overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: `${budgetUsedPct}%` }}
               transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-              className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-premium-danger)]' : 'bg-[var(--color-premium-accent-2)]'}`}
+              className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`}
             />
           </div>
 
           {activeBreak ? (
-            <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] p-5 rounded-2xl flex justify-between items-center">
+            <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
               <div>
-                <span className="inline-block text-[9px] text-[var(--color-premium-danger)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">Status: On Break ({activeBreak.breakType})</span>
-                <span className="text-2xl font-mono font-bold text-[var(--color-premium-ink)] mt-1 block">{breakTimer}</span>
+                <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">Status: On Break ({activeBreak.breakType})</span>
+                <span className="text-2xl font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">{breakTimer}</span>
               </div>
               <button
                 onClick={handleEndBreak}
-                className="bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md cursor-pointer"
+                className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md cursor-pointer"
               >
                 Resume Work
               </button>
@@ -410,7 +410,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
               <select
                 value={breakType}
                 onChange={e => setBreakType(e.target.value)}
-                className="w-full bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
               >
                 <option value="Lunch">Lunch</option>
                 <option value="Tea">Tea / Coffee</option>
@@ -420,7 +420,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
               </select>
               <button
                 onClick={handleStartBreak}
-                className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(123,92,250,0.3)] flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 cursor-pointer"
               >
                 Go on Break
               </button>
@@ -431,13 +431,13 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           {breaksToday.length > 0 && (
             <div className="mt-4 space-y-1.5">
               {breaksToday.map((b) => (
-                <div key={b.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-lg">
-                  <span className="text-[var(--color-premium-ink)]">{b.breakType}</span>
-                  <span className="text-[var(--color-premium-muted)]">
+                <div key={b.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
+                  <span className="text-[var(--color-nexus-ink)]">{b.breakType}</span>
+                  <span className="text-[var(--color-nexus-muted)]">
                     {new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {b.endTime ? ` – ${new Date(b.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' – ongoing'}
                   </span>
-                  {b.isViolation && <span className="text-[var(--color-premium-danger)] text-[9px] uppercase font-bold">Over budget</span>}
+                  {b.isViolation && <span className="text-[var(--color-nexus-error)] text-[9px] uppercase font-bold">Over budget</span>}
                 </div>
               ))}
             </div>
@@ -446,13 +446,13 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
 
         {/* Pending requests */}
         {corrections.length > 0 && (
-          <div className="border-t border-[var(--color-premium-border)] pt-6">
-            <h3 className="text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-widest font-mono mb-4">Correction Requests</h3>
+          <div className="border-t border-[var(--color-nexus-border)] pt-6">
+            <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono mb-4">Correction Requests</h3>
             <div className="space-y-1.5">
               {corrections.slice(0, 5).map((c) => (
-                <div key={c.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-lg">
-                  <span className="text-[var(--color-premium-ink)]">{c.requestType.replace('_', ' ')} — {c.requestedDate}</span>
-                  <span className={`text-[9px] uppercase font-bold ${c.status === 'pending' ? 'text-[var(--color-premium-gold)]' : c.status === 'approved' ? 'text-[var(--color-premium-accent-2)]' : 'text-[var(--color-premium-danger)]'}`}>
+                <div key={c.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
+                  <span className="text-[var(--color-nexus-ink)]">{c.requestType.replace('_', ' ')} — {c.requestedDate}</span>
+                  <span className={`text-[9px] uppercase font-bold ${c.status === 'pending' ? 'text-[var(--color-nexus-secondary)]' : c.status === 'approved' ? 'text-[var(--color-nexus-secondary)]' : 'text-[var(--color-nexus-error)]'}`}>
                     {c.status}
                   </span>
                 </div>
@@ -463,16 +463,16 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
 
         {/* Read-only attendance history — no edit affordance anywhere here */}
         {attendanceHistory.length > 0 && (
-          <div className="border-t border-[var(--color-premium-border)] pt-6">
-            <h3 className="text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-widest font-mono mb-4">Attendance History</h3>
+          <div className="border-t border-[var(--color-nexus-border)] pt-6">
+            <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono mb-4">Attendance History</h3>
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {attendanceHistory.map((log) => (
-                <div key={log.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-lg">
-                  <span className="text-[var(--color-premium-ink)]">
+                <div key={log.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
+                  <span className="text-[var(--color-nexus-ink)]">
                     {new Date(log.createdAt).toLocaleDateString()} — {log.type.replace('_', ' ')}
                     {' '}{new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
-                  <span className={`text-[9px] uppercase font-bold ${log.status === 'approved' ? 'text-[var(--color-premium-accent-2)]' : log.status === 'pending' ? 'text-[var(--color-premium-gold)]' : 'text-[var(--color-premium-danger)]'}`}>
+                  <span className={`text-[9px] uppercase font-bold ${log.status === 'approved' ? 'text-[var(--color-nexus-secondary)]' : log.status === 'pending' ? 'text-[var(--color-nexus-secondary)]' : 'text-[var(--color-nexus-error)]'}`}>
                     {log.status}
                   </span>
                 </div>
@@ -482,19 +482,19 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
         )}
 
         {/* Check Out */}
-        <div className="border-t border-[var(--color-premium-border)] pt-6 space-y-3">
+        <div className="border-t border-[var(--color-nexus-border)] pt-6 space-y-3">
           <button
             onClick={handleCheckout}
             disabled={checkingOut || !!activeBreak}
             title={activeBreak ? "Resume work before checking out" : undefined}
-            className="w-full bg-[var(--color-premium-danger)] hover:brightness-110 text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(226,69,69,0.3)]"
+            className="w-full bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(226,69,69,0.3)]"
           >
             {checkingOut ? 'Checking Out...' : activeBreak ? 'Resume Work To Check Out' : 'Check Out'}
           </button>
 
           <button
             onClick={() => setShowCorrectionModal(true)}
-            className="w-full text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
+            className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
           >
             Missed a check-in/out? Request a correction
           </button>
@@ -504,22 +504,22 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
       {/* Correction request modal */}
       {showCorrectionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
-          <div className="max-w-md w-full bg-[var(--color-premium-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(123,92,250,0.2)] border border-[var(--color-premium-border)]">
+          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
             {correctionSubmitted ? (
               <div className="text-center py-6">
-                <p className="text-[var(--color-premium-accent-2)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
-                <p className="text-[var(--color-premium-muted)] text-xs mt-2">Your manager or admin will review it shortly.</p>
+                <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
+                <p className="text-[var(--color-nexus-muted)] text-xs mt-2">Your manager or admin will review it shortly.</p>
               </div>
             ) : (
               <form onSubmit={handleSubmitCorrection}>
-                <h3 className="text-[var(--color-premium-ink)] font-bold text-sm uppercase tracking-wider mb-5">Request Attendance Correction</h3>
+                <h3 className="text-[var(--color-nexus-ink)] font-bold text-sm uppercase tracking-wider mb-5">Request Attendance Correction</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Issue Type</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Issue Type</label>
                     <select
                       value={correctionType}
                       onChange={e => setCorrectionType(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                     >
                       <option value="missed_checkin">Missed Check-In</option>
                       <option value="missed_checkout">Missed Check-Out</option>
@@ -528,49 +528,49 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Date</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Date</label>
                     <input
                       type="date"
                       value={correctionDate}
                       onChange={e => setCorrectionDate(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
                     <input
                       type="time"
                       value={correctionTime}
                       onChange={e => setCorrectionTime(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Explanation</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Explanation</label>
                     <textarea
                       value={correctionReason}
                       onChange={e => setCorrectionReason(e.target.value)}
                       rows={3}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)] resize-none"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none"
                       placeholder="e.g. Phone died at 9am, couldn't check in until I found a charger."
                       required
                     />
                   </div>
                 </div>
-                {error && <p className="text-[var(--color-premium-danger)] text-[10px] mt-3">{error}</p>}
+                {error && <p className="text-[var(--color-nexus-error)] text-[10px] mt-3">{error}</p>}
                 <div className="flex gap-3 mt-6">
                   <button
                     type="button"
                     onClick={() => setShowCorrectionModal(false)}
-                    className="flex-1 bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-border)] text-[var(--color-premium-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
+                    className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={correctionSubmitting}
-                    className="flex-1 bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
+                    className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
                   >
                     {correctionSubmitting ? 'Submitting...' : 'Submit Request'}
                   </button>

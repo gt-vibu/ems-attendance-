@@ -21,15 +21,15 @@ interface StateNode {
 }
 
 const STATE_NODES: StateNode[] = [
-  { id: 'NOT_STARTED', name: 'NOT_STARTED', meaning: 'Shift not initiated. Biometric gate armed.', color: '#6B7A80', icon: Play, outgoing: ['PENDING_VERIFICATION', 'ABSENT'] },
-  { id: 'PENDING_VERIFICATION', name: 'PENDING_VERIFICATION', meaning: 'Active neural pipeline checks running.', color: '#E8B95B', icon: RefreshCw, outgoing: ['ACTIVE', 'NEEDS_REVIEW', 'REJECTED'] },
-  { id: 'ACTIVE', name: 'ACTIVE', meaning: 'Fully verified. Coordinates live validated.', color: '#4FD1A5', icon: ShieldCheck, outgoing: ['ON_BREAK', 'CLOSED', 'NEEDS_REVIEW'] },
-  { id: 'ON_BREAK', name: 'ON_BREAK', meaning: 'Duty paused. Geofence tracking suspended.', color: '#3FA9C9', icon: Coffee, outgoing: ['ACTIVE', 'CLOSED'] },
-  { id: 'NEEDS_REVIEW', name: 'NEEDS_REVIEW', meaning: 'Flagged due to GPS gap or biometric fault.', color: '#E8843F', icon: ShieldAlert, outgoing: ['CLOSED', 'REJECTED', 'PENDING_APPROVAL'] },
-  { id: 'PENDING_APPROVAL', name: 'PENDING_APPROVAL', meaning: 'Correction filed. Seals awaiting signoff.', color: '#9C8CE8', icon: HelpCircle, outgoing: ['CLOSED', 'REJECTED'] },
-  { id: 'CLOSED', name: 'CLOSED', meaning: 'Checkout verified. Ledger records locked.', color: '#2E7D5B', icon: CheckCircle, outgoing: [] },
-  { id: 'REJECTED', name: 'REJECTED', meaning: 'Liveness fail. Shift records discarded.', color: '#E05959', icon: XCircle, outgoing: ['NOT_STARTED'] },
-  { id: 'ABSENT', name: 'ABSENT', meaning: 'Shift started but no signature logged.', color: '#8A8F92', icon: Moon, outgoing: ['NOT_STARTED'] }
+  { id: 'NOT_STARTED', name: 'Not Started', meaning: 'Shift not yet begun — verification gate is armed.', color: '#8A9089', icon: Play, outgoing: ['PENDING_VERIFICATION', 'ABSENT'] },
+  { id: 'PENDING_VERIFICATION', name: 'Verifying', meaning: 'Face and location checks are running.', color: '#C97F27', icon: RefreshCw, outgoing: ['ACTIVE', 'NEEDS_REVIEW', 'REJECTED'] },
+  { id: 'ACTIVE', name: 'Active', meaning: 'Fully verified — location and identity confirmed.', color: '#0F6E5B', icon: ShieldCheck, outgoing: ['ON_BREAK', 'CLOSED', 'NEEDS_REVIEW'] },
+  { id: 'ON_BREAK', name: 'On Break', meaning: 'Shift paused — location tracking suspended.', color: '#2E6F8E', icon: Coffee, outgoing: ['ACTIVE', 'CLOSED'] },
+  { id: 'NEEDS_REVIEW', name: 'Needs Review', meaning: 'Flagged for a location gap or verification issue.', color: '#B8873A', icon: ShieldAlert, outgoing: ['CLOSED', 'REJECTED', 'PENDING_APPROVAL'] },
+  { id: 'PENDING_APPROVAL', name: 'Pending Approval', meaning: 'A correction has been filed and awaits sign-off.', color: '#7C6FB0', icon: HelpCircle, outgoing: ['CLOSED', 'REJECTED'] },
+  { id: 'CLOSED', name: 'Closed', meaning: 'Checkout verified — the record is locked in.', color: '#14805F', icon: CheckCircle, outgoing: [] },
+  { id: 'REJECTED', name: 'Rejected', meaning: 'Verification failed — the attempt was discarded.', color: '#B3432B', icon: XCircle, outgoing: ['NOT_STARTED'] },
+  { id: 'ABSENT', name: 'Absent', meaning: 'Shift began but no check-in was ever completed.', color: '#8A9089', icon: Moon, outgoing: ['NOT_STARTED'] }
 ];
 
 function OrbitRing() {
@@ -121,29 +121,29 @@ function OrbitRing() {
               {/* Force Billboard orientation towards camera by canceling group rotation */}
               <group rotation={[0, -angle - (groupRef.current?.rotation?.y || 0) + Math.PI / 2, 0]}>
                 <Html transform distanceFactor={isMobile ? 4.5 : 5.5} pointerEvents="auto" center>
-                  <div 
+                  <div
                     onMouseEnter={() => setHoveredId(node.id)}
                     onMouseLeave={() => setHoveredId(null)}
-                    style={{ borderColor: node.color, boxShadow: isHovered ? `0 12px 24px -6px ${node.color}50` : 'none' }}
-                    className="w-[180px] bg-[#0B1E22]/95 border-2 rounded-2xl p-4 text-white font-sans select-none pointer-events-auto cursor-pointer transition-all duration-300 transform hover:scale-105"
+                    style={{ borderColor: node.color, boxShadow: isHovered ? `0 16px 32px -10px ${node.color}40` : '0 1px 2px rgba(20,35,30,0.05), 0 2px 8px rgba(20,35,30,0.05)' }}
+                    className="w-[180px] bg-white/95 border-2 rounded-2xl p-4 text-[var(--color-premium-ink)] font-sans select-none pointer-events-auto cursor-pointer transition-all duration-300 transform hover:scale-105"
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="p-1.5 rounded-lg bg-white/5 text-white">
+                      <div className="p-1.5 rounded-lg" style={{ backgroundColor: `${node.color}18` }}>
                         <Icon className="w-4 h-4" style={{ color: node.color }} />
                       </div>
-                      <span className="font-mono text-[9px] font-bold tracking-wider" style={{ color: node.color }}>
+                      <span className="text-[11px] font-bold tracking-tight" style={{ color: node.color }}>
                         {node.name}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#C4D7DE] leading-normal font-medium">
+                    <p className="text-[11px] text-[var(--color-premium-muted)] leading-normal font-medium">
                       {node.meaning}
                     </p>
 
                     {isHovered && (
-                      <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between">
-                        <span className="text-[8px] font-mono text-slate-400 font-bold uppercase">OUTGOING_GAP:</span>
-                        <span className="text-[8px] font-mono font-black" style={{ color: node.color }}>
-                          {node.outgoing.length > 0 ? `${node.outgoing.length} PATHS` : 'TERMINAL'}
+                      <div className="mt-3 pt-2 border-t border-[var(--color-premium-border)] flex items-center justify-between">
+                        <span className="text-[9px] text-[var(--color-premium-muted)] font-semibold uppercase tracking-wide">Leads to</span>
+                        <span className="text-[9px] font-bold" style={{ color: node.color }}>
+                          {node.outgoing.length > 0 ? `${node.outgoing.length} state${node.outgoing.length === 1 ? '' : 's'}` : 'End of flow'}
                         </span>
                       </div>
                     )}
@@ -161,16 +161,16 @@ function OrbitRing() {
 
 export default function StateOrbit() {
   return (
-    <div className="w-full h-[400px] bg-gradient-to-b from-transparent via-[#0B1E22]/20 to-transparent relative overflow-visible select-none">
+    <div className="w-full h-[400px] bg-gradient-to-b from-transparent via-[var(--color-premium-accent-soft)]/40 to-transparent relative overflow-visible select-none">
       <div className="absolute inset-x-0 top-0 text-center z-10 pointer-events-none">
-        <span className="font-mono text-[9px] tracking-widest text-[#8FE3C0] font-extrabold uppercase">
-          PERIMETER STATES ORBIT FIELD
+        <span className="text-[11px] tracking-wide text-[var(--color-premium-accent)] font-bold uppercase">
+          How verification flows
         </span>
-        <h4 className="font-display font-bold text-lg text-[#EAF6FB] tracking-tight mt-1">
-          Billboard State-Transition Graph
+        <h4 className="font-display font-semibold text-2xl text-[var(--color-premium-ink)] tracking-tight mt-1">
+          Every state, at a glance
         </h4>
-        <p className="text-xs text-[#9FB4BC] font-sans max-w-sm mx-auto mt-1 leading-normal">
-          Hover any state card to visualize outgoing verified transition arcs. Invalid paths reject automatically.
+        <p className="text-sm text-[var(--color-premium-muted)] font-sans max-w-sm mx-auto mt-1.5 leading-relaxed">
+          Hover any state to see exactly where it can lead next.
         </p>
       </div>
 

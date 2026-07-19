@@ -5,6 +5,7 @@ import './lib/apiBase';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import AdminApp from './AdminApp';
+import { initCardTilt } from './lib/cardTilt';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
@@ -12,6 +13,8 @@ createRoot(document.getElementById('root')!).render(
     <AdminApp />
   </StrictMode>,
 );
+
+initCardTilt();
 
 // Register the service worker for PWA installability (add-to-homescreen,
 // faster repeat loads, cached ML model weights). Only in production builds —

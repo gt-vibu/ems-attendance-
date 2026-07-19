@@ -74,7 +74,7 @@ router.get('/api/breaks/today', authenticate, async (req: any, res: any) => {
 
 router.post('/api/breaks/start', authenticate, async (req: any, res: any) => {
     try {
-      const { breakType, lat, lng } = req.body;
+      const { breakType, lat, lng, note } = req.body;
 
       if (lat == null || lng == null) {
         return res.status(400).json({ error: 'GPS location permission is required to start a break.' });
@@ -99,6 +99,7 @@ router.post('/api/breaks/start', authenticate, async (req: any, res: any) => {
         startTime,
         startLat: lat != null ? parseFloat(lat) : null,
         startLng: lng != null ? parseFloat(lng) : null,
+        note: typeof note === 'string' && note.trim() ? note.trim().slice(0, 280) : null,
         status: 'active'
       }).returning();
 
@@ -194,7 +195,7 @@ router.post('/api/breaks/end', authenticate, async (req: any, res: any) => {
         });
 
         await sendBreakLocationViolationEmail(req.user.email, req.user.name, req.user.name, true);
-        const hierarchyRecipients = await getHierarchyAlertRecipients(req.user.tenantId, req.user.role);
+        const hierarchyRecipients = await getHierarchyAlertRecipients(req.user.tenantId, req.user.role, req.user.userId);
         for (const recipient of hierarchyRecipients) {
           await sendBreakLocationViolationEmail(recipient.email, recipient.name, req.user.name, false);
         }

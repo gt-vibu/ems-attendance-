@@ -53,9 +53,14 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       const {
         wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
         wfhEnabled, wfhAllowedRoles, wfhMaxDaysPerMonth, wfhAllowedWeekdays, wfhRadiusMeters, wfhApprovalRequired, wfhRequireReason, wfhLateLoginGraceMins,
+        kycEnabled,
       } = req.body;
 
       const updates: any = {};
+      // Company-wide switch: when off, no employee at this tenant needs
+      // KYC/face verification to check in — GPS-within-radius becomes the
+      // sole gate. Independent of QR attendance's own qrRequireFace toggle.
+      if (kycEnabled !== undefined) updates.kycEnabled = !!kycEnabled;
       if (wifiSsid !== undefined) updates.wifiSsid = wifiSsid;
       if (officeIp !== undefined) updates.officeIp = officeIp;
       if (wifiCheckEnabled !== undefined) updates.wifiCheckEnabled = !!wifiCheckEnabled;
@@ -85,6 +90,39 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
         .where(eq(schema.tenants.id, req.user.tenantId));
 
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Company Policy announcement — deliberately a narrow, separate endpoint
+  // rather than reusing GET /api/tenant/config above: that route returns the
+  // whole tenant row (WiFi SSID, office IP, GPS geofence coordinates), which
+  // is fine for admin-only config screens but shouldn't be something every
+  // employee's browser fetches just to read a policy banner.
+  router.get('/api/tenant/policy', authenticate, async (req: any, res: any) => {
+    try {
+      const [tenant] = await db.select({
+        policyAnnouncement: schema.tenants.policyAnnouncement,
+        policyAnnouncementUpdatedAt: schema.tenants.policyAnnouncementUpdatedAt,
+      }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+      res.json(tenant || { policyAnnouncement: null, policyAnnouncementUpdatedAt: null });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/api/tenant/policy', authenticate, async (req: any, res: any) => {
+    try {
+      if (!await hasPrivilege(req.user, 'tenant.policy.manage')) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+      const { policyAnnouncement } = req.body || {};
+      const text = typeof policyAnnouncement === 'string' ? policyAnnouncement.trim() : '';
+      await db.update(schema.tenants)
+        .set({ policyAnnouncement: text || null, policyAnnouncementUpdatedAt: new Date() })
+        .where(eq(schema.tenants.id, req.user.tenantId));
+      res.json({ success: true, policyAnnouncement: text || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

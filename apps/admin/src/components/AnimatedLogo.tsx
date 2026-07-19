@@ -38,7 +38,7 @@ export default function AnimatedLogo({ size = 96, label = 'Smart Teams', subtitl
           </defs>
         </svg>
         <div
-          className="absolute inset-[12%] rounded-full flex items-center justify-center pulse-ring shadow-[0_10px_36px_-8px_rgba(123,92,250,0.55)]"
+          className="absolute inset-[12%] rounded-full flex items-center justify-center pulse-ring shadow-[0_10px_36px_-8px_rgba(37,99,235,0.55)]"
           style={{ background: 'linear-gradient(135deg, var(--color-premium-accent), var(--color-premium-accent-2))' }}
         >
           <Fingerprint className="text-white" size={size * 0.42} strokeWidth={1.75} />

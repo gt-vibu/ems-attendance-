@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, gte, lte } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
@@ -84,12 +84,24 @@ router.get('/api/attendance/percentage', authenticate, async (req: any, res: any
   // actually enforces "no edit option" on past records.
 router.get('/api/attendance/mine', authenticate, async (req: any, res: any) => {
     try {
-      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30));
-      const logs = await db.select()
-        .from(schema.attendanceLogs)
-        .where(eq(schema.attendanceLogs.userId, req.user.userId))
-        .orderBy(desc(schema.attendanceLogs.id))
-        .limit(limit);
+      const year = Number(req.query.year);
+      const month = Number(req.query.month);
+      const hasMonthWindow = Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12;
+      const baseFilter = eq(schema.attendanceLogs.userId, req.user.userId);
+      const logs = hasMonthWindow
+        ? await db.select()
+          .from(schema.attendanceLogs)
+          .where(and(
+            baseFilter,
+            gte(schema.attendanceLogs.createdAt, new Date(Date.UTC(year, month - 1, 1))),
+            lte(schema.attendanceLogs.createdAt, new Date(Date.UTC(year, month, 1))),
+          ))
+          .orderBy(desc(schema.attendanceLogs.id))
+        : await db.select()
+          .from(schema.attendanceLogs)
+          .where(baseFilter)
+          .orderBy(desc(schema.attendanceLogs.id))
+          .limit(Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30)));
       res.json({ logs });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -175,7 +187,7 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
   // use instead of re-uploading images.
 router.post('/api/attendance/verify-face', authenticate, async (req: any, res: any) => {
     try {
-      const { images } = req.body;
+      const { images, mode } = req.body;
       if (!images || !Array.isArray(images) || images.length === 0) {
         return res.status(400).json({ error: 'images (a short camera burst) are required.' });
       }
@@ -187,6 +199,82 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
       const user = usersList[0];
       if (!user.isKycCompleted) {
         return res.status(400).json({ error: 'KYC registration not completed yet.' });
+      }
+
+      if (mode === 'photo') {
+        let faceResult: any;
+        try {
+          faceResult = await callFaceService('/verify', { images, challengeActions: [] });
+        } catch (faceErr: any) {
+          return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
+        }
+
+        const livenessScore = faceResult.faceDetected ? (faceResult.livenessScore ?? 0) : 0;
+        const LIVENESS_MIN = 0.6;
+
+        let bestSimilarity = -1;
+        const enrolledEmbeddings = user.faceEmbeddings as number[][];
+        if (faceResult.faceDetected && enrolledEmbeddings && enrolledEmbeddings.length > 0) {
+          for (const enrolled of enrolledEmbeddings) {
+            const sim = cosineSimilarity(enrolled, faceResult.embedding);
+            if (sim > bestSimilarity) bestSimilarity = sim;
+          }
+        }
+
+        const matchThreshold = 0.36;
+        const identityEnrolled = !!(enrolledEmbeddings && enrolledEmbeddings.length > 0);
+
+        const isLivenessConvincing = faceResult.faceDetected && livenessScore >= LIVENESS_MIN;
+        const isIdentityMatched = faceResult.faceDetected && identityEnrolled && bestSimilarity >= matchThreshold;
+
+        // Diagnostics-only screen-replay signal (see services/face-service's
+        // moire_score()) — logged on every attempt, pass or fail, so its
+        // distribution across real check-ins can be reviewed before it's
+        // ever allowed to gate anything (same rollout as matchThreshold/
+        // LIVENESS_MIN originally needed). Never affects `passed` today.
+        const moireScore = typeof faceResult.moireScore === 'number' ? faceResult.moireScore : 0;
+        console.log(`[verify-face] user=${user.id} moireScore=${moireScore.toFixed(3)} (diagnostics-only, not gating) liveness=${livenessScore.toFixed(3)} bestMatch=${bestSimilarity.toFixed(3)}`);
+
+        if (isLivenessConvincing && isIdentityMatched) {
+          const token = signShortLivedToken({
+            purpose: 'attendance_face_pass',
+            userId: user.id,
+            faceMatchScore: bestSimilarity,
+            livenessScore,
+            challengeRequested: ['look_center'],
+            challengeVerified: ['look_center']
+          }, FACE_TOKEN_TTL);
+
+          return res.json({ passed: true, token, faceMatchScore: bestSimilarity, livenessScore });
+        }
+
+        // If photo verification failed, return the fallback actions registered during KYC in sequential order
+        let fallbackActions: string[] = [];
+        if (user.kycActionLog && typeof user.kycActionLog === 'object') {
+          const actionLog = user.kycActionLog as Record<string, any>;
+          fallbackActions = DAILY_CHALLENGE_ACTIONS.filter(a => actionLog[a]?.verified === true);
+        }
+
+        if (fallbackActions.length === 0) {
+          fallbackActions = [...DAILY_CHALLENGE_ACTIONS];
+        }
+
+        console.warn(`[verify-face] user=${user.id} photo check failed. Initiating fallback challenge with actions: ${fallbackActions.join(', ')}`);
+
+        return res.status(403).json({
+          passed: false,
+          needsFallback: true,
+          fallbackActions: fallbackActions,
+          error: 'Initial photo check was not convincing (liveness or identity mismatch). Fallback verification required.',
+          diagnostics: {
+            faceDetected: faceResult.faceDetected,
+            liveness: Number(livenessScore.toFixed(3)),
+            livenessMin: LIVENESS_MIN,
+            bestMatch: Number(bestSimilarity.toFixed(3)),
+            matchMin: matchThreshold,
+            moireScore: Number(moireScore.toFixed(3)), // diagnostics-only, does not affect pass/fail
+          }
+        });
       }
 
       const pending = pendingChallenges.get(user.id);
@@ -257,11 +345,16 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
         errors.push('Facial biometrics verification failed (identity mismatch).');
       }
 
+      // Diagnostics-only screen-replay signal — see the photo-mode branch
+      // above and services/face-service's moire_score() for why this is
+      // logged on every attempt (pass or fail) but never gates anything yet.
+      const moireScore = typeof faceResult.moireScore === 'number' ? faceResult.moireScore : 0;
+
       if (errors.length > 0) {
         // Log the full breakdown so a persistent "why does check-in keep
         // failing" can be diagnosed from the server side without guessing —
         // which specific gate failed, and by how much.
-        console.warn(`[verify-face] user=${user.id} REJECTED — faceDetected=${faceResult.faceDetected} liveness=${livenessScore.toFixed(3)} (min ${LIVENESS_MIN}) confirmedActions=${confirmedActions.length}/${pending.actions.length} (need ${requiredConfirmed}) bestMatch=${bestSimilarity.toFixed(3)} (min ${matchThreshold}) framesWithFace=${faceResult.framesWithFace}/${faceResult.framesSubmitted}`);
+        console.warn(`[verify-face] user=${user.id} REJECTED — faceDetected=${faceResult.faceDetected} liveness=${livenessScore.toFixed(3)} (min ${LIVENESS_MIN}) confirmedActions=${confirmedActions.length}/${pending.actions.length} (need ${requiredConfirmed}) bestMatch=${bestSimilarity.toFixed(3)} (min ${matchThreshold}) moireScore=${moireScore.toFixed(3)} (diagnostics-only) framesWithFace=${faceResult.framesWithFace}/${faceResult.framesSubmitted}`);
         return res.status(403).json({
           passed: false,
           error: errors.join(' | '),
@@ -272,12 +365,14 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
             actionsRequested: pending.actions.length,
             bestMatch: Number(bestSimilarity.toFixed(3)),
             matchMin: matchThreshold,
+            moireScore: Number(moireScore.toFixed(3)),
           },
         });
       }
 
       // Single-use: this specific challenge has now been satisfied.
       pendingChallenges.delete(user.id);
+      console.log(`[verify-face] user=${user.id} PASSED (challenge mode) moireScore=${moireScore.toFixed(3)} (diagnostics-only, not gating) liveness=${livenessScore.toFixed(3)} bestMatch=${bestSimilarity.toFixed(3)}`);
 
       const token = signShortLivedToken({
         purpose: 'attendance_face_pass',
@@ -362,6 +457,72 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
         return res.status(403).json({ passed: false, error: `Network verification failed: You must connect to the corporate Wi-Fi (Required Public IP: ${tenant.officeIp}, Your IP: ${activeIp}).` });
       }
       res.json({ passed: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/api/attendance/verify-action', authenticate, async (req: any, res: any) => {
+    try {
+      const { action, images } = req.body || {};
+      if (!action || !DAILY_CHALLENGE_ACTIONS.includes(action)) {
+        return res.status(400).json({ error: 'A valid attendance action is required.' });
+      }
+      if (!Array.isArray(images) || images.length === 0) {
+        return res.status(400).json({ error: 'images are required.' });
+      }
+
+      const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
+      if (usersList.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const user = usersList[0];
+      if (!user.isKycCompleted) {
+        return res.status(400).json({ error: 'KYC registration not completed yet.' });
+      }
+
+      let faceResult: any;
+      try {
+        faceResult = await callFaceService('/verify', { images, challengeActions: [action] });
+      } catch (faceErr: any) {
+        return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
+      }
+
+      if (!faceResult.faceDetected) {
+        return res.status(422).json({ passed: false, error: 'No face detected clearly enough. Please keep your face inside the frame and try again.' });
+      }
+      if (!faceResult.actionResults?.[action]) {
+        return res.status(422).json({ passed: false, error: `We couldn't confirm ${action.replace('_', ' ')}. Please repeat that action more clearly.` });
+      }
+
+      let bestSimilarity = -1;
+      const enrolledEmbeddings = user.faceEmbeddings as number[][];
+      if (enrolledEmbeddings && enrolledEmbeddings.length > 0) {
+        for (const enrolled of enrolledEmbeddings) {
+          const sim = cosineSimilarity(enrolled, faceResult.embedding);
+          if (sim > bestSimilarity) bestSimilarity = sim;
+        }
+      }
+      const matchThreshold = 0.36;
+      if (!enrolledEmbeddings || enrolledEmbeddings.length === 0 || bestSimilarity < matchThreshold) {
+        return res.status(422).json({ passed: false, error: 'Face match was not strong enough for this action. Please face the camera directly and try again.' });
+      }
+
+      const token = signShortLivedToken({
+        purpose: 'attendance_face_pass',
+        userId: user.id,
+        faceMatchScore: bestSimilarity,
+        livenessScore: 1.0, // action completed successfully proves liveness
+        challengeRequested: [action],
+        challengeVerified: [action]
+      }, FACE_TOKEN_TTL);
+
+      res.json({
+        passed: true,
+        action,
+        faceMatchScore: bestSimilarity,
+        token,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -510,7 +671,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
         verificationErrors.push('Facial biometrics verification failed (Identity mismatch).');
         fraudType = 'FRAUD_BIOMETRICS_FAILED';
       }
-      if (livenessScore < 0.8) {
+      if (livenessScore < 0.6) {
         verificationErrors.push('Liveness verification failed (Possible spoofing attempt).');
         if (!fraudType) fraudType = 'FRAUD_LIVENESS_FAILED';
       }

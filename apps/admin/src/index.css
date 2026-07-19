@@ -1,48 +1,115 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
-@font-face {
-  font-family: 'Space Grotesk';
-  src: local('Space Grotesk');
-  font-display: swap;
-}
-/* No local/hosted "Clash Display" font file exists in this repo (the
-   previous @font-face pointed at a woff2 that was never shipped, causing a
-   404 -> "invalid sfntVersion" parse error on every page load). Falling
-   back to Space Grotesk keeps a distinct display weight without a broken
-   network request; swap in a real hosted Clash Display file here if one is
-   licensed later. */
+
+/* "Ledger" design system — replaces the earlier flat blue/gray "neutral"
+   theme (which the client rejected as generic/not premium enough) with a
+   warmer, more layered light theme: warm paper surfaces, a deep emerald
+   primary accent, and a warm brass secondary accent, in the register of
+   Zoho Books/Zoho People rather than a generic blue admin-dashboard look.
+   Every existing --color-premium-* variable NAME is unchanged (31+ files
+   already reference these) — only the values change, so the new theme
+   propagates to every existing consumer without per-file edits. */
 @theme {
-  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Serif display face, used sparingly for large hero/section headings only
+     (never body text or dense UI chrome) — the one deliberately
+     "boutique/premium" signal in an otherwise plain, dense admin tool. */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Premium light palette — Login, EmployeeLogin, EmployeeKYC,
-     EmployeeAttendance, EmployeeHome, ForgotPassword, ResetPassword only.
-     Accent matches the #7B5CFA button color already used in mail.ts's
-     email templates, so transactional emails and the app feel like one
-     brand. Dashboard, the landing page, and existing slate/neutral
-     palettes are untouched. */
-  --color-premium-bg: #F7F5FF;
+  --color-premium-bg: #F6F5F1;
   --color-premium-surface: #FFFFFF;
-  --color-premium-surface-alt: #FAF9FF;
-  --color-premium-border: #E9E4FB;
-  --color-premium-ink: #1B1530;
-  --color-premium-muted: #6E6A85;
-  --color-premium-accent: #7B5CFA;
-  --color-premium-accent-hover: #6A46F5;
-  --color-premium-accent-soft: #EFE9FF;
-  --color-premium-accent-2: #22C7B8;
-  --color-premium-accent-2-soft: #E1FBF7;
-  --color-premium-gold: #F5B94D;
-  --color-premium-gold-soft: #FDF3E1;
-  --color-premium-success: #16A34A;
-  --color-premium-warning: #F59E0B;
-  --color-premium-danger: #E24545;
-  --color-premium-danger-soft: #FDECEC;
+  --color-premium-surface-alt: #F1EFE9;
+  --color-premium-border: #E7E3D9;
+  --color-premium-ink: #14231F;
+  --color-premium-muted: #5B6B63;
+  --color-premium-accent: #0F6E5B;
+  --color-premium-accent-hover: #0B5747;
+  --color-premium-accent-soft: #E3F1EC;
+  --color-premium-accent-2: #B8873A;
+  --color-premium-accent-2-soft: #FBF1DE;
+  --color-premium-gold: #B8873A;
+  --color-premium-gold-soft: #FBF1DE;
+  --color-premium-success: #3F8F5F;
+  --color-premium-success-soft: #E3F2E7;
+  --color-premium-warning: #C97F27;
+  --color-premium-warning-soft: #FBEEDD;
+  --color-premium-danger: #B3432B;
+  --color-premium-danger-soft: #F8E3DE;
+  --color-premium-info: #2E6F8E;
+  --color-premium-info-soft: #E2EEF3;
+
+  /* Elevation scale — three levels, ink-tinted (not pure black) shadows,
+     replacing ad hoc inline shadow strings scattered per-component. */
+  --shadow-elevation-1: 0 1px 2px rgba(20, 35, 30, 0.05), 0 2px 8px rgba(20, 35, 30, 0.05);
+  --shadow-elevation-2: 0 1px 2px rgba(20, 35, 30, 0.05), 0 2px 8px rgba(20, 35, 30, 0.05), 0 8px 24px -8px rgba(20, 35, 30, 0.16);
+  --shadow-elevation-3: 0 24px 48px -12px rgba(20, 35, 30, 0.24);
+
+  /* Consistent corner radii, replacing today's mixed rounded-3xl/2xl/lg. */
+  --radius-card: 14px;
+  --radius-control: 10px;
+
+  /* ===================================================================
+     "Nexus Enterprise" design system — the client-approved replacement
+     for the app's authenticated screens (dashboard, attendance, payroll,
+     leave, teams, directory, branches, roles). Deliberately additive: the
+     --color-premium-* block above is untouched and keeps serving the
+     marketing/landing site and auth pages (Login, EmployeeLogin,
+     ForgotPassword, ResetPassword), which were not part of this reference
+     and are not being restyled. Values copied verbatim from the client's
+     Stitch design export (nexus_enterprise/DESIGN.md) for exact fidelity
+     to the approved mockups — do not "improve" or re-derive these.
+     =================================================================== */
+  --color-nexus-bg: #f7f9fb;
+  --color-nexus-surface: #ffffff;
+  --color-nexus-surface-alt: #f2f4f6;
+  --color-nexus-surface-sunken: #eceef0;
+  --color-nexus-border: #e0e3e5;
+  --color-nexus-ink: #191c1e;
+  --color-nexus-muted: #45464d;
+  --color-nexus-primary: #000000;
+  --color-nexus-primary-container: #131b2e;
+  --color-nexus-primary-fixed: #dae2fd;
+  --color-nexus-secondary: #505f76;
+  --color-nexus-secondary-container: #d0e1fb;
+  --color-nexus-tertiary-fixed: #6ffbbe;
+  --color-nexus-tertiary-fixed-dim: #4edea3;
+  --color-nexus-success-text: #009668;
+  --color-nexus-success-soft: #e3f9ef;
+  --color-nexus-error: #ba1a1a;
+  --color-nexus-error-soft: #ffdad6;
+  --color-nexus-primary-hover: #262626;
+  /* The reference palette has no distinct amber/warning hue — "pending"-type
+     states reuse the slate secondary/secondary-container pair. Kept as its
+     own alias (rather than reusing --color-nexus-secondary directly) purely
+     so call sites read as intentional semantic tokens, not raw brand color. */
+  --color-nexus-warning: #505f76;
+  --color-nexus-warning-soft: #d0e1fb;
+  --color-nexus-info: #505f76;
+  --color-nexus-info-soft: #d0e1fb;
+
+  --radius-nexus-card: 12px;
+  --radius-nexus-control: 8px;
 }
 
-/* Glassmorphism utility enhancements */
+/* Shared card surface for every restyled Nexus screen — white surface,
+   hairline border, standard corner radius, subtle hover lift matching the
+   reference's `hover:shadow-md` card behavior. */
+.nexus-card {
+  background: var(--color-nexus-surface);
+  border: 1px solid var(--color-nexus-border);
+  border-radius: var(--radius-nexus-card);
+  box-shadow: 0 1px 2px rgba(25, 28, 30, 0.04);
+  transition: box-shadow 0.2s ease;
+}
+.nexus-card:hover {
+  box-shadow: 0 4px 12px rgba(25, 28, 30, 0.08);
+}
+
+/* Legacy dark/teal glass panels (pre-existing theme, not part of the new
+   Ledger system) — retained only for the handful of components not yet
+   migrated off them; do not add new usages. */
 .glass-panel {
   background: rgba(11, 42, 46, 0.45);
   backdrop-filter: blur(12px);
@@ -74,9 +141,9 @@
   0% { opacity: 0; transform: translateY(30px); }
   100% { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in-up { 
-  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
-  opacity: 0; 
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
 }
 
 /* Spawn particle fade+scale-down animation */
@@ -85,8 +152,8 @@
   20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
 }
-.animate-fade-scale-down { 
-  animation: fadeScaleDown 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+.animate-fade-scale-down {
+  animation: fadeScaleDown 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Gentle 3D floating loop animation */
@@ -94,8 +161,8 @@
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
 }
-.animate-bounce-slow { 
-  animation: bounce-slow 4s ease-in-out infinite; 
+.animate-bounce-slow {
+  animation: bounce-slow 4s ease-in-out infinite;
 }
 
 /* Hides scrollbar for horizontally-scrollable tab bars on mobile, while
@@ -108,22 +175,16 @@
   display: none;
 }
 
-/* Slow-drifting animated gradient wash used behind the premium auth/portal
-   pages (Login, EmployeeLogin, EmployeeKYC, EmployeeAttendance, EmployeeHome,
+/* Slow-drifting gradient wash used behind the premium auth/portal pages
+   (Login, EmployeeLogin, EmployeeKYC, EmployeeAttendance, EmployeeHome,
    ForgotPassword, ResetPassword) — a cheap CSS alternative layered behind
    the 3D AuroraField canvas for pages/perf-modes where WebGL isn't wanted. */
-@keyframes premium-gradient-drift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
 .premium-gradient-bg {
-  background: linear-gradient(120deg, #F7F5FF, #EFE9FF, #E1FBF7, #F7F5FF);
-  background-size: 300% 300%;
-  animation: premium-gradient-drift 18s ease-in-out infinite;
+  background: var(--color-premium-bg);
 }
 
 /* Vertical scanning line sweeping the face-capture viewfinder (KYC + daily
-   attendance scan). */
+   attendance scan) — recolored to the new emerald accent. */
 @keyframes scan-line-sweep {
   0% { top: 6%; opacity: 0; }
   10% { opacity: 1; }
@@ -135,76 +196,68 @@
   left: 8%;
   right: 8%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #22C7B8, transparent);
-  box-shadow: 0 0 8px 1px rgba(34, 199, 184, 0.6);
+  background: linear-gradient(90deg, transparent, #0F6E5B, transparent);
+  box-shadow: 0 0 8px 1px rgba(15, 110, 91, 0.5);
   animation: scan-line-sweep 2.2s ease-in-out infinite;
 }
 
 /* =====================================================================
-   CSS-3D "smart mix" layer — GPU-cheap depth/float/tilt used app-wide
-   (every page except the marketing landing page). Deliberately CSS-only
-   (transforms + gradients, no WebGL) so it stays smooth on low-end phones,
-   including the live-camera KYC/attendance pages where a WebGL canvas would
-   fight the camera for GPU. Heavier ambient WebGL (AuroraField) is layered
-   separately, only on non-camera pages.
+   Ledger surface system — real elevation, a genuine (subtle, GPU-cheap)
+   hover tilt, and a real gradient mesh/text, replacing the previous pass's
+   flattened no-op versions of these same class names. Kept CSS-driven
+   wherever possible; .card-3d's tilt angle is set by a tiny pointer-based
+   helper (src/lib/cardTilt.ts, wired once in main.tsx) via the --tilt-x/
+   --tilt-y custom properties consumed below, so every existing `card-3d`
+   usage across the app gains the effect without a per-page code change.
    ===================================================================== */
 
-/* A richer, more vibrant animated mesh-gradient wash — the premium look with
-   more colour depth than the flatter premium-gradient-bg. */
-@keyframes mesh-drift {
-  0%,100% { background-position: 0% 0%, 100% 100%, 50% 50%; }
-  50%     { background-position: 100% 50%, 0% 50%, 60% 40%; }
-}
-.premium-mesh-bg {
-  background-color: #F7F5FF;
-  background-image:
-    radial-gradient(at 15% 20%, rgba(123, 92, 250, 0.22) 0px, transparent 55%),
-    radial-gradient(at 85% 25%, rgba(34, 199, 184, 0.20) 0px, transparent 55%),
-    radial-gradient(at 50% 90%, rgba(245, 185, 77, 0.16) 0px, transparent 55%);
-  background-size: 200% 200%, 200% 200%, 200% 200%;
-  animation: mesh-drift 22s ease-in-out infinite;
-}
-
-/* Light glassmorphism card — frosted, subtle inner highlight, soft shadow. */
+/* Card surface — white, hairline warm border, level-1 elevation, standard
+   corner radius. */
 .glass-card {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 10px 40px -12px rgba(123, 92, 250, 0.28), inset 0 1px 0 rgba(255,255,255,0.7);
+  background: var(--color-premium-surface);
+  border: 1px solid var(--color-premium-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-elevation-1);
 }
 
-/* Perspective tilt-on-hover — a cheap sense of 3D depth. Put .card-3d on a
-   card; it lifts and tilts slightly toward the viewer on hover. */
+/* Real (subtle) 3D tilt-on-hover, driven by --tilt-x/--tilt-y set on
+   pointermove by src/lib/cardTilt.ts; falls back to 0deg (flat) when the
+   helper hasn't attached (e.g. touch devices, or reduced-motion). */
 .card-3d {
-  transform-style: preserve-3d;
+  transform: perspective(1000px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(var(--tilt-lift, 0px));
   transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
   will-change: transform;
 }
 .card-3d:hover {
-  transform: perspective(900px) translateY(-4px) rotateX(3deg) rotateY(-3deg) scale(1.015);
-  box-shadow: 0 22px 48px -18px rgba(123, 92, 250, 0.4);
+  --tilt-lift: -3px;
+  box-shadow: var(--shadow-elevation-2);
 }
 
-/* Floating loops at three staggered speeds/offsets — drop onto decorative
-   layers or icon chips for the "floating objects" feel without any JS. */
-@keyframes float-y-a { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(2deg); } }
-@keyframes float-y-b { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-22px) rotate(-3deg); } }
-@keyframes float-y-c { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
-.float-a { animation: float-y-a 7s ease-in-out infinite; }
-.float-b { animation: float-y-b 9s ease-in-out infinite; }
-.float-c { animation: float-y-c 5s ease-in-out infinite; }
+/* Floating decorative loops disabled — kept as no-ops so existing
+   .float-a/b/c class usages don't need to be stripped from every page. */
+.float-a, .float-b, .float-c { animation: none; }
 
-/* Vibrant gradient text (headings) and a soft glowing accent ring. */
+/* Hero-scale gradient heading text — emerald to brass, real gradient clip
+   (the prior pass flattened this to solid ink; restored here since the new
+   theme is meant to read as genuinely dimensional, not flat). */
 .text-gradient {
-  background: linear-gradient(100deg, #7B5CFA, #22C7B8 60%, #F5B94D);
+  background: linear-gradient(120deg, var(--color-premium-accent), var(--color-premium-accent-2));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
+
+/* Slow left-right drift of the gradient itself (paired with bg-[length:200%_auto]
+   on the element) — a subtle shimmer so the hero's accent phrase reads as
+   alive rather than a flat static gradient. */
+@keyframes gradient-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
 @keyframes pulse-ring {
-  0%,100% { box-shadow: 0 0 0 0 rgba(123, 92, 250, 0.28); }
-  50%     { box-shadow: 0 0 0 10px rgba(123, 92, 250, 0.0); }
+  0%,100% { box-shadow: 0 0 0 0 rgba(15, 110, 91, 0.28); }
+  50%     { box-shadow: 0 0 0 10px rgba(15, 110, 91, 0.0); }
 }
 .pulse-ring { animation: pulse-ring 2.6s ease-out infinite; }
 
@@ -217,6 +270,45 @@
    element (its approximate path length) so the dash fully closes. */
 @keyframes draw-stroke { to { stroke-dashoffset: 0; } }
 .draw-in { animation: draw-stroke 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+/* Real warm gradient-mesh wash (previously flattened to a solid background
+   color) — three soft radial washes in the emerald/brass palette, slowly
+   drifting. Used behind the landing page and other full-bleed sections. */
+@keyframes mesh-drift {
+  0%,100% { background-position: 0% 0%, 100% 100%, 50% 50%; }
+  50%     { background-position: 100% 50%, 0% 50%, 60% 40%; }
+}
+.premium-mesh-bg {
+  background-color: var(--color-premium-bg);
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(15, 110, 91, 0.07), transparent 45%),
+    radial-gradient(circle at 85% 15%, rgba(184, 135, 58, 0.08), transparent 45%),
+    radial-gradient(circle at 50% 90%, rgba(15, 110, 91, 0.05), transparent 50%);
+  background-size: 200% 200%;
+  animation: mesh-drift 24s ease-in-out infinite;
+}
+
+/* Elevation utilities — opt-in (not auto-applied to .glass-card), for
+   Milestone 2 pages to adopt deliberately where they need a resting /
+   hover / modal-level shadow without the rest of .glass-card's styling. */
+.elevate-1 { box-shadow: var(--shadow-elevation-1); }
+.elevate-2 { box-shadow: var(--shadow-elevation-2); }
+.elevate-3 { box-shadow: var(--shadow-elevation-3); }
+
+/* Scroll-reveal fallback for any non-`motion` context — pair with a small
+   IntersectionObserver toggling `.is-visible` (the landing page itself
+   uses `motion`'s `whileInView` directly instead; this class exists for
+   Milestone 2 pages that don't want the `motion` dependency for a single
+   reveal). */
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
 
 /* Accessibility + the auto-calm path for low-power devices: honour the OS
    "reduce motion" preference by neutralizing all the above animations and
@@ -232,5 +324,7 @@
   }
   .draw-in { stroke-dashoffset: 0 !important; }
   .card-3d { transition: none; }
-  .card-3d:hover { transform: none; box-shadow: 0 10px 30px -18px rgba(123,92,250,0.3); }
+  .card-3d:hover { transform: none; box-shadow: var(--shadow-elevation-1); }
+  .card-3d { --tilt-x: 0deg !important; --tilt-y: 0deg !important; --tilt-lift: 0px !important; }
+  .reveal-on-scroll { opacity: 1 !important; transform: none !important; transition: none !important; }
 }

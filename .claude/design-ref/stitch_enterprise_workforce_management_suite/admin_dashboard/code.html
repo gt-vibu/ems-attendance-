@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EnterpriseHR Admin Dashboard</title>
+<!-- Google Fonts: Inter & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Design System Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary": "#000000",
+                    "on-surface": "#191c1e",
+                    "on-tertiary": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "on-background": "#191c1e",
+                    "primary-fixed-dim": "#bec6e0",
+                    "tertiary-container": "#002113",
+                    "on-error": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "secondary-fixed": "#d3e4fe",
+                    "tertiary-fixed": "#6ffbbe",
+                    "inverse-surface": "#2d3133",
+                    "error-container": "#ffdad6",
+                    "surface-variant": "#e0e3e5",
+                    "inverse-primary": "#bec6e0",
+                    "primary-container": "#131b2e",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#38485d",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container-low": "#f2f4f6",
+                    "outline-variant": "#c6c6cd",
+                    "primary": "#000000",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary-container": "#d0e1fb",
+                    "on-secondary-fixed": "#0b1c30",
+                    "tertiary-fixed-dim": "#4edea3",
+                    "surface": "#f7f9fb",
+                    "on-primary-container": "#7c839b",
+                    "surface-dim": "#d8dadc",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-surface-variant": "#45464d",
+                    "inverse-on-surface": "#eff1f3",
+                    "primary-fixed": "#dae2fd",
+                    "background": "#f7f9fb",
+                    "on-tertiary-fixed": "#002113",
+                    "on-tertiary-fixed-variant": "#005236",
+                    "surface-tint": "#565e74",
+                    "secondary": "#505f76",
+                    "on-secondary-container": "#54647a",
+                    "outline": "#76777d",
+                    "on-primary-fixed-variant": "#3f465c",
+                    "on-primary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "surface-container": "#eceef0",
+                    "on-primary-fixed": "#131b2e",
+                    "on-tertiary-container": "#009668"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "md": "16px",
+                    "margin-mobile": "16px",
+                    "base": "4px",
+                    "margin-desktop": "32px",
+                    "xs": "4px",
+                    "xl": "48px",
+                    "sm": "8px",
+                    "lg": "24px",
+                    "gutter": "20px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "data-tabular": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "data-tabular": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid #E2E8F0;
+        }
+        /* Hide scrollbars but keep functionality */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface">
+<!-- TopAppBar from JSON -->
+<header class="bg-surface dark:bg-surface-container w-full top-0 sticky border-b border-outline-variant dark:border-outline flex justify-between items-center h-14 px-margin-mobile md:px-margin-desktop z-40">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary text-label-sm">
+                EL
+            </div>
+<h1 class="text-headline-md font-headline-md font-bold text-primary dark:text-primary-fixed-dim">EnterpriseHR</h1>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-surface-container-high transition-colors p-2 rounded-full cursor-pointer active:opacity-80">notifications</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a senior HR director in a corporate setting, with soft office lighting and a clean, high-key background. The image has a polished, professional look with a modern navy and white color palette, conveying expertise and organizational reliability." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBObucVQotSQDiP7GzztDDUxHpSNiIbjI-lDd_M_yT7VNahu0gs82eHS8d8WMhBjPiHuMCsR3lL4476FOMhOgHyNxw7OvA0w0XK8lW9y6_nLmFZIIW01Pn4KxdfuPyBPU8H5Af3FbVbKoVsOUwDp50nIRjKOOsVTyDVTRm5_wAkPQ8ywE1nb3XUpICpe45ti-WX_raa1SYKQ5i7gR1_R6NPPVa-K8zasjl06pikhFkEghlEHBf5MQy4fU4RHZ8B-WqxvsWWt4Mu-maW"/>
+</div>
+</div>
+</header>
+<main class="max-w-[1440px] mx-auto p-margin-mobile md:p-margin-desktop pb-24 md:pb-12">
+<!-- Welcome Section -->
+<section class="mb-lg">
+<h2 class="text-headline-lg font-headline-lg text-primary">Dashboard Overview</h2>
+<p class="text-body-md font-body-md text-on-surface-variant">Welcome back, Admin. Here is what's happening today.</p>
+</section>
+<!-- Metrics Grid (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-gutter mb-lg">
+<!-- Total Employees -->
+<div class="glass-card p-lg rounded-xl flex flex-col justify-between h-40 hover:shadow-lg transition-shadow">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-primary text-[32px]">groups</span>
+<span class="text-on-tertiary-container bg-tertiary-fixed/20 px-2 py-0.5 rounded text-label-sm">+12%</span>
+</div>
+<div>
+<div class="text-headline-lg font-headline-lg">1,284</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">TOTAL EMPLOYEES</div>
+</div>
+</div>
+<!-- Present Today -->
+<div class="glass-card p-lg rounded-xl flex flex-col justify-between h-40 hover:shadow-lg transition-shadow">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-primary text-[32px]">event_available</span>
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full border-2 border-white bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Close up portrait of a smiling young professional employee in a bright modern office environment, high resolution digital photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAvGQSbIsdggC2Eio4-snZd-gid6Zj-1c1Og4KnAQnZrgaqbxEfL2mol4hLwzwjgBIdX7D9nAoEgrjGEuOGwBypHzud6izcAHhLOVG6kccv524pnAQ-qp3JrrzVfzx9xr3dfgJF0x9cTKDg9-35kAgBi6xR6x9_8t6W4Cmb7bataKMLRJD-CKXIClwe2RniWB2jL0c5r_MiMUmRWK7Hd7wKE2A_c4VbiNXwpgJRY8d3Hox9m3mZvfWh1arg3FdZKFz1k8QhMfwri-x5"/>
+</div>
+<div class="w-6 h-6 rounded-full border-2 border-white bg-slate-200 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Corporate portrait of a diverse team member wearing professional business casual attire against a clean, blurred office background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAiFqH1yAGsSXJDt7SVt7-O59HVzNK7k8oujp3rcTdhkMxJ6Jgs5Xj0Zzewai5YpUg3rLva927VXGQWtWpEIVBYxD52IPbEtWe4pK6gihnKMJFCEjKePEIGjrqTTmWrO4jNZrGG7p_Xp-eVy1zUh_oZ5WWSMSyFh2glLJoqoFXgIbOiQc9EL09bzM3LMkfz699KFoMpvX5s1fZ39LhtCFPsX0mWbC9NmjjNZGI4scrQqsJmkNl6sMB_Vgi3tAMj1CuohgZFC9T3ounv"/>
+</div>
+</div>
+</div>
+<div>
+<div class="text-headline-lg font-headline-lg">1,102</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">PRESENT TODAY</div>
+</div>
+</div>
+<!-- Pending Leave -->
+<div class="glass-card p-lg rounded-xl flex flex-col justify-between h-40 hover:shadow-lg transition-shadow">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-error text-[32px]">event_busy</span>
+<span class="bg-error-container text-on-error-container px-2 py-0.5 rounded text-label-sm">High Priority</span>
+</div>
+<div>
+<div class="text-headline-lg font-headline-lg">24</div>
+<div class="text-label-sm font-label-sm text-on-surface-variant">PENDING REQUESTS</div>
+</div>
+</div>
+<!-- Quick Action Card -->
+<div class="bg-primary text-on-primary p-lg rounded-xl flex flex-col justify-between h-40 md:col-span-1 lg:col-span-1">
+<div class="text-body-md font-body-md opacity-80">Direct Action</div>
+<div>
+<button class="w-full bg-white text-primary py-3 rounded-lg font-label-sm flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors active:scale-95 duration-100">
+<span class="material-symbols-outlined">person_add</span>
+                        NEW EMPLOYEE
+                    </button>
+</div>
+</div>
+</div>
+<!-- Main Content Area: Tables & Quick Links -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
+<!-- Pending Requests Table (Large) -->
+<div class="lg:col-span-2 glass-card rounded-xl overflow-hidden">
+<div class="p-lg border-b border-outline-variant flex justify-between items-center">
+<h3 class="text-headline-md font-headline-md">Recent Leave Requests</h3>
+<button class="text-primary font-label-sm hover:underline">View All</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-surface-container-low text-on-surface-variant text-label-sm border-b border-outline-variant">
+<tr>
+<th class="px-lg py-4 font-semibold">EMPLOYEE</th>
+<th class="px-lg py-4 font-semibold">TYPE</th>
+<th class="px-lg py-4 font-semibold">DURATION</th>
+<th class="px-lg py-4 font-semibold">STATUS</th>
+<th class="px-lg py-4 font-semibold text-right">ACTION</th>
+</tr>
+</thead>
+<tbody class="text-body-md">
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors">
+<td class="px-lg py-4 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center font-bold text-on-secondary-container text-xs">JD</div>
+<span>Jane Doe</span>
+</td>
+<td class="px-lg py-4">Annual Leave</td>
+<td class="px-lg py-4">Oct 12 - Oct 15</td>
+<td class="px-lg py-4">
+<span class="bg-tertiary-fixed-dim/20 text-on-tertiary-container px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Pending</span>
+</td>
+<td class="px-lg py-4 text-right">
+<button class="material-symbols-outlined text-primary hover:bg-slate-100 p-1 rounded">more_vert</button>
+</td>
+</tr>
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors">
+<td class="px-lg py-4 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center font-bold text-on-primary-container text-xs">MS</div>
+<span>Michael Smith</span>
+</td>
+<td class="px-lg py-4">Sick Leave</td>
+<td class="px-lg py-4">Oct 10 (1 Day)</td>
+<td class="px-lg py-4">
+<span class="bg-error-container text-on-error-container px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Urgent</span>
+</td>
+<td class="px-lg py-4 text-right">
+<button class="material-symbols-outlined text-primary hover:bg-slate-100 p-1 rounded">more_vert</button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-lg py-4 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-fixed flex items-center justify-center font-bold text-on-secondary-fixed text-xs">RW</div>
+<span>Robert Wilson</span>
+</td>
+<td class="px-lg py-4">Parental</td>
+<td class="px-lg py-4">Oct 20 - Nov 05</td>
+<td class="px-lg py-4">
+<span class="bg-tertiary-fixed-dim/20 text-on-tertiary-container px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Pending</span>
+</td>
+<td class="px-lg py-4 text-right">
+<button class="material-symbols-outlined text-primary hover:bg-slate-100 p-1 rounded">more_vert</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Quick Actions Sidebar -->
+<div class="flex flex-col gap-gutter">
+<div class="glass-card p-lg rounded-xl">
+<h3 class="text-headline-md font-headline-md mb-md text-primary">Quick Actions</h3>
+<div class="space-y-3">
+<button class="w-full flex items-center gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors group">
+<span class="material-symbols-outlined text-primary bg-primary-container/10 p-2 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">payments</span>
+<div class="text-left">
+<p class="text-body-md font-semibold">Run Payroll</p>
+<p class="text-label-sm text-on-surface-variant">Batch processing for Oct</p>
+</div>
+</button>
+<button class="w-full flex items-center gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors group">
+<span class="material-symbols-outlined text-primary bg-primary-container/10 p-2 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">description</span>
+<div class="text-left">
+<p class="text-body-md font-semibold">Generate Reports</p>
+<p class="text-label-sm text-on-surface-variant">Quarterly performance</p>
+</div>
+</button>
+<button class="w-full flex items-center gap-3 p-3 rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors group">
+<span class="material-symbols-outlined text-primary bg-primary-container/10 p-2 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">settings_account_box</span>
+<div class="text-left">
+<p class="text-body-md font-semibold">Audit Logs</p>
+<p class="text-label-sm text-on-surface-variant">View system changes</p>
+</div>
+</button>
+</div>
+</div>
+<!-- Announcement/Broadcast Card -->
+<div class="relative rounded-xl overflow-hidden h-48 group">
+<img class="absolute inset-0 w-full h-full object-cover" data-alt="A wide panoramic digital illustration of a modern, minimal corporate office lobby with warm sunlight streaming through large glass windows. The style is clean, vector-inspired with soft gradients of navy, slate blue, and white, creating a welcoming professional atmosphere." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlgfoGvih31CseSBWQZRLpWlEZrKCm4QWcsX4S0xVqEAm-VZ1sBHL-Sz3XNS5ODeIybKQyGAm-F9_cjox1gSEky_VpwJWCT6ZRXHxNzldvBdxL0jvOVonJiYN90GubsqAZZDgKzKX0ZgGa2HLNB21OJLXfOtmaqHx6ceQPZULsoTBfIiud_Hzp6q1YwpBHqkLiXpru-qqz5fVyOYYjASG3I2a7NeJ9FpnPyLt16tXC0kMaGytgdQ7aUNY_0AKjYd5gvI-UwjpzXUga"/>
+<div class="absolute inset-0 bg-gradient-to-t from-primary/90 to-transparent"></div>
+<div class="absolute bottom-0 p-lg text-white">
+<h4 class="font-headline-md text-body-lg">Company Policy Update</h4>
+<p class="text-label-sm opacity-80">Notify all employees about new remote work guidelines.</p>
+<button class="mt-2 text-label-sm font-bold flex items-center gap-1 group-hover:gap-2 transition-all">BROADCAST NOW <span class="material-symbols-outlined text-xs">arrow_forward</span></button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar from JSON -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 bg-surface dark:bg-surface-container-high px-2 border-t border-outline-variant dark:border-outline shadow-md md:hidden">
+<a class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim font-bold active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-label-sm font-label-sm">Dashboard</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined">event_available</span>
+<span class="text-label-sm font-label-sm">Attendance</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined">event_busy</span>
+<span class="text-label-sm font-label-sm">Leave</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-variant/50 active:scale-95 transition-transform duration-100" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-label-sm font-label-sm">Profile</span>
+</a>
+</nav>
+<!-- Floating Action Button - Mobile Only -->
+<button class="fixed bottom-20 right-4 w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center active:scale-90 transition-transform md:hidden z-40">
+<span class="material-symbols-outlined">add</span>
+</button>
+<script>
+        // Simple Interaction logic
+        document.querySelectorAll('.active\\:opacity-80').forEach(btn => {
+            btn.addEventListener('click', () => {
+                console.log('Interaction detected');
+            });
+        });
+    </script>
+</body></html>

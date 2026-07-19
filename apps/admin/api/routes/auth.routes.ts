@@ -101,12 +101,25 @@ router.post('/api/auth/reset-password', authLimiter, async (req: any, res: any) 
       const updatedUsers = await db.select().from(schema.users).where(eq(schema.users.id, decoded.userId));
       const user = updatedUsers[0];
 
+      const tenantRec = user.tenantId
+        ? await db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId))
+        : [];
+      const tenant = tenantRec[0] || null;
+
       // Return full JWT session — a successful password reset is itself
       // strong proof of identity, so it force-establishes a new session
       // rather than being blocked by the already-logged-in check.
       const sessionToken = await issueNewSession(user);
 
-      res.json({ token: sessionToken, user: { id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId } });
+      res.json({
+        token: sessionToken,
+        user: {
+          id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId,
+          isKycCompleted: user.isKycCompleted,
+          kycEnabled: tenant ? tenant.kycEnabled !== false : true,
+          branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
+        }
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -3,11 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { 
-  ShieldCheck, Coffee, Map, FileText, Settings, Key 
+import { motion } from 'motion/react';
+import {
+  ShieldCheck, Coffee, Map, FileText, Settings, Key
 } from 'lucide-react';
-import { useInViewAnimation } from '../hooks/useInViewAnimation';
 
 interface FeatureItem {
   id: string;
@@ -15,7 +14,6 @@ interface FeatureItem {
   description: string;
   icon: any;
   color: string;
-  bgColor: string;
 }
 
 const FEATURES: FeatureItem[] = [
@@ -24,93 +22,94 @@ const FEATURES: FeatureItem[] = [
     title: 'Attendance Sessions',
     description: 'Check-in to check-out, with nowhere for a status to drift.',
     icon: ShieldCheck,
-    color: '#4FD1A5',
-    bgColor: 'bg-emerald-500/10'
+    color: '#0F6E5B',
   },
   {
     id: 'breaks',
     title: 'Breaks',
     description: 'Requested, approved, reconciled against real presence data.',
     icon: Coffee,
-    color: '#3FA9C9',
-    bgColor: 'bg-teal-500/10'
+    color: '#2E6F8E',
   },
   {
     id: 'presence',
     title: 'Presence',
     description: 'Geofence exits and GPS gaps tracked independently of user action.',
     icon: Map,
-    color: '#E8843F',
-    bgColor: 'bg-orange-500/10'
+    color: '#B8873A',
   },
   {
     id: 'corrections',
     title: 'Corrections',
     description: 'Every edit to a closed record is itself an auditable, approved change.',
     icon: FileText,
-    color: '#9C8CE8',
-    bgColor: 'bg-purple-500/10'
+    color: '#7C6FB0',
   },
   {
     id: 'policy',
-    title: 'Policy versions',
+    title: 'Policy Versions',
     description: 'Exactly one active policy per tenant; past sessions never get rewritten.',
     icon: Settings,
-    color: '#6B7A80',
-    bgColor: 'bg-slate-500/10'
+    color: '#5B6B63',
   },
   {
     id: 'approvals',
     title: 'Approvals',
     description: 'One reusable approval chain for corrections, device changes, and break requests.',
     icon: Key,
-    color: '#2E7D5B',
-    bgColor: 'bg-green-500/10'
+    color: '#14805F',
   }
 ];
 
-const FeatureCard: React.FC<{ feature: FeatureItem; index: number }> = ({ feature, index }) => {
-  const { ref, className } = useInViewAnimation<HTMLDivElement>();
+function FeatureCard({ feature, index }: { feature: FeatureItem; index: number }) {
   const Icon = feature.icon;
 
   return (
-    <div 
-      ref={ref}
-      style={{ animationDelay: `${index * 0.15}s` }}
-      className={`${className} group bg-[#0B1E22]/65 backdrop-blur-md border border-[#143239] rounded-3xl p-6 md:p-8 hover:border-slate-400 transition-all duration-300 relative overflow-hidden`}
+    <motion.div
+      initial={{ opacity: 0, y: 28 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-10% 0px' }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: index * 0.08 }}
+      className="card-3d glass-card rounded-3xl p-6 md:p-8"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/2 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      
-      {/* Small looping 3D icon */}
-      <div className={`w-12 h-12 rounded-2xl ${feature.bgColor} border border-white/5 flex items-center justify-center mb-6 animate-bounce-slow`}>
+      <div
+        className="w-12 h-12 rounded-2xl flex items-center justify-center mb-6"
+        style={{ backgroundColor: `${feature.color}16` }}
+      >
         <Icon className="w-5 h-5" style={{ color: feature.color }} />
       </div>
 
-      <h4 className="font-display font-black text-lg text-white mb-2 uppercase tracking-tight">
+      <h4 className="font-display font-semibold text-lg text-[var(--color-premium-ink)] mb-2">
         {feature.title}
       </h4>
 
-      <p className="font-sans text-xs text-[#9FB4BC] leading-relaxed font-medium">
+      <p className="font-sans text-sm text-[var(--color-premium-muted)] leading-relaxed font-medium">
         {feature.description}
       </p>
-    </div>
+    </motion.div>
   );
-};
+}
 
 export default function FeatureGrid() {
   return (
-    <section id="features" className="py-20 px-6 max-w-7xl mx-auto overflow-hidden">
-      <div className="text-center mb-16">
-        <span className="font-mono text-xs text-[#8FE3C0] font-black tracking-widest block mb-2 uppercase">
-          SMART TEAMS CORE ENGINE
+    <section className="py-24 md:py-36 px-6 max-w-7xl mx-auto overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '-10% 0px' }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        className="text-center mb-16"
+      >
+        <span className="text-xs text-[var(--color-premium-accent)] font-bold tracking-widest block mb-2 uppercase">
+          Built for real accountability
         </span>
-        <h2 className="font-display font-black text-3xl md:text-5xl text-white tracking-tight leading-none">
-          Six machines, one source of truth
+        <h2 className="font-display font-semibold text-3xl md:text-5xl text-[var(--color-premium-ink)] tracking-tight leading-[1.1]">
+          Six systems, one source of truth
         </h2>
-        <p className="font-sans text-xs text-[#9FB4BC] max-w-md mx-auto mt-2 leading-relaxed">
-          Forget vulnerable database rows. Smart Teams governs user presence and timeline states with isolated state machines that never leak.
+        <p className="font-sans text-sm text-[var(--color-premium-muted)] max-w-md mx-auto mt-3 leading-relaxed">
+          Every state — attendance, breaks, presence, corrections, policy, approvals — is tracked independently, so nothing can quietly drift.
         </p>
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
         {FEATURES.map((feat, idx) => (

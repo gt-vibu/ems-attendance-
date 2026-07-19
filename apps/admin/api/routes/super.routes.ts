@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
@@ -15,6 +15,7 @@ import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToke
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
@@ -118,6 +119,27 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
         featuresAllowed: featuresAllowed || ['kyc', 'wifi_lock', 'gps_geofence']
       }).returning();
 
+      // No branch/shift is auto-created here, deliberately: every branch a
+      // tenant has must be something the tenant_admin themselves entered
+      // (name, real address/location, policies) via the first-login
+      // branch-setup wizard — never a silent "Main Branch" placeholder with
+      // no location. The tenant_admin's own user row has no branchId/shiftId
+      // either (it doesn't need one — admins don't clock in against a shift).
+      // Onboarding an employee is already blocked until at least one real
+      // branch+shift exists (see POST /api/tenant/users/create), so this is
+      // safe: nothing can be onboarded before the tenant_admin sets one up.
+
+      // Seed starter role defaults so the tenant admin isn't starting from a
+      // completely blank Role Permissions screen — fully editable afterward,
+      // no hardcoded fallback exists after this point.
+      await db.insert(schema.rolePrivilegeDefaults).values(
+        Object.entries(STARTER_ROLE_DEFAULTS).map(([roleName, privileges]) => ({
+          tenantId: tenant[0].id,
+          roleName,
+          privileges,
+        }))
+      );
+
       // Create Tenant Admin User. The plaintext tempPassword is only ever
       // used for the one-time activation email below; the stored value is
       // always a bcrypt hash.
@@ -129,7 +151,7 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
         name: `${request.companyName} Admin`,
         role: 'tenant_admin',
         mustChangePassword: true,
-        tenantId: tenant[0].id
+        tenantId: tenant[0].id,
       });
 
       // Update tenancy request status
@@ -207,6 +229,87 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
         ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
         deviceInfo: req.headers['user-agent'] || '',
         details: { tenantName: tenantList[0].name }
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // SUPER ADMIN API: Permanently delete a tenant and everything belonging
+  // to it. Unlike suspend/reactivate (reversible, no data loss), this is a
+  // one-way door: every employee's login, attendance history, branches,
+  // shifts, and QR data for this tenant are gone, and the company can only
+  // regain access by submitting a brand-new tenancy request (public
+  // /api/tenancy/request) for the super admin to review and approve again
+  // from scratch — the old tenant/admin identity is not recoverable.
+  // Deletion runs in a single transaction, deleting child rows in FK-safe
+  // order; audit-ledger entries are detached (tenantId/actorId set to null)
+  // rather than deleted, preserving the hash chain's integrity.
+router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const { tenantId } = req.body;
+      if (!tenantId) {
+        return res.status(400).json({ error: 'tenantId is required' });
+      }
+
+      const tenantList = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+      if (tenantList.length === 0) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+      const tenant = tenantList[0];
+
+      const tenantUsers = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.tenantId, tenantId));
+      const userIds = tenantUsers.map((u: any) => u.id);
+      const employeeCount = userIds.length;
+
+      await db.transaction(async (tx: any) => {
+        // Detach (don't delete) audit-ledger entries so the hash chain stays
+        // intact — this tenant's history just becomes unattributed.
+        await tx.update(schema.auditLedger)
+          .set({ tenantId: null, actorId: null })
+          .where(or(
+            eq(schema.auditLedger.tenantId, tenantId),
+            userIds.length > 0 ? inArray(schema.auditLedger.actorId, userIds) : sql`false`
+          ));
+
+        // Children of attendanceLogs/qrSessions/breakSessions must go first.
+        await tx.delete(schema.qrScans).where(eq(schema.qrScans.tenantId, tenantId));
+        await tx.delete(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.tenantId, tenantId));
+        await tx.delete(schema.qrSessions).where(eq(schema.qrSessions.tenantId, tenantId));
+        await tx.delete(schema.breakSessions).where(eq(schema.breakSessions.tenantId, tenantId));
+        await tx.delete(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.tenantId, tenantId));
+        await tx.delete(schema.employeeHomeLocations).where(eq(schema.employeeHomeLocations.tenantId, tenantId));
+        await tx.delete(schema.wfhLocationChangeRequests).where(eq(schema.wfhLocationChangeRequests.tenantId, tenantId));
+        await tx.delete(schema.deviceChangeRequests).where(eq(schema.deviceChangeRequests.tenantId, tenantId));
+        await tx.delete(schema.holidays).where(eq(schema.holidays.tenantId, tenantId));
+        await tx.delete(schema.attendanceLogs).where(eq(schema.attendanceLogs.tenantId, tenantId));
+
+        // Tenant-wide notifications are stored with userId = tenantId (see
+        // GET /api/tenant/notifications) — no FK, just cleanup.
+        await tx.delete(schema.notifications).where(eq(schema.notifications.userId, tenantId));
+
+        // Users must go before branches/shifts (users.branchId/shiftId
+        // reference them) and before tenants itself.
+        await tx.delete(schema.users).where(eq(schema.users.tenantId, tenantId));
+        await tx.delete(schema.shifts).where(eq(schema.shifts.tenantId, tenantId));
+        await tx.delete(schema.branches).where(eq(schema.branches.tenantId, tenantId));
+
+        await tx.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));
+      });
+
+      await logToAuditLedger({
+        tenantId: null,
+        actorId: req.user.userId,
+        actorName: req.user.name,
+        action: 'TENANT_DELETED',
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+        deviceInfo: req.headers['user-agent'] || '',
+        details: { deletedTenantId: tenantId, tenantName: tenant.name, employeeCount }
       });
 
       res.json({ success: true });

@@ -4,10 +4,11 @@ import { motion } from 'motion/react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
+import { describeCameraError } from '../lib/cameraError';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 
-type Step = 'mode_select' | 'home_registration' | 'wfh_reason' | 'face' | 'gps' | 'wifi' | 'submitting' | 'late_reason';
+type Step = 'ready' | 'mode_select' | 'home_registration' | 'wfh_reason' | 'face' | 'gps' | 'wifi' | 'submitting' | 'late_reason';
 type TodayState = 'not_started' | 'checked_in' | 'checked_out';
 type AttendanceMode = 'office' | 'wfh';
 
@@ -20,8 +21,14 @@ interface WfhEligibility {
 }
 
 export default function EmployeeAttendance({ user, onLogout }: { user: User, onLogout: () => void }) {
-  const [step, setStep] = useState<Step>('face');
+  const [step, setStep] = useState<Step>('ready');
   const [loading, setLoading] = useState(true);
+  // What "Mark Attendance" should do once pressed on the 'ready' screen —
+  // resolved during initToday() from the ?mode= deep link (or WFH
+  // eligibility), but not acted on until the employee actually clicks,
+  // since acting on it immediately is exactly the auto-camera-prompt bug
+  // this step exists to avoid.
+  const [pendingMode, setPendingMode] = useState<'office' | 'wfh'>('office');
   const [status, setStatus] = useState('Starting camera...');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -34,8 +41,12 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   // challenge — see handleFaceScan for why this replaced a single lumped
   // burst (asking someone to turn their head AND blink AND smile inside one
   // ~2s "hold steady" window never actually worked).
-  const [actionPhase, setActionPhase] = useState<'idle' | 'get_ready' | 'capturing'>('idle');
+  const [actionPhase, setActionPhase] = useState<'idle' | 'get_ready' | 'capturing' | 'verifying' | 'done'>('idle');
   const [currentActionIndex, setCurrentActionIndex] = useState(0);
+  const [isFallbackMode, setIsFallbackMode] = useState(false);
+  const [currentActionProgress, setCurrentActionProgress] = useState(0);
+  const [faceActionBusy, setFaceActionBusy] = useState(false);
+  const [verifiedChallengeActions, setVerifiedChallengeActions] = useState<string[]>([]);
 
   // Wi-Fi simulation context input — DEV ONLY, never rendered in production
   // builds. Lives on its own Wi-Fi step now, not inline with the camera.
@@ -87,6 +98,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const ipOverrideRef = useRef<string>('');
 
   const CHALLENGE_LABELS: Record<string, string> = {
+    look_center: 'look directly at the camera',
     blink: 'blink',
     turn_left: 'turn your head slightly left',
     turn_right: 'turn your head slightly right',
@@ -164,32 +176,52 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
 
       const wfhData = await fetchWfhEligibility();
 
-      // The new /employee/dashboard landing page sends the employee here with
-      // a pre-made choice (?mode=office|wfh), so we skip the in-page chooser.
-      // Falls back to today's behavior (conditional mode_select) for anyone
-      // who navigates here directly with no query param — nothing breaks.
+      // The /employee/dashboard landing page sends the employee here with a
+      // pre-made choice (?mode=office|wfh). Either way, land on the 'ready'
+      // gate below rather than opening the camera/GPS immediately — the
+      // camera must only ever start from an explicit tap on THIS page's
+      // "Mark Attendance" button, not just because the page finished
+      // loading. Falls back to today's behavior (conditional mode_select)
+      // for anyone with no eligible WFH option.
       const requestedMode = searchParams.get('mode');
       if (requestedMode === 'wfh' && wfhData?.eligible) {
-        enterWfhFlow(wfhData);
+        setPendingMode('wfh');
+        setStep('ready');
+        setLoading(false);
         return;
       }
-      if (requestedMode === 'office') {
-        chooseOfficeMode();
+      if (requestedMode === 'office' || !wfhData?.eligible) {
+        setPendingMode('office');
+        setStep('ready');
+        setLoading(false);
         return;
       }
 
-      if (wfhData?.eligible) {
-        // Let the employee choose Office vs. Work From Home before the
-        // camera starts — the toggle shown for this step.
-        setStep('mode_select');
-        setLoading(false);
-      } else {
-        enterFaceStep();
-      }
+      // Only reachable when WFH is available and no mode was pre-selected —
+      // let the employee choose Office vs. Work From Home; each option
+      // itself still requires a further explicit tap before the camera
+      // starts (chooseOfficeMode / enterWfhFlow).
+      setStep('mode_select');
+      setLoading(false);
     } catch (err) {
       console.error(err);
-      // Fail open — don't block attendance if this status check itself fails.
-      enterFaceStep();
+      // Fail open — don't block attendance if this status check itself
+      // fails, but still land on the 'ready' gate rather than auto-opening
+      // the camera.
+      setPendingMode('office');
+      setStep('ready');
+      setLoading(false);
+    }
+  };
+
+  // The 'ready' screen's single "Mark Attendance" button — the only place
+  // that's allowed to trigger the camera/GPS permission prompts, per
+  // pendingMode resolved earlier in initToday().
+  const startAttendance = () => {
+    if (pendingMode === 'wfh' && wfhEligibility) {
+      enterWfhFlow(wfhEligibility);
+    } else {
+      chooseOfficeMode();
     }
   };
 
@@ -300,18 +332,6 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     }
   };
 
-  const fetchChallenge = async () => {
-    try {
-      const res = await fetch('/api/attendance/challenge', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setChallenge(data.challenge || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   // ==========================================
   // STEP 1 — Face liveness/identity challenge
   // ==========================================
@@ -319,13 +339,16 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const enterFaceStep = async () => {
     setStep('face');
     setError('');
+    setIsFallbackMode(false);
+    setChallenge([]);
     faceTokenRef.current = null;
     setFaceScores(null);
     setStatus('Starting camera...');
     setLoading(true);
     setActionPhase('idle');
     setCurrentActionIndex(0);
-    await fetchChallenge();
+    setCurrentActionProgress(0);
+    setVerifiedChallengeActions([]);
     await startCamera();
   };
 
@@ -341,7 +364,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       setLoading(false);
     } catch (err) {
       console.error(err);
-      setError('Camera access denied.');
+      setError(describeCameraError(err));
       setLoading(false);
     }
   };
@@ -362,78 +385,164 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     return canvas.toDataURL('image/jpeg', 0.85);
   };
 
-  const handleFaceScan = async () => {
-    if (!videoRef.current) return;
+  // True only while an actual live camera frame is flowing — not just
+  // "srcObject is set", since a track can end (device unplugged, OS-level
+  // revoke) without srcObject ever going back to null.
+  const hasLiveCameraTrack = () =>
+    !!(videoRef.current?.srcObject as MediaStream | null)?.getVideoTracks().some(t => t.readyState === 'live');
 
-    setLoading(true);
+  const handleFaceScan = async () => {
+    if (!videoRef.current || faceActionBusy) return;
+
     setError('');
+    setFaceActionBusy(true);
+
+    // The camera may never have started — denied last time, dismissed
+    // without a choice, or revoked mid-session — so don't try to capture
+    // from a dead stream. Re-run getUserMedia right here instead: a browser
+    // only ever suppresses its own permission prompt once the user has
+    // permanently blocked this site from its own settings UI; every other
+    // denial (closed the prompt, denied once this tab, revoked later)
+    // re-prompts on a fresh call, so this button doubles as a retry.
+    if (!hasLiveCameraTrack()) {
+      setStatus('Requesting camera access...');
+      setLoading(true);
+      await startCamera();
+      if (!hasLiveCameraTrack()) {
+        setFaceActionBusy(false);
+        return;
+      }
+    }
 
     try {
-      // One requested action at a time, not one lump ~2s burst covering
-      // all 3 — asking someone to turn their head AND blink AND smile
-      // inside a single "hold steady" capture window was never humanly
-      // achievable, which is why every real attempt failed regardless of
-      // what the employee actually did. This mirrors the per-pose guided
-      // capture EmployeeKYC.tsx already uses successfully. All frames from
-      // every action are combined into one burst before submitting — the
-      // face service scans the whole combined burst for each requested
-      // action regardless of which segment it happened in, so no backend
-      // or API change was needed to fix this.
-      const frames: string[] = [];
-      const actionsToPerform = challenge.length > 0 ? challenge : ['blink'];
-      for (let i = 0; i < actionsToPerform.length; i++) {
-        const action = actionsToPerform[i];
-        setCurrentActionIndex(i);
-
+      if (!isFallbackMode) {
+        // --- PHOTO MODE ---
         setActionPhase('get_ready');
-        setStatus(`Get ready: ${CHALLENGE_LABELS[action] || action}`);
+        setCurrentActionProgress(0);
+        setStatus('Get ready for photo verification');
         await new Promise(resolve => setTimeout(resolve, CHALLENGE_GET_READY_MS));
 
         setActionPhase('capturing');
-        setStatus(`Now: ${CHALLENGE_LABELS[action] || action}`);
+        setStatus('Looking straight at the camera...');
+        const frames: string[] = [];
         for (let f = 0; f < CHALLENGE_FRAMES_PER_ACTION; f++) {
           const frame = captureFrame();
-          if (frame) frames.push(frame);
+          if (frame) {
+            frames.push(frame);
+            setCurrentActionProgress(frames.length);
+          }
           await new Promise(resolve => setTimeout(resolve, CHALLENGE_CAPTURE_INTERVAL_MS));
         }
-      }
-      setActionPhase('idle');
 
-      if (frames.length < 4) {
-        throw new Error('Could not capture enough frames from the camera. Please try again.');
-      }
-
-      setStatus('Verifying identity and liveness...');
-
-      const res = await fetch('/api/attendance/verify-face', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ images: frames })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.passed) {
-        if (data.expired) {
-          // Challenge went stale — fetch a fresh one and let them retry.
-          await fetchChallenge();
+        if (frames.length < 4) {
+          throw new Error('Could not capture enough frames from the camera. Please try again.');
         }
-        throw new Error(data.error || 'Face verification failed.');
-      }
 
-      faceTokenRef.current = data.token;
-      setFaceScores({ faceMatchScore: data.faceMatchScore, livenessScore: data.livenessScore });
-      stopCamera();
-      setLoading(false);
-      enterGpsStep();
+        setActionPhase('verifying');
+        setStatus('Verifying photo...');
+
+        const res = await fetch('/api/attendance/verify-face', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ images: frames, mode: 'photo' })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.passed) {
+          faceTokenRef.current = data.token;
+          setFaceScores({ faceMatchScore: data.faceMatchScore, livenessScore: data.livenessScore });
+          stopCamera();
+          setLoading(false);
+          enterGpsStep();
+          return;
+        }
+
+        if (data.needsFallback) {
+          setIsFallbackMode(true);
+          setChallenge(data.fallbackActions || []);
+          setCurrentActionIndex(0);
+          setCurrentActionProgress(0);
+          setVerifiedChallengeActions([]);
+          setActionPhase('idle');
+          setStatus('One more quick check needed.');
+          setError('We occasionally ask for an extra check for security — follow the prompt below.');
+          return;
+        }
+
+        throw new Error(data.error || 'Photo verification failed.');
+      } else {
+        // --- FALLBACK ACTIONS MODE ---
+        const currentAction = challenge[currentActionIndex];
+        
+        setActionPhase('get_ready');
+        setCurrentActionProgress(0);
+        setStatus(`Get ready: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
+        await new Promise(resolve => setTimeout(resolve, CHALLENGE_GET_READY_MS));
+
+        setActionPhase('capturing');
+        setStatus(`Now: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
+        const frames: string[] = [];
+        for (let f = 0; f < CHALLENGE_FRAMES_PER_ACTION; f++) {
+          const frame = captureFrame();
+          if (frame) {
+            frames.push(frame);
+            setCurrentActionProgress(frames.length);
+          }
+          await new Promise(resolve => setTimeout(resolve, CHALLENGE_CAPTURE_INTERVAL_MS));
+        }
+
+        if (frames.length < 4) {
+          throw new Error('Could not capture enough frames from the camera. Please try again.');
+        }
+
+        setActionPhase('verifying');
+        setStatus(`Checking: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
+
+        const res = await fetch('/api/attendance/verify-action', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ action: currentAction, images: frames })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.passed) {
+          faceTokenRef.current = data.token;
+          setFaceScores({ faceMatchScore: data.faceMatchScore, livenessScore: 1.0 });
+          stopCamera();
+          setLoading(false);
+          enterGpsStep();
+          return;
+        }
+
+        // If this fallback action failed, try the next one if available
+        if (currentActionIndex < challenge.length - 1) {
+          setCurrentActionIndex(prev => prev + 1);
+          setCurrentActionProgress(0);
+          setActionPhase('idle');
+          setStatus('Ready to scan');
+          setError(`Verification failed for ${CHALLENGE_LABELS[currentAction] || currentAction}. Please try the next action.`);
+          return;
+        }
+
+        // All fallback actions failed
+        throw new Error('All fallback verification actions failed. Please restart face verification.');
+      }
     } catch (err: any) {
       setError(err.message || 'Verification failed.');
       setLoading(false);
       setStatus('Ready to scan');
       setActionPhase('idle');
+      setCurrentActionProgress(0);
+    } finally {
+      setFaceActionBusy(false);
     }
   };
 
@@ -698,6 +807,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   };
 
   const STEP_LABELS: Record<Step, string> = {
+    ready: 'Mark Attendance',
     mode_select: 'Attendance Mode',
     home_registration: 'Register Home Location',
     wfh_reason: 'Reason for WFH',
@@ -710,7 +820,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const stepOrder: Step[] = wifiCheckEnabled ? ['face', 'gps', 'wifi'] : ['face', 'gps'];
 
   return (
-    <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans text-[var(--color-premium-ink)] selection:bg-[var(--color-premium-accent)] selection:text-white relative overflow-hidden">
+    <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans text-[var(--color-nexus-ink)] selection:bg-[var(--color-nexus-primary)] selection:text-white relative overflow-hidden">
       {/* No WebGL AuroraField here, deliberately: the face-verification
           step runs a live camera feed, and on lower-end phones a
           simultaneous Three.js/WebGL canvas would compete with it for
@@ -723,7 +833,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       <div className="absolute top-6 right-6 z-40">
         <button
           onClick={onLogout}
-          className="text-xs font-bold text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] transition-colors uppercase tracking-widest bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] px-5 py-2.5 rounded-full shadow-sm"
+          className="text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-5 py-2.5 rounded-full shadow-sm"
         >
           Sign Out
         </button>
@@ -733,39 +843,39 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full glass-card rounded-3xl p-8 relative z-10"
+        className="max-w-md w-full nexus-card rounded-3xl p-8 relative z-10"
       >
 
         {/* Header */}
         <div className="text-center mb-6">
-          <span className="px-3 py-1 bg-[var(--color-premium-accent-soft)] border border-[var(--color-premium-border)] text-[var(--color-premium-accent)] rounded-full text-[9px] font-mono tracking-widest uppercase">
+          <span className="px-3 py-1 bg-[var(--color-nexus-primary-fixed)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-primary)] rounded-full text-[9px] font-mono tracking-widest uppercase">
             Portal: {user.role}
           </span>
           {attendanceMode === 'wfh' && step !== 'mode_select' && (
-            <span className="ml-2 px-3 py-1 bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 text-[var(--color-premium-accent-2)] rounded-full text-[9px] font-mono tracking-widest uppercase">
+            <span className="ml-2 px-3 py-1 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 text-[var(--color-nexus-secondary)] rounded-full text-[9px] font-mono tracking-widest uppercase">
               🏠 Work From Home
             </span>
           )}
-          <h1 className="font-display text-3xl font-extrabold tracking-tight text-[var(--color-premium-ink)] mt-4">
+          <h1 className="font-sans text-3xl font-extrabold tracking-tight text-[var(--color-nexus-ink)] mt-4">
             Clock In / Out
           </h1>
-          <p className="text-xs text-[var(--color-premium-muted)] mt-2 font-mono break-all px-4">
+          <p className="text-xs text-[var(--color-nexus-muted)] mt-2 font-mono break-all px-4">
             {user.email}
           </p>
         </div>
 
         {todayState === 'checked_out' ? (
-          <div className="bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 p-8 rounded-2xl text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface)] border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
-              <svg className="w-8 h-8 text-[var(--color-premium-accent-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-4">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
+              <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-lg font-display font-bold text-[var(--color-premium-ink)]">Attendance completed for today</h2>
-            <p className="text-xs text-[var(--color-premium-muted)]">You've already checked in and checked out today. Come back tomorrow!</p>
+            <h2 className="text-lg font-sans font-bold text-[var(--color-nexus-ink)]">Attendance completed for today</h2>
+            <p className="text-xs text-[var(--color-nexus-muted)]">You've already checked in and checked out today. Come back tomorrow!</p>
             <button
               onClick={() => setShowCorrectionModal(true)}
-              className="w-full text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
+              className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
             >
               Missed a check-in/out? Request a correction
             </button>
@@ -777,69 +887,93 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {stepOrder.map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
-                  step === s ? 'bg-[var(--color-premium-accent)] text-white' : stepOrder.indexOf(step) > i || step === 'submitting' ? 'bg-[var(--color-premium-accent-2-soft)] text-[var(--color-premium-accent-2)] border border-[var(--color-premium-accent-2)]/30' : 'bg-[var(--color-premium-surface-alt)] text-[var(--color-premium-muted)]'
+                  step === s ? 'bg-[var(--color-nexus-primary)] text-white' : stepOrder.indexOf(step) > i || step === 'submitting' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)] border border-[var(--color-nexus-secondary)]/30' : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]'
                 }`}>
                   {i + 1}
                 </span>
-                {i < stepOrder.length - 1 && <span className="w-6 h-px bg-[var(--color-premium-border)]" />}
+                {i < stepOrder.length - 1 && <span className="w-6 h-px bg-[var(--color-nexus-border)]" />}
               </div>
             ))}
           </div>
         )}
 
         {error && (
-          <div className="bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-premium-danger)]/20 font-medium text-center">
+          <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium text-center">
             ⚠️ {error}
           </div>
         )}
 
         {success ? (
-          <div className="bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 p-8 rounded-2xl text-center space-y-4">
-            <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface)] border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
-              <svg className="w-8 h-8 text-[var(--color-premium-accent-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-4">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
+              <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-xl font-display font-bold text-[var(--color-premium-ink)]">Identity Verified</h2>
-            <p className="text-sm font-medium text-[var(--color-premium-accent-2)]">{success}</p>
+            <h2 className="text-xl font-sans font-bold text-[var(--color-nexus-ink)]">Identity Verified</h2>
+            <p className="text-sm font-medium text-[var(--color-nexus-secondary)]">{success}</p>
             <button
               onClick={() => {
                 setSuccess('');
                 setError('');
                 enterFaceStep();
               }}
-              className="mt-6 w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white text-xs font-bold uppercase tracking-wider py-3.5 px-6 rounded-xl transition-all"
+              className="mt-6 w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold uppercase tracking-wider py-3.5 px-6 rounded-xl transition-all"
             >
               Scan Again / Clock Out
             </button>
           </div>
         ) : (
           <>
+            {/* Landing gate — camera/GPS permission prompts must only ever
+                fire from this explicit tap, never just because the page
+                loaded. Every entry path (direct visit, ?mode= deep link,
+                WFH eligible or not) lands here first. */}
+            {step === 'ready' && (
+              <div className="py-6 space-y-5 text-center">
+                <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-primary-fixed)] rounded-full flex items-center justify-center">
+                  <span className="text-2xl">{pendingMode === 'wfh' ? '🏠' : '🏢'}</span>
+                </div>
+                <div>
+                  <h2 className="text-lg font-sans font-bold text-[var(--color-nexus-ink)]">Ready to mark attendance?</h2>
+                  <p className="text-xs text-[var(--color-nexus-muted)] mt-1.5">
+                    You'll be asked to allow camera{pendingMode === 'office' ? ' and location' : ''} access for identity and {pendingMode === 'wfh' ? 'home-location' : 'geofence'} verification.
+                  </p>
+                </div>
+                <button
+                  onClick={startAttendance}
+                  className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)]"
+                >
+                  Mark Attendance
+                </button>
+              </div>
+            )}
+
             {/* Attendance Mode selection — Office vs. Work From Home. Only
                 reachable when the tenant has WFH enabled and this employee
-                is eligible; otherwise initToday() skips straight to the
-                face step, exactly as before this feature existed. */}
+                is eligible with no mode pre-selected via the ?mode= deep
+                link. */}
             {step === 'mode_select' && (
               <div className="py-4 space-y-4">
-                <p className="text-center text-xs font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-2">Attendance Mode</p>
+                <p className="text-center text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-2">Attendance Mode</p>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={chooseOfficeMode}
-                    className="card-3d flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
+                    className=" flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
                   >
                     <span className="text-2xl float-c">🏢</span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-premium-ink)]">Office</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Office</span>
                   </button>
                   <button
                     onClick={chooseWfhMode}
-                    className="card-3d flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-premium-border)] hover:border-[var(--color-premium-accent)] transition-colors"
+                    className=" flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
                   >
                     <span className="text-2xl float-b">🏠</span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-premium-ink)]">Work From Home</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Work From Home</span>
                   </button>
                 </div>
                 {wfhEligibility?.policy.maxDaysPerMonth != null && (
-                  <p className="text-center text-[11px] text-[var(--color-premium-muted)]">
+                  <p className="text-center text-[11px] text-[var(--color-nexus-muted)]">
                     {wfhEligibility.policy.wfhCheckInsThisMonth}/{wfhEligibility.policy.maxDaysPerMonth} Work From Home days used this month
                   </p>
                 )}
@@ -851,27 +985,27 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 validates against this registered point. */}
             {step === 'home_registration' && (
               <div className="py-4 space-y-4 text-center">
-                <p className="text-xs font-bold text-[var(--color-premium-accent)] uppercase tracking-widest">Register Your Home Location</p>
-                <p className="text-xs text-[var(--color-premium-muted)]">
+                <p className="text-xs font-bold text-[var(--color-nexus-primary)] uppercase tracking-widest">Register Your Home Location</p>
+                <p className="text-xs text-[var(--color-nexus-muted)]">
                   This is a one-time step. Your Work From Home attendance will be checked against this location going forward — future changes require your manager's approval.
                 </p>
                 {!homeRegCoords ? (
                   <button
                     onClick={captureHomeLocation}
-                    className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
+                    className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
                   >
                     Capture Current Location
                   </button>
                 ) : (
                   <>
-                    <div className="p-3 rounded-xl bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] text-[11px] font-mono text-[var(--color-premium-muted)]">
+                    <div className="p-3 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[11px] font-mono text-[var(--color-nexus-muted)]">
                       {homeRegCoords.lat.toFixed(5)}, {homeRegCoords.lng.toFixed(5)}
                       {homeRegCoords.accuracy && <span> (±{Math.round(homeRegCoords.accuracy)}m)</span>}
                     </div>
                     {/* Confirm/adjust the captured home location on a map before
                         registering — drag the pin or click to fine-tune. Same
                         coordinates are submitted; lazy-loaded. */}
-                    <Suspense fallback={<div className="h-[220px] rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-[11px] text-[var(--color-premium-muted)]">Loading map…</div>}>
+                    <Suspense fallback={<div className="h-[220px] rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] flex items-center justify-center text-[11px] text-[var(--color-nexus-muted)]">Loading map…</div>}>
                       <LocationPicker
                         lat={homeRegCoords.lat}
                         lng={homeRegCoords.lng}
@@ -883,7 +1017,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                     <button
                       onClick={confirmHomeRegistration}
                       disabled={homeRegSubmitting}
-                      className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50"
+                      className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50"
                     >
                       {homeRegSubmitting ? 'Registering...' : 'Confirm This Is My Home Location'}
                     </button>
@@ -896,17 +1030,17 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 tenant's policy requires it. */}
             {step === 'wfh_reason' && (
               <div className="py-4 space-y-4">
-                <p className="text-center text-xs font-bold text-[var(--color-premium-accent)] uppercase tracking-widest">Reason for Working From Home</p>
+                <p className="text-center text-xs font-bold text-[var(--color-nexus-primary)] uppercase tracking-widest">Reason for Working From Home</p>
                 <textarea
                   value={wfhReasonText}
                   onChange={e => setWfhReasonText(e.target.value)}
                   rows={3}
                   placeholder="e.g. Focus work, waiting for a delivery, doctor's appointment nearby, etc."
-                  className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)] resize-none"
+                  className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none"
                 />
                 <button
                   onClick={confirmWfhReason}
-                  className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
+                  className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
                 >
                   Continue to Face Verification
                 </button>
@@ -916,7 +1050,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {/* STEP 1 — Face */}
             {step === 'face' && (
               <>
-                <div className="relative rounded-2xl overflow-hidden bg-[var(--color-premium-ink)] aspect-square mb-6 flex items-center justify-center border-2 border-[var(--color-premium-border)]">
+                <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-6 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -927,32 +1061,33 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   <canvas ref={canvasRef} className="hidden" />
 
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="w-48 h-64 border-2 border-dashed border-[var(--color-premium-accent-2)]/60 rounded-[40px] shadow-[0_0_15px_rgba(34,199,184,0.15)]"></div>
+                    <div className="w-48 h-64 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-[40px] shadow-[0_0_15px_rgba(34,199,184,0.15)]"></div>
                     {!loading && <div className="scan-line"></div>}
                   </div>
 
                   {loading && (
-                    <div className="absolute inset-0 bg-[var(--color-premium-ink)]/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
-                      <div className="w-10 h-10 border-4 border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 bg-[var(--color-nexus-ink)]/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
+                      <div className="w-10 h-10 border-4 border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] rounded-full animate-spin"></div>
                       <p className="text-xs text-white/70 uppercase tracking-widest font-mono">Loading Biometrics...</p>
                     </div>
                   )}
                 </div>
 
-                {challenge.length > 0 && (
-                  <div className="p-4 bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 rounded-2xl mb-6 text-center">
-                    <p className="text-[9px] font-bold text-[var(--color-premium-accent-2)] uppercase tracking-widest mb-1 font-mono">Liveness Check</p>
+                {isFallbackMode && challenge.length > 0 && (
+                  <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 rounded-2xl mb-6 text-center">
+                    <p className="text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-1 font-mono">One more quick check</p>
                     {actionPhase === 'idle' ? (
-                      <p className="text-xs text-[var(--color-premium-ink)] font-medium">
-                        You'll be asked to {challenge.map(c => CHALLENGE_LABELS[c] || c).join(', then ')} — one at a time, with a short pause between each.
+                      <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
+                        We occasionally ask for an extra check for security. Perform the action prompted below and tap Capture.
                       </p>
                     ) : (
                       <>
-                        <p className="text-sm text-[var(--color-premium-ink)] font-bold">
+                        <p className="text-sm text-[var(--color-nexus-ink)] font-bold">
                           {actionPhase === 'get_ready' ? 'Get ready to' : 'Now:'} {CHALLENGE_LABELS[challenge[currentActionIndex]] || challenge[currentActionIndex]}
                         </p>
-                        <p className="text-[10px] text-[var(--color-premium-muted)] mt-1 font-mono uppercase tracking-wider">
-                          Step {currentActionIndex + 1} of {challenge.length}
+                        <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1 font-mono uppercase tracking-wider">
+                          Attempt {currentActionIndex + 1} of {challenge.length}
+                          {actionPhase === 'capturing' ? ` • ${currentActionProgress}/${CHALLENGE_FRAMES_PER_ACTION}` : ''}
                         </p>
                       </>
                     )}
@@ -960,16 +1095,20 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 )}
 
                 <div className="space-y-4">
-                  <p className="text-center text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider h-6 animate-pulse">
+                  <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider h-6 animate-pulse">
                     ● {status}
                   </p>
 
                   <button
                     onClick={handleFaceScan}
-                    disabled={loading}
-                    className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(123,92,250,0.3)] flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={loading || faceActionBusy}
+                    className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    Scan & Verify
+                    {faceActionBusy
+                      ? 'Checking...'
+                      : !isFallbackMode
+                        ? 'Verify Photo'
+                        : `Capture ${CHALLENGE_LABELS[challenge[currentActionIndex]] || challenge[currentActionIndex]}`}
                   </button>
 
                   {/* Dynamic QR Attendance — alternative entry point; a
@@ -979,7 +1118,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   <button
                     type="button"
                     onClick={() => navigate('/employee/qr-scan')}
-                    className="w-full text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
+                    className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
                   >
                     Scan QR Code Instead
                   </button>
@@ -990,14 +1129,14 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {/* STEP 2 — GPS */}
             {step === 'gps' && (
               <div className="py-10 text-center space-y-5">
-                <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-full flex items-center justify-center">
-                  <div className={`w-8 h-8 border-2 ${loading ? 'border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] animate-spin' : 'border-[var(--color-premium-accent-2)]'} rounded-full`} />
+                <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-full flex items-center justify-center">
+                  <div className={`w-8 h-8 border-2 ${loading ? 'border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] animate-spin' : 'border-[var(--color-nexus-secondary)]'} rounded-full`} />
                 </div>
-                <p className="text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">● {status}</p>
+                <p className="text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">● {status}</p>
                 {!loading && error && (
                   <button
                     onClick={enterGpsStep}
-                    className="w-full bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all border border-[var(--color-premium-border)]"
+                    className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all border border-[var(--color-nexus-border)]"
                   >
                     Retry Location
                   </button>
@@ -1008,10 +1147,10 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {/* STEP 3 — Wi-Fi (only if enabled by the tenant admin) */}
             {step === 'wifi' && (
               <div className="py-8 text-center space-y-5">
-                <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-full flex items-center justify-center">
-                  <div className={`w-8 h-8 border-2 ${loading ? 'border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] animate-spin' : 'border-[var(--color-premium-accent-2)]'} rounded-full`} />
+                <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-full flex items-center justify-center">
+                  <div className={`w-8 h-8 border-2 ${loading ? 'border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] animate-spin' : 'border-[var(--color-nexus-secondary)]'} rounded-full`} />
                 </div>
-                <p className="text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">● {status}</p>
+                <p className="text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">● {status}</p>
 
                 {/* Network Override — DEV ONLY. Letting any employee type an
                     arbitrary IP to claim to be on corporate Wi-Fi would
@@ -1019,19 +1158,19 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                     renders in a production build. Lives only on this
                     dedicated Wi-Fi step now, not inline with the camera. */}
                 {import.meta.env.DEV && (
-                  <div className="p-4 bg-[var(--color-premium-gold-soft)] border border-[var(--color-premium-gold)]/40 rounded-2xl text-left">
-                    <label className="block text-[9px] font-bold text-[var(--color-premium-gold)] uppercase tracking-widest mb-2 font-mono">Network Context Simulator (Dev Only)</label>
+                  <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-2xl text-left">
+                    <label className="block text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-2 font-mono">Network Context Simulator (Dev Only)</label>
                     <input
                       type="text"
                       value={simulatedIp}
                       onChange={e => setSimulatedIp(e.target.value)}
                       placeholder="e.g. 192.168.1.50 (Corporate Wi-Fi IP)"
-                      className="w-full bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-gold)] placeholder:text-[var(--color-premium-muted)]"
+                      className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-secondary)] placeholder:text-[var(--color-nexus-muted)]"
                     />
                     <button
                       type="button"
                       onClick={() => checkNetwork(simulatedIp)}
-                      className="w-full mt-2 bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-gold-soft)] text-[var(--color-premium-ink)] border border-[var(--color-premium-gold)]/60 hover:border-[var(--color-premium-gold)] rounded-xl py-2.5 px-4 text-xs font-bold uppercase tracking-wider transition-all"
+                      className="w-full mt-2 bg-[var(--color-nexus-surface)] hover:bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-ink)] border border-[var(--color-nexus-secondary)]/60 hover:border-[var(--color-nexus-secondary)] rounded-xl py-2.5 px-4 text-xs font-bold uppercase tracking-wider transition-all"
                     >
                       Recheck With Simulated IP
                     </button>
@@ -1041,7 +1180,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 {!loading && error && (
                   <button
                     onClick={() => checkNetwork(simulatedIp)}
-                    className="w-full bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-border)] text-[var(--color-premium-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all border border-[var(--color-premium-border)]"
+                    className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all border border-[var(--color-nexus-border)]"
                   >
                     Retry Network Check
                   </button>
@@ -1052,8 +1191,8 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             {/* Submitting */}
             {step === 'submitting' && (
               <div className="py-10 text-center space-y-5">
-                <div className="w-10 h-10 mx-auto border-4 border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] rounded-full animate-spin"></div>
-                <p className="text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">● {status}</p>
+                <div className="w-10 h-10 mx-auto border-4 border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] rounded-full animate-spin"></div>
+                <p className="text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">● {status}</p>
               </div>
             )}
 
@@ -1062,9 +1201,9 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 token/GPS/Wi-Fi plus this explanation. */}
             {step === 'late_reason' && (
               <div className="py-4 space-y-5">
-                <div className="p-4 bg-[var(--color-premium-gold-soft)] border border-[var(--color-premium-gold)]/40 rounded-2xl text-center">
-                  <p className="text-[9px] font-bold text-[var(--color-premium-gold)] uppercase tracking-widest mb-1 font-mono">Late Arrival</p>
-                  <p className="text-xs text-[var(--color-premium-ink)] font-medium">
+                <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-2xl text-center">
+                  <p className="text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-1 font-mono">Late Arrival</p>
+                  <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
                     You're checking in after the shift start time. Please explain why — your manager will review it, and you can keep working while it's pending.
                   </p>
                 </div>
@@ -1073,12 +1212,12 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   onChange={e => setLateExplanation(e.target.value)}
                   rows={4}
                   placeholder="e.g. Traffic delay, family emergency, etc."
-                  className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)] resize-none"
+                  className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none"
                 />
                 <button
                   onClick={submitLateExplanation}
                   disabled={lateSubmitting || !lateExplanation.trim()}
-                  className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {lateSubmitting ? 'Submitting...' : 'Submit Explanation'}
                 </button>
@@ -1086,23 +1225,23 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
             )}
 
             {faceScores && step !== 'face' && (
-              <div className="mt-4 p-3.5 rounded-xl bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] text-[11px] space-y-1.5 font-mono">
-                <div className="flex justify-between items-center text-[var(--color-premium-muted)]">
+              <div className="mt-4 p-3.5 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[11px] space-y-1.5 font-mono">
+                <div className="flex justify-between items-center text-[var(--color-nexus-muted)]">
                   <span>Face Match</span>
-                  <span className="text-[var(--color-premium-accent-2)] font-semibold">{(faceScores.faceMatchScore * 100).toFixed(1)}%</span>
+                  <span className="text-[var(--color-nexus-secondary)] font-semibold">{(faceScores.faceMatchScore * 100).toFixed(1)}%</span>
                 </div>
-                <div className="flex justify-between items-center text-[var(--color-premium-muted)]">
+                <div className="flex justify-between items-center text-[var(--color-nexus-muted)]">
                   <span>Liveness</span>
-                  <span className="text-[var(--color-premium-accent-2)] font-semibold">{(faceScores.livenessScore * 100).toFixed(1)}%</span>
+                  <span className="text-[var(--color-nexus-secondary)] font-semibold">{(faceScores.livenessScore * 100).toFixed(1)}%</span>
                 </div>
               </div>
             )}
 
             {/* Attendance correction request */}
-            <div className="mt-6 pt-6 border-t border-[var(--color-premium-border)]">
+            <div className="mt-6 pt-6 border-t border-[var(--color-nexus-border)]">
               <button
                 onClick={() => setShowCorrectionModal(true)}
-                className="w-full text-[var(--color-premium-muted)] hover:text-[var(--color-premium-accent)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
+                className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
               >
                 Missed a check-in/out? Request a correction
               </button>
@@ -1116,22 +1255,22 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       {/* Correction request modal */}
       {showCorrectionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
-          <div className="max-w-md w-full bg-[var(--color-premium-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(123,92,250,0.2)] border border-[var(--color-premium-border)]">
+          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
             {correctionSubmitted ? (
               <div className="text-center py-6">
-                <p className="text-[var(--color-premium-accent-2)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
-                <p className="text-[var(--color-premium-muted)] text-xs mt-2">Your manager or admin will review it shortly.</p>
+                <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
+                <p className="text-[var(--color-nexus-muted)] text-xs mt-2">Your manager or admin will review it shortly.</p>
               </div>
             ) : (
               <form onSubmit={handleSubmitCorrection}>
-                <h3 className="text-[var(--color-premium-ink)] font-bold text-sm uppercase tracking-wider mb-5">Request Attendance Correction</h3>
+                <h3 className="text-[var(--color-nexus-ink)] font-bold text-sm uppercase tracking-wider mb-5">Request Attendance Correction</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Issue Type</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Issue Type</label>
                     <select
                       value={correctionType}
                       onChange={e => setCorrectionType(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                     >
                       <option value="missed_checkin">Missed Check-In</option>
                       <option value="missed_checkout">Missed Check-Out</option>
@@ -1140,49 +1279,49 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Date</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Date</label>
                     <input
                       type="date"
                       value={correctionDate}
                       onChange={e => setCorrectionDate(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
                     <input
                       type="time"
                       value={correctionTime}
                       onChange={e => setCorrectionTime(e.target.value)}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)]"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-[var(--color-premium-muted)] uppercase tracking-widest mb-1.5">Explanation</label>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Explanation</label>
                     <textarea
                       value={correctionReason}
                       onChange={e => setCorrectionReason(e.target.value)}
                       rows={3}
-                      className="w-full bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-premium-ink)] focus:outline-none focus:border-[var(--color-premium-accent)] resize-none"
+                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none"
                       placeholder="e.g. Phone died at 9am, couldn't check in until I found a charger."
                       required
                     />
                   </div>
                 </div>
-                {error && <p className="text-[var(--color-premium-danger)] text-[10px] mt-3">{error}</p>}
+                {error && <p className="text-[var(--color-nexus-error)] text-[10px] mt-3">{error}</p>}
                 <div className="flex gap-3 mt-6">
                   <button
                     type="button"
                     onClick={() => setShowCorrectionModal(false)}
-                    className="flex-1 bg-[var(--color-premium-surface-alt)] hover:bg-[var(--color-premium-border)] text-[var(--color-premium-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
+                    className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={correctionSubmitting}
-                    className="flex-1 bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
+                    className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
                   >
                     {correctionSubmitting ? 'Submitting...' : 'Submit Request'}
                   </button>

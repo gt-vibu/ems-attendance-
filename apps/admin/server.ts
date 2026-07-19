@@ -8,6 +8,7 @@ import { detectPostgres, closeDb } from './db';
 import { logger, requestLogger } from './logger';
 import { verifyAndSyncDatabase, seedSuperAdmin } from './api/bootstrap/database';
 import { startSchedulerWithLeadership } from './api/bootstrap/scheduler';
+import { getFaceServiceHealth } from './api/services/face';
 import { generalLimiter } from './api/middleware/rateLimit';
 import { registerRoutes } from './api/routes';
 
@@ -40,6 +41,34 @@ async function startServer() {
   await verifyAndSyncDatabase();
   await seedSuperAdmin();
   await startSchedulerWithLeadership();
+
+  // Face verification (KYC + daily check-in) depends on a completely
+  // separate Python microservice (services/face-service) that has to be
+  // started by hand and isn't managed by this process — the single most
+  // common cause of "face verification just doesn't work" reports is
+  // simply that nobody started it (or it was running before a reboot and
+  // never came back). A silent HTTP failure deep inside a KYC attempt is a
+  // terrible way to discover that; check it once at boot and log a loud,
+  // impossible-to-miss warning here instead, so whoever starts this server
+  // for a demo sees the problem before a real user does.
+  try {
+    const health = await getFaceServiceHealth();
+    if (health.status === 'ok' && health.modelLoaded) {
+      logger.info('[face-service] reachable and model loaded — face verification is available.');
+    } else {
+      logger.warn('[face-service] reachable but not fully ready (model still loading?) — face verification may fail until it reports healthy.', health);
+    }
+  } catch (err: any) {
+    logger.warn('==================================================================');
+    logger.warn('[face-service] NOT REACHABLE — every KYC enrollment and face-verified');
+    logger.warn('check-in will fail until this is fixed.');
+    logger.warn(`  Reason: ${err.message}`);
+    logger.warn('  Start it with (see services/face-service/README.md):');
+    logger.warn('    cd services/face-service');
+    logger.warn('    venv\\Scripts\\activate   (Windows)  or  source venv/bin/activate (Mac/Linux)');
+    logger.warn('    uvicorn main:app --host 0.0.0.0 --port 8001');
+    logger.warn('==================================================================');
+  }
 
   // Structured per-request logging (method, path, status, latency) — first in
   // the chain so it times the whole request. JSON lines in production.

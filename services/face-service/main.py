@@ -48,7 +48,7 @@ time only; after that it's cached on disk.
 
 import base64
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -304,6 +304,63 @@ def is_neutral_pose(face) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Moire/screen-replay heuristic (diagnostics-only signal, see README)
+# ---------------------------------------------------------------------------
+# LCD/OLED screens re-photographed by another camera (the classic "hold a
+# phone playing a video up to the webcam" spoof) produce a characteristic
+# high-frequency raster/subpixel interference pattern that a 2D FFT of the
+# face crop reveals as anomalous energy concentrated in the high-frequency
+# bands — well beyond what a real face photographed directly produces (real
+# skin/features are dominated by smooth, low-frequency content). This is a
+# classical frequency-domain "moire artifact" detector, not a trained model —
+# pure NumPy/OpenCV, runs in milliseconds, no new dependency. It is
+# deliberately NOT wired into any pass/fail decision here or in Node — see
+# the README's "Honest limitations" section for why this ships as a logged
+# diagnostic signal only until it's been tuned against a real population of
+# check-ins (the same way matchThreshold/LIVENESS_MIN needed real tuning).
+MOIRE_HIGH_FREQ_RADIUS_FRACTION = 0.6  # outer 40% of the spectrum radius counts as "high frequency"
+# Placeholder scaling, set from one synthetic sanity check (a smooth
+# gradient crop vs. the same crop with a sinusoidal screen-raster pattern
+# added scored ~0.17 vs ~0.33 raw high-frequency-energy ratio at this
+# radius fraction — this scale maps that pair to roughly 0.4 vs 0.8 instead
+# of letting real-world frames pin at the 1.0 ceiling immediately, which is
+# what an earlier, more aggressive scale did). Still NOT calibrated against
+# real spoof attempts or a real webcam population — tune once real
+# diagnostics data is logged, same as matchThreshold/LIVENESS_MIN needed.
+MOIRE_SCALE = 2.5
+
+
+def moire_score(img: np.ndarray, face) -> float:
+    """0-1 heuristic screen-replay score for the given face's crop in `img`
+    (higher = more moire-like/suspicious). Returns 0.0 if the crop is
+    degenerate (e.g. a face right at the frame edge)."""
+    x1, y1, x2, y2 = (int(v) for v in face.bbox)
+    x1, y1 = max(0, x1), max(0, y1)
+    crop = img[y1:y2, x1:x2]
+    if crop.size == 0:
+        return 0.0
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    # Fixed size so the frequency bands mean the same thing regardless of
+    # how close the face was to the camera.
+    gray = cv2.resize(gray, (256, 256))
+
+    spectrum = np.fft.fftshift(np.fft.fft2(gray))
+    magnitude = np.abs(spectrum)
+
+    h, w = magnitude.shape
+    cy, cx = h // 2, w // 2
+    y_idx, x_idx = np.ogrid[:h, :w]
+    radius = np.sqrt((x_idx - cx) ** 2 + (y_idx - cy) ** 2)
+    max_radius = min(cx, cy)
+
+    high_freq_mask = radius >= (MOIRE_HIGH_FREQ_RADIUS_FRACTION * max_radius)
+    total_energy = magnitude.sum() + 1e-6
+    high_freq_energy = magnitude[high_freq_mask].sum()
+    return float(min(1.0, (high_freq_energy / total_energy) * MOIRE_SCALE))
+
+
+# ---------------------------------------------------------------------------
 # /enroll — KYC guided enrollment
 # ---------------------------------------------------------------------------
 
@@ -391,6 +448,7 @@ class VerifyResponse(BaseModel):
     framesWithFace: int
     framesSubmitted: int
     actionResults: Dict[str, bool] = {}
+    moireScore: float = 0.0  # diagnostics-only screen-replay signal — see moire_score() above, not currently gated on by any caller
 
 
 @app.post("/verify", response_model=VerifyResponse)
@@ -398,12 +456,14 @@ def verify(req: VerifyRequest):
     if not req.images:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
-    detected_faces = []
+    detected: List[Tuple[np.ndarray, Any]] = []  # (source image, face) pairs — kept together so the moire check can crop from the same frame the identity embedding came from
     for b64 in req.images:
         img = decode_image(b64)
         face = get_largest_face(img)
         if face is not None:
-            detected_faces.append(face)
+            detected.append((img, face))
+
+    detected_faces = [f for _, f in detected]
 
     if not detected_faces:
         return VerifyResponse(
@@ -413,11 +473,13 @@ def verify(req: VerifyRequest):
             framesWithFace=0,
             framesSubmitted=len(req.images),
             actionResults={a: False for a in req.challengeActions},
+            moireScore=0.0,
         )
 
     # Use the largest/most frontal face across the burst for the actual
-    # identity embedding.
-    best_face = max(detected_faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    # identity embedding (and the moire check, so both signals come from the
+    # same frame).
+    best_img, best_face = max(detected, key=lambda pair: (pair[1].bbox[2] - pair[1].bbox[0]) * (pair[1].bbox[3] - pair[1].bbox[1]))
 
     # --- Passive liveness: landmark movement across the burst. ---
     # A live person shows natural micro-movement (even just holding a phone
@@ -457,6 +519,7 @@ def verify(req: VerifyRequest):
         framesWithFace=len(detected_faces),
         framesSubmitted=len(req.images),
         actionResults=action_results,
+        moireScore=moire_score(best_img, best_face),
     )
 
 

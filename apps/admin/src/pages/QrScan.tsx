@@ -4,6 +4,8 @@ import { motion } from 'motion/react';
 import jsQR from 'jsqr';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
+import { ensureFaceServiceReady } from '../lib/faceService';
+import { describeCameraError } from '../lib/cameraError';
 
 type Step = 'scanning' | 'validating' | 'face' | 'gps' | 'submitting' | 'success' | 'error';
 
@@ -113,7 +115,7 @@ export default function QrScan({ user }: { user: User }) {
         scanFrameRef.current = requestAnimationFrame(tick);
       } catch (err) {
         console.error(err);
-        setError('Camera access denied or unavailable.');
+        setError(describeCameraError(err));
         setStep('error');
       }
     })();
@@ -173,8 +175,12 @@ export default function QrScan({ user }: { user: User }) {
 
     (async () => {
       try {
+        await ensureFaceServiceReady();
         const challengeRes = await fetch('/api/attendance/challenge', { headers: { 'Authorization': `Bearer ${token}` } });
         const challengeData = await challengeRes.json();
+        if (!challengeRes.ok) {
+          throw new Error(challengeData.error || 'Could not start the liveness challenge.');
+        }
         if (!cancelled) setChallenge(challengeData.challenge || []);
 
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
@@ -182,9 +188,10 @@ export default function QrScan({ user }: { user: User }) {
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
         setFaceStatus('Ready to scan');
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        setError('Camera access denied.');
+        const isCameraError = err instanceof DOMException;
+        setError(isCameraError ? describeCameraError(err) : (err?.message || 'Camera access denied.'));
         setStep('error');
       }
     })();
@@ -311,25 +318,25 @@ export default function QrScan({ user }: { user: User }) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full glass-card rounded-3xl p-8 relative z-10"
+        className="max-w-md w-full nexus-card rounded-3xl p-8 relative z-10"
       >
         <div className="text-center mb-6">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">QR Attendance</h1>
-          <p className="text-sm text-[var(--color-premium-muted)] mt-2 font-medium">{user.name}</p>
+          <h1 className="font-sans text-2xl font-bold tracking-tight text-gradient inline-block">QR Attendance</h1>
+          <p className="text-sm text-[var(--color-nexus-muted)] mt-2 font-medium">{user.name}</p>
         </div>
 
         {(step === 'scanning' || step === 'face') && (
-          <div className="relative rounded-2xl overflow-hidden bg-[var(--color-premium-ink)] aspect-square mb-4 flex items-center justify-center border-2 border-[var(--color-premium-border)]">
+          <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-4 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
             <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
             <canvas ref={canvasRef} className="hidden" />
             {step === 'scanning' && (
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-56 h-56 border-2 border-dashed border-[var(--color-premium-accent-2)]/60 rounded-2xl"></div>
+                <div className="w-56 h-56 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-2xl"></div>
               </div>
             )}
             {step === 'face' && (
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-48 h-64 border-2 border-dashed border-[var(--color-premium-accent-2)]/60 rounded-[40px]"></div>
+                <div className="w-48 h-64 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-[40px]"></div>
                 <div className="scan-line"></div>
               </div>
             )}
@@ -337,32 +344,32 @@ export default function QrScan({ user }: { user: User }) {
         )}
 
         {step === 'scanning' && (
-          <p className="text-center text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">
+          <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">
             Point your camera at the QR code
           </p>
         )}
 
         {step === 'validating' && (
           <div className="py-10 text-center space-y-4">
-            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-premium-accent)]/20 border-t-[var(--color-premium-accent)] rounded-full animate-spin"></div>
-            <p className="text-xs font-bold text-[var(--color-premium-accent)] uppercase tracking-wider">Validating QR code...</p>
+            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-nexus-primary)]/20 border-t-[var(--color-nexus-primary)] rounded-full animate-spin"></div>
+            <p className="text-xs font-bold text-[var(--color-nexus-primary)] uppercase tracking-wider">Validating QR code...</p>
           </div>
         )}
 
         {step === 'face' && (
           <div className="space-y-4">
             {challenge.length > 0 && (
-              <div className="p-3 bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 rounded-xl text-center">
-                <p className="text-xs text-[var(--color-premium-ink)] font-medium">
+              <div className="p-3 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 rounded-xl text-center">
+                <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
                   Look at the camera and {challenge.join(', then ')}.
                 </p>
               </div>
             )}
-            <p className="text-center text-xs font-bold text-[var(--color-premium-accent-2)] font-mono uppercase tracking-wider">{faceStatus}</p>
+            <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">{faceStatus}</p>
             <button
               onClick={handleFaceScan}
               disabled={loading}
-              className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40"
+              className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40"
             >
               {loading ? 'Verifying...' : 'Scan & Verify'}
             </button>
@@ -371,37 +378,37 @@ export default function QrScan({ user }: { user: User }) {
 
         {step === 'gps' && (
           <div className="py-10 text-center space-y-4">
-            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-premium-accent-2)]/20 border-t-[var(--color-premium-accent-2)] rounded-full animate-spin"></div>
-            <p className="text-xs font-bold text-[var(--color-premium-accent-2)] uppercase tracking-wider">Requesting GPS lock...</p>
+            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] rounded-full animate-spin"></div>
+            <p className="text-xs font-bold text-[var(--color-nexus-secondary)] uppercase tracking-wider">Requesting GPS lock...</p>
           </div>
         )}
 
         {step === 'submitting' && (
           <div className="py-10 text-center space-y-4">
-            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-premium-accent)]/20 border-t-[var(--color-premium-accent)] rounded-full animate-spin"></div>
-            <p className="text-xs font-bold text-[var(--color-premium-accent)] uppercase tracking-wider">Recording attendance...</p>
+            <div className="w-10 h-10 mx-auto border-4 border-[var(--color-nexus-primary)]/20 border-t-[var(--color-nexus-primary)] rounded-full animate-spin"></div>
+            <p className="text-xs font-bold text-[var(--color-nexus-primary)] uppercase tracking-wider">Recording attendance...</p>
           </div>
         )}
 
         {step === 'success' && (
-          <div className="bg-[var(--color-premium-accent-2-soft)] border border-[var(--color-premium-accent-2)]/30 p-8 rounded-2xl text-center space-y-3">
-            <div className="w-16 h-16 mx-auto bg-[var(--color-premium-surface)] border border-[var(--color-premium-accent-2)] rounded-full flex items-center justify-center pulse-ring">
-              <svg className="w-8 h-8 text-[var(--color-premium-accent-2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-3">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center pulse-ring">
+              <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-sm font-medium text-[var(--color-premium-accent-2)]">{success}</p>
+            <p className="text-sm font-medium text-[var(--color-nexus-secondary)]">{success}</p>
           </div>
         )}
 
         {step === 'error' && (
           <div className="space-y-4">
-            <div className="bg-[var(--color-premium-danger-soft)] text-[var(--color-premium-danger)] text-xs p-4 rounded-xl border border-[var(--color-premium-danger)]/20 font-medium text-center">
+            <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl border border-[var(--color-nexus-error)]/20 font-medium text-center">
               ⚠️ {error}
             </div>
             <button
               onClick={retry}
-              className="w-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
+              className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
             >
               Try Again
             </button>

@@ -11,6 +11,13 @@ import { router as attendanceRouter } from './attendance.routes';
 import { router as wfhRouter } from './wfh.routes';
 import { router as qrRouter } from './qr.routes';
 import { router as ledgerRouter } from './ledger.routes';
+import { router as branchRouter } from './branch.routes';
+import { router as shiftRouter } from './shift.routes';
+import { router as rolesRouter } from './roles.routes';
+import { router as leavePayrollRouter } from './leavePayroll.routes';
+import { router as employeesRouter } from './employees.routes';
+import { router as shiftOverridesRouter } from './shiftOverrides.routes';
+import { router as teamsRouter } from './teams.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -31,4 +38,11 @@ export function registerRoutes(app: Express) {
   app.use(wfhRouter);
   app.use(qrRouter);
   app.use(ledgerRouter);
+  app.use(branchRouter);
+  app.use(shiftRouter);
+  app.use(rolesRouter);
+  app.use(leavePayrollRouter);
+  app.use(employeesRouter);
+  app.use(shiftOverridesRouter);
+  app.use(teamsRouter);
 }

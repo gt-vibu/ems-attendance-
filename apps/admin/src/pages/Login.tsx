@@ -37,6 +37,12 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
 
   const navigate = useNavigate();
 
+  const destinationAfterLogin = (user: User) => {
+    if (user.role === 'tenant_admin' && !user.branchSetupCompleted) return '/tenant/branch-setup';
+    if (user.role !== 'super_admin' && user.role !== 'tenant_admin') return '/employee/dashboard';
+    return '/dashboard';
+  };
+
   // Parse email and temporary password from URL activation links
   useEffect(() => {
     const urlEmail = searchParams.get('email');
@@ -48,10 +54,13 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const completeLogin = (data: { token: string; user: User }) => {
     localStorage.setItem('auth_token', data.token);
     onLogin(data.user);
-    // Brief animated hand-off before landing on the dashboard, rather than
-    // navigating instantly — see the 'transition' view below.
+    // Brief animated hand-off before landing on the right workspace, rather
+    // than navigating instantly. All non-admin staff must land in the
+    // attendance-enabled employee workspace first; tenant admins still go to
+    // branch setup or the admin dashboard.
     setViewState('transition');
-    setTimeout(() => navigate('/dashboard'), 1800);
+    const destination = destinationAfterLogin(data.user);
+    setTimeout(() => navigate(destination), 1800);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -175,7 +184,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
 
   const inputClasses = "w-full px-4 py-3 bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-premium-accent)]/20 focus:border-[var(--color-premium-accent)] transition-all font-medium text-[var(--color-premium-ink)]";
   const labelClasses = "block text-xs font-semibold text-[var(--color-premium-ink)] mb-1.5 uppercase tracking-wider";
-  const buttonClasses = "w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-4 shadow-[0_8px_24px_rgba(123,92,250,0.3)]";
+  const buttonClasses = "w-full bg-[var(--color-premium-accent)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-premium-accent-hover)] transition-colors disabled:opacity-50 mt-4 shadow-[0_8px_24px_rgba(37,99,235,0.3)]";
 
   return (
     <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans relative overflow-hidden">

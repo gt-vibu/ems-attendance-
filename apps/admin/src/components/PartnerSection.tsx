@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
+import { motion } from 'motion/react';
 import { ArrowRight, Sparkles } from 'lucide-react';
 
 interface SpawnedToken {
@@ -14,7 +15,7 @@ interface SpawnedToken {
   letter: string;
 }
 
-const LETTERS = ['P', 'E', 'R', 'I', 'M', 'E', 'T', 'E', 'R'];
+const LETTERS = ['S', 'M', 'A', 'R', 'T', 'T', 'E', 'A', 'M', 'S'];
 
 export default function PartnerSection() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,7 +34,7 @@ export default function PartnerSection() {
 
     const rotation = (Math.random() * 20) - 10; // random rotation -10 to +10 degrees
     const letter = LETTERS[spawnCounter.current % LETTERS.length];
-    
+
     spawnCounter.current += 1;
     lastSpawnTime.current = now;
 
@@ -54,11 +55,16 @@ export default function PartnerSection() {
   };
 
   return (
-    <section id="cta" className="py-20 px-6 max-w-7xl mx-auto relative select-none">
-      <div 
+    <section id="cta" className="py-24 md:py-32 px-6 max-w-7xl mx-auto relative select-none">
+      <motion.div
         ref={containerRef}
         onMouseMove={handleMouseMove}
-        className="w-full bg-white rounded-[40px] py-32 px-8 shadow-2xl relative overflow-hidden flex flex-col items-center justify-center border border-slate-100 cursor-cell group"
+        initial={{ opacity: 0, y: 28 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '-10% 0px' }}
+        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full glass-card rounded-[32px] py-28 md:py-32 px-8 relative overflow-hidden flex flex-col items-center justify-center cursor-cell"
+        style={{ boxShadow: 'var(--shadow-elevation-2)' }}
       >
         {/* Particle tokens track */}
         {tokens.map((t) => (
@@ -69,38 +75,35 @@ export default function PartnerSection() {
               top: `${t.y}px`,
               transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
             }}
-            className="absolute w-10 h-10 rounded-2xl bg-slate-900 text-[#8FE3C0] flex items-center justify-center font-display font-black text-sm pointer-events-none shadow-md animate-fade-scale-down z-20 border border-white/10"
+            className="absolute w-10 h-10 rounded-2xl bg-[var(--color-premium-ink)] text-[#5FBFA0] flex items-center justify-center font-display font-bold text-sm pointer-events-none shadow-md animate-fade-scale-down z-20"
           >
             {t.letter}
           </div>
         ))}
 
-        {/* Ambient background blur circles */}
-        <div className="absolute inset-0 bg-radial-[circle_at_center,transparent_40%,rgba(240,248,255,0.4)_100%] opacity-50 pointer-events-none" />
-
         <div className="text-center z-10 max-w-3xl space-y-8 pointer-events-none">
-          <span className="font-mono text-xs text-indigo-600 font-bold block uppercase tracking-widest">
-            ZERO-TRUST COMPLIANCE IN HOURS
+          <span className="text-xs text-[var(--color-premium-accent)] font-bold block uppercase tracking-widest">
+            Set up in an afternoon
           </span>
-          
-          <h2 className="font-display font-black text-4xl md:text-6xl lg:text-7xl text-slate-950 tracking-tight leading-none">
-            Deploy Smart Teams in an afternoon
+
+          <h2 className="font-display font-semibold text-4xl md:text-6xl lg:text-7xl text-[var(--color-premium-ink)] tracking-tight leading-[1.05]">
+            Deploy Smart Teams today
           </h2>
 
-          <p className="font-sans text-sm md:text-base text-slate-500 max-w-lg mx-auto leading-relaxed">
-            Invite your team, set up branch geofences, and let the secure state engines audit your hours. Free for up to 10 employees.
+          <p className="font-sans text-sm md:text-base text-[var(--color-premium-muted)] max-w-lg mx-auto leading-relaxed">
+            Invite your team, set up branch geofences, and let the state engine audit your hours. Free for up to 10 employees.
           </p>
 
           <div className="pt-4 flex justify-center">
-            <button className="px-8 py-4 rounded-full bg-slate-950 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 group-hover:scale-105 transition-all cursor-pointer shadow-xl border border-white/5 pointer-events-auto">
-              <Sparkles className="w-4 h-4 text-[#8FE3C0] animate-pulse" />
-              Start Free — no card required
-              <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
+            <button className="px-8 py-4 rounded-full bg-[var(--color-premium-ink)] text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer shadow-xl pointer-events-auto">
+              <Sparkles className="w-4 h-4 text-[#5FBFA0]" />
+              Start free — no card required
+              <ArrowRight className="w-4 h-4 text-white/60" />
             </button>
           </div>
         </div>
 
-      </div>
+      </motion.div>
     </section>
   );
 }

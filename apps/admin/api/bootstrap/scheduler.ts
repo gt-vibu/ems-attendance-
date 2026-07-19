@@ -320,7 +320,7 @@ export function runBackgroundScheduler() {
 
             await sendLowAttendanceAlertEmail(u.email, u.name, u.name, u.role, percentage, threshold, true);
 
-            const recipients = await getHierarchyAlertRecipients(tenant.id, u.role);
+            const recipients = await getHierarchyAlertRecipients(tenant.id, u.role, u.id);
             for (const recipient of recipients) {
               await sendLowAttendanceAlertEmail(recipient.email, recipient.name, u.name, u.role, percentage, threshold, false);
             }
