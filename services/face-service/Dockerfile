@@ -5,9 +5,15 @@ WORKDIR /app
 # libgl1/libglib2.0-0: required shared libraries for opencv-python-headless
 # on Debian-based images (not needed with a full desktop image, but this is
 # a minimal one).
+# build-essential: some transitive dependencies (e.g. insightface -> stringzilla)
+# ship no prebuilt wheel for every platform/Python combo and fall back to
+# compiling a C extension from source at install time — without a compiler
+# present, that install fails with "gcc: No such file or directory". Slim
+# base images don't include one by default.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
