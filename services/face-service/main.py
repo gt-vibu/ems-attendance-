@@ -141,7 +141,13 @@ def load_model():
 
     logger.info("Loading InsightFace buffalo_l model (CPU)...")
     face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-    face_app.prepare(ctx_id=-1, det_size=(640, 640))  # ctx_id=-1 => CPU only, no GPU required
+    # det_size: the resolution the detector scans at. Lowered from 640x640 to
+    # 320x320 to cut memory (detection's intermediate tensors scale with input
+    # resolution) and speed up inference — this app's captures are always a
+    # single close-up face (a phone/webcam selfie for KYC/attendance), not a
+    # crowd photo needing to find small/distant faces, so the accuracy loss
+    # from a smaller scan resolution is negligible for this use case.
+    face_app.prepare(ctx_id=-1, det_size=(320, 320))  # ctx_id=-1 => CPU only, no GPU required
     logger.info("Model loaded. Face service ready.")
 
 
