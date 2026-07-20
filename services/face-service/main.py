@@ -140,7 +140,14 @@ def load_model():
     from insightface.app import FaceAnalysis
 
     logger.info("Loading InsightFace buffalo_l model (CPU)...")
-    face_app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    # allowed_modules excludes genderage — the only bundled submodel this app
+    # never reads (no gender/age field is used anywhere below); skipping it
+    # avoids paying to load a model into memory that nothing calls.
+    face_app = FaceAnalysis(
+        name="buffalo_l",
+        providers=["CPUExecutionProvider"],
+        allowed_modules=["detection", "recognition", "landmark_3d_68", "landmark_2d_106"],
+    )
     # det_size: the resolution the detector scans at. Lowered from 640x640 to
     # 320x320 to cut memory (detection's intermediate tensors scale with input
     # resolution) and speed up inference — this app's captures are always a

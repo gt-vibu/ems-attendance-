@@ -25,7 +25,7 @@ COPY main.py .
 # first request, so the container's first real request isn't slow and so
 # deployment fails fast (at build time) if there's no internet access for
 # the download rather than failing at first use in production.
-RUN python -c "from insightface.app import FaceAnalysis; f = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider']); f.prepare(ctx_id=-1, det_size=(320,320))"
+RUN python -c "from insightface.app import FaceAnalysis; f = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'], allowed_modules=['detection', 'recognition', 'landmark_3d_68', 'landmark_2d_106']); f.prepare(ctx_id=-1, det_size=(320,320))"
 
 EXPOSE 8001
 
