@@ -610,6 +610,52 @@ export async function verifyAndSyncDatabase() {
       );
     `);
     
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS service_accounts (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        name TEXT NOT NULL,
+        key_prefix TEXT NOT NULL UNIQUE,
+        key_hash TEXT NOT NULL,
+        privileges JSONB NOT NULL DEFAULT '[]',
+        created_by_user_id INTEGER REFERENCES users(id),
+        last_used_at TIMESTAMP,
+        revoked_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS compensation_history (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        changed_by_user_id INTEGER REFERENCES users(id),
+        effective_from TEXT,
+        previous_annual_ctc REAL,
+        new_annual_ctc REAL NOT NULL,
+        previous_components JSONB,
+        new_components JSONB NOT NULL,
+        field_changes JSONB NOT NULL DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        url TEXT NOT NULL,
+        events JSONB NOT NULL DEFAULT '[]',
+        signing_secret TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_by_user_id INTEGER REFERENCES users(id),
+        last_delivery_at TIMESTAMP,
+        last_delivery_status TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     console.log('Database tables verified and synchronized successfully.');
   } catch (err) {
     console.error('Failed to synchronize database tables:', err);

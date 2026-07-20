@@ -797,3 +797,70 @@ export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+// Machine-to-machine credentials for external/partner integrations — an
+// alternative to the human-login JWT flow. The raw key is shown to the
+// tenant admin exactly once at creation time and never stored; only its
+// bcrypt hash is kept (via password.ts's hashPassword/verifyPassword, same
+// as user passwords) plus a short unhashed `keyPrefix` so authenticate.ts
+// can look up the candidate row cheaply before doing the (slow, by design)
+// bcrypt compare — the same prefix+hash pattern Stripe/GitHub use for API
+// keys, since a hash alone isn't indexable/searchable.
+export const serviceAccounts = pgTable('service_accounts', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(), // human label, e.g. "Colleague's HRIS sync"
+  keyPrefix: text('key_prefix').notNull().unique(), // e.g. 'stk_live_ab12cd34' — safe to log/display
+  keyHash: text('key_hash').notNull(),
+  // Explicit privilege grant, same permission strings used by users.privileges
+  // — a service account only ever gets what's explicitly listed here, never
+  // role-based defaults (there's no "role" for a machine caller to inherit).
+  privileges: jsonb('privileges').notNull().default('[]'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Partner-integration event subscriptions — lets an external app react to
+// events (e.g. a new check-in, a leave approval) instead of polling the API.
+export const webhookSubscriptions = pgTable('webhook_subscriptions', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  url: text('url').notNull(),
+  // Event names this subscription wants, e.g. ['attendance.checked_in',
+  // 'leave.approved']. See api/services/webhooks.ts for the full event list.
+  events: jsonb('events').notNull().default('[]'),
+  // HMAC-SHA256 signing secret (shown once at creation, like the service
+  // account key) — lets the receiving app verify a delivery genuinely came
+  // from this server and wasn't forged/replayed by a third party.
+  signingSecret: text('signing_secret').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  lastDeliveryAt: timestamp('last_delivery_at'),
+  lastDeliveryStatus: text('last_delivery_status'), // 'success' | 'failed'
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One row per save of an employee's individual compensation profile (CTC +
+// salary components) — POST /api/tenant/payroll/employee/:userId previously
+// overwrote the profile row and DELETED the old salary component rows on
+// every save, so no history survived at all. This table is written
+// alongside that overwrite (never instead of it — the "current" profile
+// stays the live source of truth everywhere else) purely so the change
+// itself isn't lost. `fieldChanges` is a precomputed diff (CTC, each
+// component's value, additions/removals) so the history page can render
+// "what changed" directly without re-deriving it from two raw snapshots.
+export const compensationHistory = pgTable('compensation_history', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(), // the employee whose pay changed
+  changedByUserId: integer('changed_by_user_id').references(() => users.id),
+  effectiveFrom: text('effective_from'),
+  previousAnnualCtc: real('previous_annual_ctc'), // null on the very first save (nothing to compare against)
+  newAnnualCtc: real('new_annual_ctc').notNull(),
+  previousComponents: jsonb('previous_components'), // snapshot of employeeSalaryComponents rows before this save
+  newComponents: jsonb('new_components').notNull(), // snapshot after this save
+  fieldChanges: jsonb('field_changes').notNull().default('[]'), // [{ field, oldValue, newValue }]
+  createdAt: timestamp('created_at').defaultNow(),
+});

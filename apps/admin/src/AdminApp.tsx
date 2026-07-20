@@ -34,6 +34,7 @@ const RolePermissions = lazy(() => import('./pages/RolePermissions'));
 const LeaveManagementPage = lazy(() => import('./pages/LeaveManagementPage'));
 const PayrollPage = lazy(() => import('./pages/PayrollPage'));
 const PayrollWizardPage = lazy(() => import('./pages/PayrollWizardPage'));
+const PayrollHistoryPage = lazy(() => import('./pages/PayrollHistoryPage'));
 const EmployeeDirectory = lazy(() => import('./pages/EmployeeDirectory'));
 const TeamsPage = lazy(() => import('./pages/TeamsPage'));
 
@@ -123,6 +124,7 @@ export default function AdminApp() {
           <Route path="/tenant/payroll" element={user && canSeeDashboard(user.role) ? <PayrollPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/setup/employee/:userId/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/setup/role/:roleName/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/payroll/history/:userId" element={user && canSeeDashboard(user.role) ? <PayrollHistoryPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/directory" element={user && canSeeDashboard(user.role) ? <EmployeeDirectory user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/teams" element={user && canManageTeams(user.role) ? <TeamsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
 

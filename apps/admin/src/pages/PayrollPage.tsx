@@ -30,8 +30,8 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const [excessLeavePenaltyInput, setExcessLeavePenaltyInput] = useState('100');
   const [overtimeHourlyRateInput, setOvertimeHourlyRateInput] = useState('0');
   const [optionalHolidayLimitInput, setOptionalHolidayLimitInput] = useState('2');
-  const [employeeSearch, setEmployeeSearch] = useState('');
   const [setupFilter, setSetupFilter] = useState<'all' | 'configured' | 'pending'>('all');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [section, setSection] = useState<'builder' | 'roles'>('builder');
   const [roleDefaults, setRoleDefaults] = useState<any[]>([]);
   const [roleNames, setRoleNames] = useState<string[]>([]);
@@ -156,18 +156,31 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const unconfiguredCount = Math.max(0, employees.length - configuredCount);
   const averageNet = configuredCount > 0 ? metrics.monthlyNet / configuredCount : 0;
 
+  // Role options for the filter dropdown — the union of every role name
+  // actually present on a current employee and the tenant's full configured
+  // role list (roleNames, from role-defaults' live `rolePrivilegeDefaults`
+  // read). The union matters: a role with zero employees today still shows
+  // up here since roleNames already carries it, and a role that somehow
+  // isn't in roleNames yet (e.g. roleNames failed to load) still shows up
+  // because an employee has it — either way, a newly created role is never
+  // missing from this list without a code change.
+  const employeeRoleOptions = useMemo(() => {
+    const roles = new Set<string>(roleNames);
+    employees.forEach((e) => { if (e.role) roles.add(e.role); });
+    return Array.from(roles).sort((a, b) => a.localeCompare(b));
+  }, [roleNames, employees]);
+
   const filteredEmployees = useMemo(() => {
-    const query = employeeSearch.trim().toLowerCase();
     return employees.filter((employee) => {
       const existingRow = (payrollOverview?.employees || []).find((row: any) => String(row.userId) === String(employee.id));
       const matchesSetup = setupFilter === 'all'
         || (setupFilter === 'configured' && !!existingRow)
         || (setupFilter === 'pending' && !existingRow);
       if (!matchesSetup) return false;
-      if (!query) return true;
-      return [employee.name, employee.department, employee.role].filter(Boolean).join(' ').toLowerCase().includes(query);
+      if (roleFilter !== 'all' && employee.role !== roleFilter) return false;
+      return true;
     });
-  }, [employeeSearch, employees, payrollOverview, setupFilter]);
+  }, [employees, payrollOverview, setupFilter, roleFilter]);
 
   const handleSavePayrollSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,32 +393,30 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <input
-                value={employeeSearch}
-                onChange={(e) => setEmployeeSearch(e.target.value)}
-                placeholder="Search employee, department, or role"
-                className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none md:max-w-xs"
-              />
-              <div className="flex flex-wrap gap-2">
-                {([
-                  ['all', 'All'],
-                  ['configured', 'Configured'],
-                  ['pending', 'Pending Setup'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    onClick={() => setSetupFilter(value)}
-                    className={`rounded-xl px-3.5 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
-                      setupFilter === value
-                        ? 'bg-[var(--color-nexus-primary)] text-white'
-                        : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]'
-                    }`}
-                  >
-                    {label}
-                  </button>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              <select
+                value={setupFilter}
+                onChange={(e) => setSetupFilter(e.target.value as 'all' | 'configured' | 'pending')}
+                className="w-full sm:w-56 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+              >
+                <option value="all">All Setup Status</option>
+                <option value="configured">Configured</option>
+                <option value="pending">Pending Setup</option>
+              </select>
+              {/* Role list is never hardcoded — employeeRoleOptions is the live
+                  union of the tenant's configured roles + whatever's actually
+                  on an employee record, so a newly created custom role
+                  appears here automatically, no code change needed. */}
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="w-full sm:w-56 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+              >
+                <option value="all">All Roles</option>
+                {employeeRoleOptions.map((roleName) => (
+                  <option key={roleName} value={roleName}>{roleName}</option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {loading ? (
@@ -441,6 +452,12 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-2">
+                          <button
+                            onClick={() => navigate(`/tenant/payroll/history/${employee.id}`)}
+                            className="rounded-xl border border-[var(--color-nexus-border)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)]"
+                          >
+                            History
+                          </button>
                           <button
                             onClick={() => navigate(`/tenant/payroll/setup/employee/${employee.id}/salary`)}
                             className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"

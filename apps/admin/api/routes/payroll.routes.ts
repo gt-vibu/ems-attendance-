@@ -11,6 +11,7 @@ import {
   buildPayrollSummary,
   getOrCreatePayrollSettings,
   getRoleCompensationDefault,
+  computeCompensationDiff,
 } from './leavePayrollShared';
 
 export const router = Router();
@@ -225,6 +226,14 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
     }
 
     const existing = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.tenantId, req.user.tenantId), eq(schema.employeeCompensationProfiles.status, 'active'))).limit(1);
+    // Snapshot the OLD state before anything is overwritten — the save
+    // below deletes the old component rows outright, so this is the only
+    // chance to capture what they were for compensation_history.
+    const previousProfile = existing[0] || null;
+    const previousComponents = previousProfile
+      ? await db.select().from(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.profileId, previousProfile.id)).orderBy(schema.employeeSalaryComponents.sortOrder)
+      : [];
+
     const payload = {
       tenantId: req.user.tenantId,
       userId,
@@ -259,8 +268,92 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
     if (sanitized.length > 0) await db.insert(schema.employeeSalaryComponents).values(sanitized);
 
     const freshComponents = await db.select().from(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.profileId, profile.id)).orderBy(schema.employeeSalaryComponents.sortOrder);
+
+    const fieldChanges = computeCompensationDiff(previousProfile, previousComponents, profile, freshComponents);
+    await db.insert(schema.compensationHistory).values({
+      tenantId: req.user.tenantId,
+      userId,
+      changedByUserId: req.user.userId,
+      effectiveFrom: payload.effectiveFrom,
+      previousAnnualCtc: previousProfile?.annualCtc ?? null,
+      newAnnualCtc: profile.annualCtc,
+      previousComponents: previousComponents,
+      newComponents: freshComponents,
+      fieldChanges,
+    });
+
     await notifyUser(userId, 'Your salary has been updated', `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`);
     res.json({ success: true, profile, components: freshComponents });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Shared by both history endpoints below (admin-viewing-any-employee and
+// employee-viewing-their-own) so the response shape can never drift between
+// the two — same query, same fields, just a different caller/target pairing
+// and privilege check at each route.
+async function buildCompensationHistoryResponse(tenantId: number, userId: number) {
+  const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+  if (employeeRows.length === 0 || employeeRows[0].tenantId !== tenantId) {
+    return null;
+  }
+
+  const rows = await db.select().from(schema.compensationHistory)
+    .where(and(eq(schema.compensationHistory.tenantId, tenantId), eq(schema.compensationHistory.userId, userId)))
+    .orderBy(desc(schema.compensationHistory.createdAt));
+
+  const changedByIds: number[] = Array.from(new Set(rows.map((r: any) => r.changedByUserId).filter((id: any): id is number => !!id)));
+  const changedByUsers = changedByIds.length > 0
+    ? await db.select({ id: schema.users.id, name: schema.users.name, email: schema.users.email }).from(schema.users).where(inArray(schema.users.id, changedByIds))
+    : [];
+  const changedByName = new Map(changedByUsers.map((u: any) => [u.id, u.name || u.email]));
+
+  return {
+    employee: { id: employeeRows[0].id, name: employeeRows[0].name, email: employeeRows[0].email, role: employeeRows[0].role },
+    history: rows.map((r: any) => ({
+      id: r.id,
+      changedAt: r.createdAt,
+      changedByName: changedByName.get(r.changedByUserId) || 'System',
+      effectiveFrom: r.effectiveFrom,
+      previousAnnualCtc: r.previousAnnualCtc,
+      newAnnualCtc: r.newAnnualCtc,
+      fieldChanges: r.fieldChanges,
+      isFirstSetup: r.previousAnnualCtc === null,
+    })),
+  };
+}
+
+// Every recorded compensation change for one employee — CTC, and each
+// salary component (Basic/HRA/PF/allowances/deductions) added, removed, or
+// changed in value — newest first. Same read privilege as the profile
+// itself (payroll.read/employee.read); an employee with zero history (never
+// had their pay set, or only ever set once with nothing to diff against)
+// still gets a 200 with an empty array — the frontend renders that as "no
+// changes recorded" rather than treating it as an error.
+router.get('/api/tenant/payroll/employee/:userId/history', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'employee.read')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const userId = Number(req.params.userId);
+    const result = await buildCompensationHistoryResponse(req.user.tenantId, userId);
+    if (!result) return res.status(404).json({ error: 'Employee not found.' });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Self-service counterpart — every employee (any role) can see their OWN
+// compensation change history, same "mine" pattern as /api/payroll/mine and
+// /api/earnings/mine: no privilege check beyond being authenticated, since
+// the target is always the caller's own userId, never anyone else's.
+router.get('/api/payroll/compensation-history/mine', authenticate, async (req: any, res: any) => {
+  try {
+    const result = await buildCompensationHistoryResponse(req.user.tenantId, req.user.userId);
+    if (!result) return res.status(404).json({ error: 'User not found.' });
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

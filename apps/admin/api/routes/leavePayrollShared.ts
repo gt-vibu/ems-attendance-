@@ -94,6 +94,47 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   };
 }
 
+// Computes a human-readable list of what changed between an employee's old
+// and new compensation state, for compensation_history.fieldChanges — the
+// history page renders this directly rather than diffing two raw snapshots
+// itself. `oldProfile`/`oldComponents` are null on an employee's very first
+// save (nothing to compare against yet); every field is then reported
+// against `null` so the page can still show "what it was set to."
+export function computeCompensationDiff(
+  oldProfile: { annualCtc: number; overtimeHourlyRate: number | null } | null,
+  oldComponents: Array<{ componentName: string; componentType: string; calculationType: string; value: number }>,
+  newProfile: { annualCtc: number; overtimeHourlyRate: number | null },
+  newComponents: Array<{ componentName: string; componentType: string; calculationType: string; value: number }>,
+) {
+  const changes: Array<{ field: string; oldValue: any; newValue: any }> = [];
+
+  if (!oldProfile || oldProfile.annualCtc !== newProfile.annualCtc) {
+    changes.push({ field: 'Annual CTC', oldValue: oldProfile?.annualCtc ?? null, newValue: newProfile.annualCtc });
+  }
+  if (!oldProfile || (oldProfile.overtimeHourlyRate ?? null) !== (newProfile.overtimeHourlyRate ?? null)) {
+    changes.push({ field: 'Overtime Hourly Rate', oldValue: oldProfile?.overtimeHourlyRate ?? null, newValue: newProfile.overtimeHourlyRate ?? null });
+  }
+
+  const oldByName = new Map((oldComponents || []).map((c) => [c.componentName, c]));
+  const newByName = new Map((newComponents || []).map((c) => [c.componentName, c]));
+
+  for (const [name, oldComp] of oldByName) {
+    if (!newByName.has(name)) {
+      changes.push({ field: `${name} (removed)`, oldValue: oldComp.value, newValue: null });
+    }
+  }
+  for (const [name, newComp] of newByName) {
+    const oldComp = oldByName.get(name);
+    if (!oldComp) {
+      changes.push({ field: `${name} (added)`, oldValue: null, newValue: newComp.value });
+    } else if (oldComp.value !== newComp.value || oldComp.calculationType !== newComp.calculationType) {
+      changes.push({ field: name, oldValue: oldComp.value, newValue: newComp.value });
+    }
+  }
+
+  return changes;
+}
+
 export async function getOrCreatePayrollSettings(tenantId: number) {
   const existing = await db.select().from(schema.payrollSettings).where(eq(schema.payrollSettings.tenantId, tenantId)).limit(1);
   if (existing.length > 0) return existing[0];
