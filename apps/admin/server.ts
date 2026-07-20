@@ -11,6 +11,9 @@ import { startSchedulerWithLeadership } from './api/bootstrap/scheduler';
 import { getFaceServiceHealth } from './api/services/face';
 import { generalLimiter } from './api/middleware/rateLimit';
 import { registerRoutes } from './api/routes';
+import { initMonitoring, captureException } from './api/services/monitoring';
+
+initMonitoring();
 
 // Last-resort safety nets: without these, an error thrown outside any
 // request handler's try/catch (e.g. inside a fire-and-forget async task, a
@@ -19,10 +22,10 @@ import { registerRoutes } from './api/routes';
 // that failed. Logging and continuing is far safer for a multi-user server
 // than letting the whole process die on an isolated bug.
 process.on('uncaughtException', (err) => {
-  logger.error('uncaughtException (process kept alive)', { err: err instanceof Error ? err.stack || err.message : String(err) });
+  captureException(err, { source: 'uncaughtException' });
 });
 process.on('unhandledRejection', (reason) => {
-  logger.error('unhandledRejection (process kept alive)', { reason: reason instanceof Error ? reason.stack || reason.message : String(reason) });
+  captureException(reason, { source: 'unhandledRejection' });
 });
 
 async function startServer() {
@@ -150,6 +153,19 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Final safety net: every route handler in api/routes/* already wraps its
+  // body in try/catch and returns a JSON error, so this exists for the
+  // narrow gap that isn't covered — a synchronous throw in middleware itself,
+  // or an async handler that forgot the try/catch. Must be registered last
+  // (Express identifies error middleware by its 4-arg signature, not
+  // position, but convention is last) and after the SPA catch-all so it
+  // still catches errors from within that too.
+  app.use((err: any, req: any, res: any, _next: any) => {
+    captureException(err, { method: req.method, path: req.originalUrl || req.url });
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'Internal server error' });
+  });
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development' });

@@ -37,6 +37,13 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Fails the build on known high/critical-severity vulnerabilities in
+      # dependencies; low/moderate findings are common in transitive deps
+      # and would make this too noisy to act on, so only the severities
+      # worth blocking a merge over are enforced.
+      - name: Dependency audit (high/critical)
+        run: pnpm audit --audit-level=high
+
   docker-build-admin:
     name: Build admin Docker image
     runs-on: ubuntu-latest
