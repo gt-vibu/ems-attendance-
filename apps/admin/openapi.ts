@@ -113,8 +113,20 @@ export const openApiSpec = {
       'Multi-tenant employee attendance, biometric KYC, and Work From Home API. ' +
       'All endpoints below are shown at their unversioned path (/...); external ' +
       'integrations should prefix every path with /api/v1 instead of /api — both ' +
-      'resolve to the exact same handler (see server.ts). Authenticate with ' +
-      '`Authorization: Bearer <token>` obtained from POST /auth/login.',
+      'resolve to the exact same handler (see server.ts).\n\n' +
+      '**Authentication** — two options:\n' +
+      '- Human login: `Authorization: Bearer <token>` obtained from POST /auth/login (24h expiry).\n' +
+      "- Machine-to-machine: `Authorization: Bearer <api-key>` obtained from POST /tenant/service-accounts " +
+      '(tenant_admin only) — a long-lived credential scoped to an explicit privilege list, for partner ' +
+      'integrations that should not hold a real employee login. See the Integrations tag below.\n\n' +
+      '**Versioning policy** — `/v1` is stable: existing fields and endpoints will not be removed or ' +
+      'change meaning. Additive changes (new optional fields, new endpoints) may ship to `/v1` at any time. ' +
+      'Any breaking change ships as `/v2` first, with `/v1` kept running in parallel for an announced ' +
+      'deprecation window — never silently changed in place. See CHANGELOG.md for release history.\n\n' +
+      '**Rate limits** — 300 requests/minute per authenticated caller (or per IP before authentication) ' +
+      'on the general API surface; 10 requests per 15 minutes on /auth/login specifically (brute-force ' +
+      'protection). A limit hit returns `429` with `Retry-After` and `RateLimit-*` headers ' +
+      '(`standardHeaders: true`). Service-account keys share the same general limit as a logged-in user.',
   },
   servers: [
     { url: '/api/v1', description: 'Versioned (recommended for external integrations)' },
@@ -138,6 +150,7 @@ export const openApiSpec = {
     { name: 'Breaks', description: 'Break session start/end and daily budget' },
     { name: 'Alerts & Notifications', description: 'Timing/fraud alerts and tenant notifications' },
     { name: 'Audit Ledger', description: 'Immutable, hash-chained activity log' },
+    { name: 'Integrations', description: 'Machine-to-machine API keys and webhook subscriptions for partner integrations (tenant_admin only)' },
   ],
   paths: {
     '/health': {
@@ -381,5 +394,55 @@ export const openApiSpec = {
 
     '/tenant/ledger': { get: { tags: ['Audit Ledger'], summary: 'Immutable, SHA-256-hash-chained activity log (requires reports.view)', security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { ledger: { type: 'array', items: { type: 'object' } } } }), ...errorResponses } } },
     '/tenant/ledger/verify': { post: { tags: ['Audit Ledger'], summary: 'Verify the hash chain has not been tampered with', security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { isValid: { type: 'boolean' }, invalidBlocks: { type: 'array', items: { type: 'integer' } }, verifiedBlocksCount: { type: 'integer' } } }), ...errorResponses } } },
+
+    '/tenant/service-accounts': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'List service accounts (API keys never returned — only shown once, at creation)',
+        security: [bearerAuth],
+        responses: { '200': okResponse({ type: 'object', properties: { serviceAccounts: { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' }, keyPrefix: { type: 'string' }, privileges: { type: 'array', items: { type: 'string' } }, lastUsedAt: { type: 'string', format: 'date-time', nullable: true }, revokedAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' } } } } } }), ...errorResponses },
+      },
+      post: {
+        tags: ['Integrations'],
+        summary: 'Create a service account — a long-lived API key for a partner integration',
+        description: 'The returned `apiKey` is shown exactly once and cannot be retrieved again (only revoked + reissued). Privileges must be a subset of the caller\'s own effective privileges.',
+        security: [bearerAuth],
+        requestBody: jsonBody({ type: 'object', required: ['name', 'privileges'], properties: { name: { type: 'string', example: "Colleague's HRIS sync" }, privileges: { type: 'array', items: { type: 'string' }, example: ['employee.read'] } } }),
+        responses: {
+          '201': okResponse({ type: 'object', properties: { serviceAccount: { type: 'object' }, apiKey: { type: 'string', description: "Prefix 'stk_live_' — pass as Authorization: Bearer <apiKey> on subsequent calls." } } }),
+          ...errorResponses,
+        },
+      },
+    },
+    '/tenant/service-accounts/{id}': {
+      delete: { tags: ['Integrations'], summary: 'Revoke a service account key (immediate, irreversible)', security: [bearerAuth], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': okResponse({ type: 'object', properties: { success: { type: 'boolean' } } }), ...errorResponses } },
+    },
+
+    '/tenant/webhooks': {
+      get: {
+        tags: ['Integrations'],
+        summary: 'List webhook subscriptions (signing secret never returned — only shown once, at creation)',
+        security: [bearerAuth],
+        responses: { '200': okResponse({ type: 'object', properties: { webhooks: { type: 'array', items: { type: 'object' } }, availableEvents: { type: 'array', items: { type: 'string' }, example: ['attendance.checked_in', 'attendance.checked_out', 'leave.requested', 'leave.approved', 'leave.rejected'] } } }), ...errorResponses },
+      },
+      post: {
+        tags: ['Integrations'],
+        summary: 'Subscribe a URL to one or more events',
+        description:
+          'Each delivery is a POST with JSON body `{event, data, timestamp}` and header ' +
+          '`X-SmartTeams-Signature: hex(HMAC-SHA256(signingSecret, rawRequestBody))` — verify it before ' +
+          'trusting the payload. Delivery is fire-and-forget (5s timeout, no retry queue yet); check ' +
+          "GET /tenant/webhooks for each subscription's lastDeliveryStatus.",
+        security: [bearerAuth],
+        requestBody: jsonBody({ type: 'object', required: ['url', 'events'], properties: { url: { type: 'string', format: 'uri', description: 'Must be https:// in production' }, events: { type: 'array', items: { type: 'string' } } } }),
+        responses: {
+          '201': okResponse({ type: 'object', properties: { webhook: { type: 'object' }, signingSecret: { type: 'string' } } }),
+          ...errorResponses,
+        },
+      },
+    },
+    '/tenant/webhooks/{id}': {
+      delete: { tags: ['Integrations'], summary: 'Delete a webhook subscription', security: [bearerAuth], parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }], responses: { '200': okResponse({ type: 'object', properties: { success: { type: 'boolean' } } }), ...errorResponses } },
+    },
   },
 };

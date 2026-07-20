@@ -16,6 +16,7 @@
     "start": "pnpm --filter @company/admin start",
     "seed": "tsx seed.ts",
     "seed:superadmin": "tsx seed-superadmin.ts",
+    "seed:sandbox": "tsx seed-sandbox-tenant.ts",
     "db:generate": "pnpm --filter @company/database db:generate",
     "db:migrate": "pnpm --filter @company/database db:migrate"
   },

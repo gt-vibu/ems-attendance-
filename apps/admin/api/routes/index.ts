@@ -20,6 +20,9 @@ import { router as holidaysRouter } from './holidays.routes';
 import { router as employeesRouter } from './employees.routes';
 import { router as shiftOverridesRouter } from './shiftOverrides.routes';
 import { router as teamsRouter } from './teams.routes';
+import { router as serviceAccountsRouter } from './serviceAccounts.routes';
+import { router as webhooksRouter } from './webhooks.routes';
+import { router as earningsRouter } from './earnings.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -49,4 +52,7 @@ export function registerRoutes(app: Express) {
   app.use(employeesRouter);
   app.use(shiftOverridesRouter);
   app.use(teamsRouter);
+  app.use(serviceAccountsRouter);
+  app.use(webhooksRouter);
+  app.use(earningsRouter);
 }

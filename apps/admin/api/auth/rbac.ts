@@ -22,6 +22,14 @@ export async function hasPrivilege(user: any, permission: string): Promise<boole
     if (user.role === 'super_admin') return true;
     if (user.role === 'tenant_admin') return true;
 
+    // A service account has no row in `users` — it's granted an explicit
+    // privilege list at creation time (see api/routes/serviceAccounts.routes.ts)
+    // and never inherits role-based defaults, since there's no "role" for a
+    // machine caller to default from.
+    if (user.isServiceAccount) {
+      return Array.isArray(user.privileges) && user.privileges.includes(permission);
+    }
+
     const userRec = await db.select().from(schema.users).where(eq(schema.users.id, user.userId || 0)).limit(1);
     if (userRec.length === 0) return false;
     const dbUser = userRec[0];
@@ -51,6 +59,7 @@ export async function hasPrivilege(user: any, permission: string): Promise<boole
 export async function getEffectivePrivileges(user: any): Promise<string[] | 'ALL'> {
     if (!user) return [];
     if (user.role === 'super_admin' || user.role === 'tenant_admin') return 'ALL';
+    if (user.isServiceAccount) return Array.isArray(user.privileges) ? user.privileges : [];
     const userRec = await db.select().from(schema.users).where(eq(schema.users.id, user.userId || 0)).limit(1);
     if (userRec.length === 0) return [];
     const dbUser = userRec[0];
