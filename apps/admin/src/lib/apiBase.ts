@@ -14,14 +14,54 @@
 // The backend must allow this frontend's origin via CORS_ALLOWED_ORIGINS.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
-if (API_BASE && typeof window !== 'undefined' && typeof window.fetch === 'function') {
+// Paths that legitimately return 401 as part of their own normal flow (bad
+// credentials, expired reset link) rather than "your session died mid-use" —
+// these must NOT trigger the global bounce-to-login below, or a wrong
+// password on the login form would redirect the user away from the form
+// that's showing them the error.
+const AUTH_SELF_SERVICE_PATHS = ['/api/auth/login', '/api/auth/reset-password', '/api/auth/forgot-password'];
+
+// Every authenticated screen in this app fires several fetches on mount with
+// no shared error handling (see Dashboard.tsx's per-hook fetch calls), so a
+// dead session (expired JWT, or invalidated by logging in elsewhere — see
+// activeSessionId in apps/admin/api/middleware/authenticate.ts) previously
+// just left the page half-rendered with a wall of failed requests in the
+// console instead of ever telling the user to log back in. Handling it once
+// here, at the shim every API call already funnels through, avoids threading
+// 401-handling through ~90 individual call sites.
+function handleGlobalUnauthorized(input: RequestInfo | URL, response: Response) {
+  if (response.status !== 401) return;
+  const path = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+  if (AUTH_SELF_SERVICE_PATHS.some((p) => path.includes(p))) return;
+  if (typeof window === 'undefined') return;
+  // Already on a login screen (or already handling this) — nothing to do.
+  if (window.location.pathname.includes('login')) return;
+
+  const cachedUser = (() => {
+    try {
+      const raw = localStorage.getItem('auth_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  localStorage.removeItem('auth_user');
+  localStorage.removeItem('auth_token');
+  const canClockIn = cachedUser?.role && cachedUser.role !== 'super_admin' && cachedUser.role !== 'tenant_admin';
+  window.location.href = canClockIn ? '/employee/login' : '/login';
+}
+
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
   const originalFetch = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     // Only rewrite string URLs that target the API on the current origin.
-    if (typeof input === 'string' && input.startsWith('/api/')) {
-      return originalFetch(API_BASE + input, init);
-    }
-    return originalFetch(input as any, init);
+    const rewritten = API_BASE && typeof input === 'string' && input.startsWith('/api/')
+      ? API_BASE + input
+      : input;
+    return originalFetch(rewritten as any, init).then((response) => {
+      handleGlobalUnauthorized(input, response);
+      return response;
+    });
   };
 }
 
