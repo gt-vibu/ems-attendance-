@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Camera, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Camera, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -10,6 +10,7 @@ import StatCard from '../components/StatCard';
 import StatusPill from '../components/StatusPill';
 import LeaveBalanceCards from '../components/LeaveBalanceCards';
 import AttendanceTimeline from '../components/AttendanceTimeline';
+import EarningsBreakdown from '../components/EarningsBreakdown';
 
 type AttendanceCalendarStatus = 'present' | 'late' | 'half_day' | 'paid_leave' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
 
@@ -672,6 +673,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'attendance', label: 'My Attendance', icon: Clock, count: attendanceHistory.length || undefined },
     ...(todayState === 'checked_in' ? [{ id: 'breaks', label: 'Breaks & Checkout', icon: Coffee } as PortalNavItem] : []),
+    { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'leave-pay', label: 'Leave & Payroll', icon: Banknote, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
     { id: 'requests', label: 'My Requests', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
   ];
@@ -1195,6 +1197,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           </div>
         </div>
       )}
+
+      {tab === 'earnings' && <EarningsBreakdown token={token} />}
 
       {tab === 'leave-pay' && (
         <div className="space-y-6">
