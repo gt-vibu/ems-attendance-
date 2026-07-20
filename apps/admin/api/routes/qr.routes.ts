@@ -13,6 +13,7 @@ import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineM
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
+import { FACE_MATCH_THRESHOLD } from '../services/face';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
@@ -375,7 +376,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
         }
         faceMatchScore = facePass.faceMatchScore;
         livenessScore = facePass.livenessScore;
-        const matchThreshold = 0.36; // see services/face-service/README.md — tune per deployment
+        const matchThreshold = FACE_MATCH_THRESHOLD;
         facePassedFlag = faceMatchScore >= matchThreshold && livenessScore >= 0.8;
         if (faceMatchScore < matchThreshold) {
           errors.push('Facial biometrics verification failed (Identity mismatch).');

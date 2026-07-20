@@ -6,6 +6,7 @@ import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege } from '../auth
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings } from './leavePayrollShared';
+import { dispatchWebhookEvent } from '../services/webhooks';
 
 export const router = Router();
 
@@ -172,6 +173,16 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
       ).catch(() => undefined)
     ));
 
+    dispatchWebhookEvent(req.user.tenantId, 'leave.requested', {
+      requestId: inserted.id,
+      userId: req.user.userId,
+      leaveType,
+      startDate,
+      endDate,
+      totalDays,
+      status: inserted.status,
+    });
+
     res.json({ success: true, request: inserted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -301,6 +312,14 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
       const employee = employeeRows[0];
       await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
     }
+    dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
+      requestId: updated.id,
+      userId: leaveRequest.userId,
+      leaveType: leaveRequest.leaveType,
+      startDate: leaveRequest.startDate,
+      endDate: leaveRequest.endDate,
+      comment: comment || null,
+    });
     res.json({ success: true, request: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

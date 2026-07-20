@@ -13,11 +13,12 @@ import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineM
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
+import { dispatchWebhookEvent } from '../services/webhooks';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
+import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL, FACE_MATCH_THRESHOLD } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
@@ -221,7 +222,7 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
           }
         }
 
-        const matchThreshold = 0.36;
+        const matchThreshold = FACE_MATCH_THRESHOLD;
         const identityEnrolled = !!(enrolledEmbeddings && enrolledEmbeddings.length > 0);
 
         const isLivenessConvincing = faceResult.faceDetected && livenessScore >= LIVENESS_MIN;
@@ -337,7 +338,7 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
       // Identity match — the hard anti-impersonation gate, deliberately NOT
       // relaxed. If enrollment is missing entirely (no embeddings), this stays
       // at -1 and fails, which is correct: you can't verify against nothing.
-      const matchThreshold = 0.36; // see services/face-service/README.md — tune per deployment
+      const matchThreshold = FACE_MATCH_THRESHOLD;
       const identityEnrolled = !!(enrolledEmbeddings && enrolledEmbeddings.length > 0);
       if (faceResult.faceDetected && !identityEnrolled) {
         errors.push('No enrolled face on file — please complete (or redo) your biometric KYC before checking in.');
@@ -503,7 +504,7 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
           if (sim > bestSimilarity) bestSimilarity = sim;
         }
       }
-      const matchThreshold = 0.36;
+      const matchThreshold = FACE_MATCH_THRESHOLD;
       if (!enrolledEmbeddings || enrolledEmbeddings.length === 0 || bestSimilarity < matchThreshold) {
         return res.status(422).json({ passed: false, error: 'Face match was not strong enough for this action. Please face the camera directly and try again.' });
       }
@@ -666,7 +667,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       const bestSimilarity: number = facePass.faceMatchScore;
       const livenessScore: number = facePass.livenessScore;
 
-      const matchThreshold = 0.36; // see services/face-service/README.md — tune per deployment
+      const matchThreshold = FACE_MATCH_THRESHOLD;
       if (bestSimilarity < matchThreshold) {
         verificationErrors.push('Facial biometrics verification failed (Identity mismatch).');
         fraudType = 'FRAUD_BIOMETRICS_FAILED';
@@ -889,6 +890,15 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
           }
         }
       }
+
+      dispatchWebhookEvent(user.tenantId || 1, logType === 'check_in' ? 'attendance.checked_in' : 'attendance.checked_out', {
+        userId: user.id,
+        userName: user.name,
+        logId: log[0].id,
+        attendanceMode,
+        status: pendingApproval ? 'pending' : status,
+        timestamp: log[0].clientTimestamp,
+      });
 
       res.json({ success: true, log: log[0], pendingApproval });
     } catch (err: any) {

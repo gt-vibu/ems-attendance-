@@ -134,10 +134,15 @@ limitations" entry below.
   against your specific users/cameras — expect to tune them after real-world
   testing, same as the match threshold below.
 - Match threshold tuning: this uses cosine similarity between ArcFace
-  embeddings with a starting threshold of `0.36` on the Node side (see
-  `server.ts`). This is a commonly-cited InsightFace starting point, not a
-  number calibrated against your specific users/cameras — expect to tune it
-  after real-world testing.
+  embeddings, gated by `FACE_MATCH_THRESHOLD` on the Node side (see
+  `apps/admin/api/services/face.ts`), currently `0.5`. Raised from an initial
+  0.36 ("a commonly-cited InsightFace starting point", never actually
+  calibrated) after a real false-accept between two different enrolled users
+  was reported and confirmed. See that constant's own comment for the real
+  same-person/different-person score data behind the current value, and why
+  threshold tuning alone can't catch every case — a same-person-range false
+  match between two genuinely different people needs re-enrollment (a fresh,
+  more varied capture burst), not a threshold change.
 - **`moireScore` is a diagnostics-only heuristic, not a certified anti-spoof
   signal, and does not gate anything today.** It's a classical frequency-
   domain check (2D FFT of the face crop; a real face's spectrum is dominated

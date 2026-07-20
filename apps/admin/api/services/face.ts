@@ -44,8 +44,7 @@ export async function getFaceServiceHealth(): Promise<{ status: string; modelLoa
 // Cosine similarity between two face embeddings. InsightFace's ArcFace
 // embeddings (buffalo_l) are meant to be compared this way — a value near 1
 // means "almost certainly the same person", near 0 (or negative) means
-// unrelated. 0.36 is a commonly-cited InsightFace starting threshold; tune
-// this per-deployment once you have real match/mismatch data.
+// unrelated.
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (!a || !b || a.length !== b.length) return -1;
   let dot = 0, normA = 0, normB = 0;
@@ -57,6 +56,37 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   if (normA === 0 || normB === 0) return -1;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+
+// Identity-match threshold for cosineSimilarity() — the single source of
+// truth every attendance/QR/verify-face call site imports this from,
+// instead of each repeating its own literal (which is how the old value
+// silently drifted across 6+ call sites with zero risk of ever being kept
+// in sync).
+//
+// Raised from an initial 0.36 ("a commonly-cited InsightFace starting
+// point", never actually calibrated) to 0.5 after a real false-accept was
+// reported and confirmed against this deployment's own enrolled data:
+//   - Legitimate distinct-person pairs in production data: 0.15-0.234 (5 pairs)
+//   - One distinct-person pair scored 0.886 — see note below, no threshold fixes this one
+//   - Genuine same-person (multiple embeddings per user) pairs: 0.532-0.995, avg ~0.83
+// 0.5 sits with wide margin above every normal distinct-person score (0.234)
+// and below the observed same-person floor (0.532) — meaningfully harder to
+// false-accept than 0.36 was, without meaningfully increasing false-rejects
+// for genuine users.
+//
+// IMPORTANT — this does NOT fully solve the reported bug: one real pair in
+// this deployment's data scored 0.886 between two different, fully-
+// completed KYC enrollments. That's inside the same-person range (0.532+),
+// so literally no similarity threshold can separate it from a genuine
+// match — raising this constant further would just start rejecting real
+// users too. That specific pair needs a different remedy: re-enrolling one
+// or both accounts with a fresh, more varied capture burst (poor lighting/
+// a single dominant angle can make ArcFace embeddings unusually close even
+// between different people), and in the meantime leaning on this app's
+// other independent checks (device pinning, geofencing, liveness/challenge-
+// response) as the actual backstop for that specific pair rather than the
+// face match alone.
+export const FACE_MATCH_THRESHOLD = 0.5;
 
 // The 8 guided poses captured during KYC enrollment. 'look_center' is the
 // neutral baseline; the other 7 are also the vocabulary the daily liveness
