@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { User } from '../lib/auth';
 import PortalShell from '../components/PortalShell';
 import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
+import { downloadCsv } from '../lib/csv';
 
 const formatMoney = (value: number) => `₹${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -30,6 +31,22 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const [excessLeavePenaltyInput, setExcessLeavePenaltyInput] = useState('100');
   const [overtimeHourlyRateInput, setOvertimeHourlyRateInput] = useState('0');
   const [optionalHolidayLimitInput, setOptionalHolidayLimitInput] = useState('2');
+  // --- Statutory compliance (PF/ESI/Professional Tax/TDS) — see the schema
+  // comment on payrollSettings for the "simplified estimate" caveat. ---
+  const [statutoryEnabled, setStatutoryEnabled] = useState(false);
+  const [pfEnabled, setPfEnabled] = useState(false);
+  const [pfEmployeeRateInput, setPfEmployeeRateInput] = useState('12');
+  const [pfEmployerRateInput, setPfEmployerRateInput] = useState('12');
+  const [pfWageCeilingInput, setPfWageCeilingInput] = useState('15000');
+  const [esiEnabled, setEsiEnabled] = useState(false);
+  const [esiEmployeeRateInput, setEsiEmployeeRateInput] = useState('0.75');
+  const [esiEmployerRateInput, setEsiEmployerRateInput] = useState('3.25');
+  const [esiWageCeilingInput, setEsiWageCeilingInput] = useState('21000');
+  const [ptEnabled, setPtEnabled] = useState(false);
+  const [ptFlatAmountInput, setPtFlatAmountInput] = useState('200');
+  const [tdsEnabled, setTdsEnabled] = useState(false);
+  const [tdsStandardDeductionInput, setTdsStandardDeductionInput] = useState('50000');
+  const [statutoryBasicPercentInput, setStatutoryBasicPercentInput] = useState('50');
   const [setupFilter, setSetupFilter] = useState<'all' | 'configured' | 'pending'>('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [section, setSection] = useState<'builder' | 'roles'>('builder');
@@ -64,6 +81,21 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
         setExcessLeavePenaltyInput(String(settingsData.settings.excessLeavePenaltyPercent ?? 100));
         setOvertimeHourlyRateInput(String(settingsData.settings.overtimeHourlyRate ?? 0));
         setOptionalHolidayLimitInput(String(settingsData.settings.optionalHolidayLimit ?? 2));
+        const s = settingsData.settings;
+        setStatutoryEnabled(!!s.statutoryComplianceEnabled);
+        setPfEnabled(!!s.pfEnabled);
+        setPfEmployeeRateInput(String(s.pfEmployeeRatePercent ?? 12));
+        setPfEmployerRateInput(String(s.pfEmployerRatePercent ?? 12));
+        setPfWageCeilingInput(String(s.pfWageCeiling ?? 15000));
+        setEsiEnabled(!!s.esiEnabled);
+        setEsiEmployeeRateInput(String(s.esiEmployeeRatePercent ?? 0.75));
+        setEsiEmployerRateInput(String(s.esiEmployerRatePercent ?? 3.25));
+        setEsiWageCeilingInput(String(s.esiWageCeiling ?? 21000));
+        setPtEnabled(!!s.professionalTaxEnabled);
+        setPtFlatAmountInput(String(Array.isArray(s.professionalTaxSlabs) && s.professionalTaxSlabs[0]?.amount != null ? s.professionalTaxSlabs[0].amount : 200));
+        setTdsEnabled(!!s.tdsEnabled);
+        setTdsStandardDeductionInput(String(s.tdsStandardDeduction ?? 50000));
+        setStatutoryBasicPercentInput(String(s.statutoryBasicPercentOfGross ?? 50));
       }
     } catch (err: any) {
       setError(err.message || 'Could not load payroll data.');
@@ -199,6 +231,13 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
           excessLeavePenaltyPercent: parseFloat(excessLeavePenaltyInput) || 100,
           overtimeHourlyRate: parseFloat(overtimeHourlyRateInput) || 0,
           optionalHolidayLimit: parseInt(optionalHolidayLimitInput, 10) || 2,
+          statutoryComplianceEnabled: statutoryEnabled,
+          pfEnabled, pfEmployeeRatePercent: parseFloat(pfEmployeeRateInput) || 12, pfEmployerRatePercent: parseFloat(pfEmployerRateInput) || 12, pfWageCeiling: parseFloat(pfWageCeilingInput) || 15000,
+          esiEnabled, esiEmployeeRatePercent: parseFloat(esiEmployeeRateInput) || 0.75, esiEmployerRatePercent: parseFloat(esiEmployerRateInput) || 3.25, esiWageCeiling: parseFloat(esiWageCeilingInput) || 21000,
+          professionalTaxEnabled: ptEnabled,
+          professionalTaxSlabs: [{ minGross: 0, maxGross: null, amount: parseFloat(ptFlatAmountInput) || 0 }],
+          tdsEnabled, tdsStandardDeduction: parseFloat(tdsStandardDeductionInput) || 50000,
+          statutoryBasicPercentOfGross: parseFloat(statutoryBasicPercentInput) || 50,
         }),
       });
       const data = await res.json();
@@ -379,6 +418,72 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Optional Holiday Limit</label>
                 <input type="number" min="0" step="1" value={optionalHolidayLimitInput} onChange={(e) => setOptionalHolidayLimitInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
+
+              <div className="border-t border-[var(--color-nexus-border)] pt-4 mt-4">
+                <label className="flex items-center gap-2.5 cursor-pointer mb-1">
+                  <input type="checkbox" checked={statutoryEnabled} onChange={(e) => setStatutoryEnabled(e.target.checked)} className="w-4 h-4 accent-[var(--color-nexus-primary)]" />
+                  <span className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Statutory Compliance</span>
+                </label>
+                <p className="text-[10px] text-[var(--color-nexus-muted)] mb-3">India-style defaults (PF/ESI/Professional Tax/TDS) — every rate is editable. TDS here is a simplified estimate (annual slabs, standard deduction only, no HRA/80C) for payslip display, not a statutory filing engine.</p>
+
+                {statutoryEnabled && (
+                  <div className="space-y-4 pl-1">
+                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                      <label className="flex items-center gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" checked={pfEnabled} onChange={(e) => setPfEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
+                        <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Provident Fund (PF)</span>
+                      </label>
+                      {pfEnabled && (
+                        <div className="grid grid-cols-3 gap-2">
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Employee %</span><input type="number" step="0.1" value={pfEmployeeRateInput} onChange={(e) => setPfEmployeeRateInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Employer %</span><input type="number" step="0.1" value={pfEmployerRateInput} onChange={(e) => setPfEmployerRateInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Wage Ceiling</span><input type="number" step="1" value={pfWageCeilingInput} onChange={(e) => setPfWageCeilingInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                      <label className="flex items-center gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" checked={esiEnabled} onChange={(e) => setEsiEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
+                        <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Employee State Insurance (ESI)</span>
+                      </label>
+                      {esiEnabled && (
+                        <div className="grid grid-cols-3 gap-2">
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Employee %</span><input type="number" step="0.01" value={esiEmployeeRateInput} onChange={(e) => setEsiEmployeeRateInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Employer %</span><input type="number" step="0.01" value={esiEmployerRateInput} onChange={(e) => setEsiEmployerRateInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                          <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Wage Ceiling</span><input type="number" step="1" value={esiWageCeilingInput} onChange={(e) => setEsiWageCeilingInput(e.target.value)} className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                      <label className="flex items-center gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" checked={ptEnabled} onChange={(e) => setPtEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
+                        <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Professional Tax</span>
+                      </label>
+                      {ptEnabled && (
+                        <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Flat Monthly Amount</span><input type="number" step="1" value={ptFlatAmountInput} onChange={(e) => setPtFlatAmountInput(e.target.value)} className="w-full max-w-[140px] rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                      <label className="flex items-center gap-2 cursor-pointer mb-2">
+                        <input type="checkbox" checked={tdsEnabled} onChange={(e) => setTdsEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
+                        <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">TDS (Income Tax, estimate)</span>
+                      </label>
+                      {tdsEnabled && (
+                        <div><span className="block text-[9px] text-[var(--color-nexus-muted)] mb-1">Annual Standard Deduction</span><input type="number" step="1" value={tdsStandardDeductionInput} onChange={(e) => setTdsStandardDeductionInput(e.target.value)} className="w-full max-w-[140px] rounded-lg border border-[var(--color-nexus-border)] bg-white px-2 py-1.5 text-xs" /></div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Basic Wage (% of Gross, when no "Basic" component is defined)</label>
+                      <input type="number" min="0" max="100" step="1" value={statutoryBasicPercentInput} onChange={(e) => setStatutoryBasicPercentInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button type="submit" disabled={saving} className="w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save Payroll Settings'}
               </button>
@@ -391,6 +496,20 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Compensation Builder</h3>
                 <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Choose the employee first, then configure CTC and components in separate steps.</p>
               </div>
+              <button
+                type="button"
+                onClick={() => downloadCsv(
+                  `payroll-overview-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [
+                    ['Employee', 'Role', 'Department', 'Annual CTC', 'Monthly Gross', 'Monthly Net', 'Setup Source'],
+                    ...((payrollOverview?.employees || []) as any[]).map((row) => [row.name, row.role, row.department, row.annualCtc, row.monthlyGross, row.monthlyNet, row.source]),
+                  ]
+                )}
+                disabled={!(payrollOverview?.employees || []).length}
+                className="shrink-0 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)] disabled:opacity-50"
+              >
+                Export CSV
+              </button>
             </div>
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">

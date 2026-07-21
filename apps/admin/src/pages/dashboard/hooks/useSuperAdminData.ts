@@ -16,10 +16,11 @@ export function useSuperAdminData(
   const [tenancyRequests, setTenancyRequests] = useState<any[]>([]);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['kyc', 'gps_geofence']);
+  const [selectedFeatures, setSelectedFeatures] = useState<string[]>(['device_identity', 'gps_geofence']);
   const [selectedPlanOverride, setSelectedPlanOverride] = useState<string>('');
   const [allTenants, setAllTenants] = useState<any[]>([]);
   const [superAnalytics, setSuperAnalytics] = useState<any>(null);
+  const [platformFeatures, setPlatformFeatures] = useState<{ key: string; label: string; description: string }[]>([]);
 
   const fetchSuperAdminData = async () => {
     try {
@@ -46,6 +47,12 @@ export function useSuperAdminData(
       });
       const analyticsData = await analyticsRes.json();
       setSuperAnalytics(analyticsData);
+
+      const featuresRes = await fetch('/api/super/platform-features', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const featuresData = await featuresRes.json();
+      if (Array.isArray(featuresData.features)) setPlatformFeatures(featuresData.features);
     } catch (err) {
       console.error(err);
     }
@@ -125,6 +132,91 @@ export function useSuperAdminData(
     }
   };
 
+  // --- Manage-admins modal (delete a tenant_admin account) ---
+  const [manageAdminsTenant, setManageAdminsTenant] = useState<any>(null);
+  const [tenantAdmins, setTenantAdmins] = useState<any[]>([]);
+  const [tenantAdminsLoading, setTenantAdminsLoading] = useState(false);
+
+  const openManageAdmins = async (tenant: any) => {
+    setManageAdminsTenant(tenant);
+    setTenantAdmins([]);
+    setTenantAdminsLoading(true);
+    try {
+      const res = await fetch(`/api/super/tenants/${tenant.id}/admins`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok && data.admins) setTenantAdmins(data.admins);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTenantAdminsLoading(false);
+    }
+  };
+
+  const handleDeleteTenantAdmin = async (adminUserId: number, adminName: string) => {
+    if (!window.confirm(`Permanently delete the admin account "${adminName}"? This revokes their access immediately and cannot be undone. The rest of the tenant (employees, data) is unaffected.`)) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/super/tenant-admins/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ userId: adminUserId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete admin account');
+      setSuccess(`Admin account "${adminName}" deleted.`);
+      setTenantAdmins((prev) => prev.filter((a) => a.id !== adminUserId));
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete admin account');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Edit an existing tenant's platform feature whitelist — the ongoing
+  // counterpart to the one-time selection made at approval time. This is
+  // the top of the cascade: whatever the tenant admin can turn on/delegate
+  // is bounded by what's selected here (see isPlatformFeatureAllowed() in
+  // apps/admin/api/auth/rbac.ts). ---
+  const [editFeaturesTenant, setEditFeaturesTenant] = useState<any>(null);
+  const [editFeaturesSelected, setEditFeaturesSelected] = useState<string[]>([]);
+  const [editFeaturesSaving, setEditFeaturesSaving] = useState(false);
+
+  const openEditFeatures = (tenant: any) => {
+    setEditFeaturesTenant(tenant);
+    setEditFeaturesSelected(Array.isArray(tenant.featuresAllowed) ? tenant.featuresAllowed : []);
+  };
+
+  const toggleEditFeature = (key: string) => {
+    setEditFeaturesSelected((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleSaveEditFeatures = async () => {
+    if (!editFeaturesTenant) return;
+    setEditFeaturesSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/super/tenants/features', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ tenantId: editFeaturesTenant.id, featuresAllowed: editFeaturesSelected }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update plan features');
+      setSuccess(`Plan features updated for "${editFeaturesTenant.name}".`);
+      setEditFeaturesTenant(null);
+      fetchSuperAdminData();
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update plan features');
+    } finally {
+      setEditFeaturesSaving(false);
+    }
+  };
+
   return {
     tenancyRequests,
     showApprovalModal, setShowApprovalModal,
@@ -133,10 +225,16 @@ export function useSuperAdminData(
     selectedPlanOverride, setSelectedPlanOverride,
     allTenants,
     superAnalytics,
+    platformFeatures,
     fetchSuperAdminData,
     handleToggleTenantStatus,
     handleOpenApproveModal,
     handleApproveRequest,
     toggleFeature,
+    manageAdminsTenant, tenantAdmins, tenantAdminsLoading,
+    openManageAdmins, setManageAdminsTenant,
+    handleDeleteTenantAdmin,
+    editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
+    openEditFeatures, toggleEditFeature, handleSaveEditFeatures,
   };
 }

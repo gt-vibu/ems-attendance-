@@ -80,7 +80,7 @@ export interface WfhEligibilityResult {
   needsHomeRegistration: boolean;
 }
 
-// Pre-flight check the frontend calls BEFORE starting the camera/KYC flow —
+// Pre-flight check the frontend calls BEFORE starting the device-registration flow —
 // answers "can this employee even attempt WFH today", not "is their
 // location correct" (that's a separate, later check against a live GPS
 // read, since eligibility doesn't require a location fix at all).
@@ -101,7 +101,7 @@ export function evaluateWfhEligibility(params: {
     return { eligible: false, reason: 'Your role is not permitted to work from home.', needsHomeRegistration: false };
   }
   if (!isKycCompleted) {
-    return { eligible: false, reason: 'Complete biometric KYC enrollment before using Work From Home.', needsHomeRegistration: false };
+    return { eligible: false, reason: 'Register your device before using Work From Home.', needsHomeRegistration: false };
   }
   const weekday = todayWeekdayName(now);
   if (!policy.wfhAllowedWeekdays.includes(weekday)) {

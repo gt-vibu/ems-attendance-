@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Camera, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -11,6 +11,11 @@ import StatusPill from '../components/StatusPill';
 import LeaveBalanceCards from '../components/LeaveBalanceCards';
 import AttendanceTimeline from '../components/AttendanceTimeline';
 import EarningsBreakdown from '../components/EarningsBreakdown';
+import DocumentsPanel from '../components/DocumentsPanel';
+import ShiftSwapWidget from '../components/ShiftSwapWidget';
+import MyActivityPanel from '../components/MyActivityPanel';
+import TicketsPanel from '../components/TicketsPanel';
+import PushNotificationToggle from '../components/PushNotificationToggle';
 
 type AttendanceCalendarStatus = 'present' | 'late' | 'half_day' | 'paid_leave' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
 
@@ -151,6 +156,14 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
   const [correctionSubmitted, setCorrectionSubmitted] = useState(false);
 
+  // Leave encashment (convert unused days into pay) — only offered for
+  // policies with encashmentEnabled on.
+  const [encashPolicyId, setEncashPolicyId] = useState('');
+  const [encashDays, setEncashDays] = useState('1');
+  const [encashReason, setEncashReason] = useState('');
+  const [encashSubmitting, setEncashSubmitting] = useState(false);
+  const [encashMessage, setEncashMessage] = useState('');
+
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
   const authHeaders = { 'Authorization': `Bearer ${token}` };
@@ -167,6 +180,29 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       selectedOptionalHolidayCount: leaveJson.selectedOptionalHolidayCount || 0,
     });
     return leaveJson;
+  };
+
+  const handleEncashLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!encashPolicyId || !encashDays) return;
+    setEncashSubmitting(true);
+    setEncashMessage('');
+    try {
+      const res = await fetch('/api/leave/encashment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ policyId: Number(encashPolicyId), days: Number(encashDays), reason: encashReason.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to submit encashment request.');
+      setEncashMessage('Request submitted — your admin will review it.');
+      setEncashDays('1');
+      setEncashReason('');
+    } catch (err: any) {
+      setEncashMessage(err.message || 'Failed to submit encashment request.');
+    } finally {
+      setEncashSubmitting(false);
+    }
   };
 
   const refreshPayrollData = async () => {
@@ -676,6 +712,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'leave-pay', label: 'Leave & Payroll', icon: Banknote, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
     { id: 'requests', label: 'My Requests', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
+    { id: 'tickets', label: 'Tickets', icon: Ticket },
   ];
   const titleFor = navItems.find(n => n.id === tab)?.label || 'Overview';
 
@@ -748,6 +785,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
+          <PushNotificationToggle />
+
           {policyAnnouncement && (
             <div className="nexus-card p-4 bg-[var(--color-nexus-primary-container)] text-white">
               <div className="flex items-center gap-2 mb-1.5">
@@ -765,8 +804,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           {todayState === 'not_started' && (
             <div className="grid sm:grid-cols-2 gap-4">
               <button onClick={() => navigate('/employee/attendance?mode=office')} className={`${tile} !bg-[var(--color-nexus-primary)] text-white flex items-center gap-4 text-left`}>
-                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shrink-0 float-c"><Camera size={24} /></div>
-                <div><span className="block font-bold">Mark Attendance</span><span className="block text-[11px] text-white/80 mt-0.5">Face verification at the office</span></div>
+                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shrink-0 float-c"><Fingerprint size={24} /></div>
+                <div><span className="block font-bold">Mark Attendance</span><span className="block text-[11px] text-white/80 mt-0.5">Verify with your device at the office</span></div>
               </button>
               {wfhEligible ? (
                 <button onClick={() => navigate('/employee/attendance?mode=wfh')} className={`${tile} flex items-center gap-4 text-left`}>
@@ -984,6 +1023,9 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               )}
             </div>
           </div>
+
+          <ShiftSwapWidget colleagues={myTeam?.colleagues || []} />
+          <MyActivityPanel />
 
           {user.role !== 'employee' && user.role !== 'intern' && (
             <button onClick={() => navigate('/dashboard')} className={`${tile} w-full text-left flex items-center justify-between gap-4`}>
@@ -1482,6 +1524,32 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           </div>
 
+          {(leaveData?.balances || []).some((b: any) => b.encashmentEnabled) && (
+            <div className="nexus-card p-6">
+              <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-1">Encash Leave</h2>
+              <p className="text-xs text-[var(--color-nexus-muted)] mb-4">Convert unused days into pay — subject to admin approval.</p>
+              <form onSubmit={handleEncashLeave} className="grid sm:grid-cols-4 gap-3 items-end">
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Leave Type</label>
+                  <select value={encashPolicyId} onChange={(e) => setEncashPolicyId(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3 py-2.5 text-sm focus:outline-none" required>
+                    <option value="">Select…</option>
+                    {(leaveData?.balances || []).filter((b: any) => b.encashmentEnabled).map((b: any) => (
+                      <option key={b.id} value={b.id}>{b.name} ({b.remainingDays} available)</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Days</label>
+                  <input type="number" min="0.5" step="0.5" value={encashDays} onChange={(e) => setEncashDays(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3 py-2.5 text-sm focus:outline-none" required />
+                </div>
+                <button type="submit" disabled={encashSubmitting} className="rounded-xl bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold uppercase tracking-wider py-2.5 disabled:opacity-50">
+                  {encashSubmitting ? 'Submitting…' : 'Request'}
+                </button>
+              </form>
+              {encashMessage && <p className="mt-3 text-xs text-[var(--color-nexus-muted)]">{encashMessage}</p>}
+            </div>
+          )}
+
           <div className="grid lg:grid-cols-3 gap-4">
             <div className="nexus-card p-5 bg-[var(--color-nexus-primary-container)] text-white lg:col-span-1">
               <ShieldCheck size={20} className="text-[var(--color-nexus-tertiary-fixed)]" />
@@ -1499,6 +1567,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               />
             </div>
           </div>
+
+          {/* Renders nothing unless the tenant has document storage turned
+              on (Administration > Advanced & Security). */}
+          <DocumentsPanel userId={user.id} canUpload canDelete />
         </div>
       )}
 
@@ -1523,6 +1595,9 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           )}
         </div>
       )}
+
+      {/* TICKETS */}
+      {tab === 'tickets' && <TicketsPanel user={user} />}
 
       {/* Correction request modal */}
       {showCorrectionModal && (

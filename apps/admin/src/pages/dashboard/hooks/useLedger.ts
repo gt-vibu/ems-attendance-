@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { downloadCsv } from '../../../lib/csv';
 
 // ==========================================
 // AUDIT LEDGER STATE & FUNCTIONS
@@ -26,25 +27,6 @@ export function useLedger(token: string | null) {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  // Zero-dependency CSV export — no export library exists anywhere in this
-  // app yet, and pulling in xlsx/jspdf for Excel/PDF is a bigger call than
-  // this task needs; a hand-built CSV blob covers the common case (opens
-  // straight into Excel/Sheets) without a new dependency.
-  const downloadCsv = (filename: string, rows: (string | number)[][]) => {
-    const escapeCell = (cell: string | number) => {
-      const str = String(cell ?? '');
-      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-    };
-    const csv = rows.map(row => row.map(escapeCell).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleExportLedgerCsv = () => {

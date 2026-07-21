@@ -6,7 +6,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
-import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
+import { verifyToken } from '../../jwt';
 import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
 import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail } from '../../mail.js';
 import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineMeters, evaluateWfhEligibility, evaluateWfhLocation, todayWeekdayName, WFH_PERMISSIONS } from '../../wfh.js';
@@ -15,10 +15,12 @@ import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToke
 import { authenticate } from '../middleware/authenticate';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, getScopedBranchIds } from '../auth/rbac';
+import { editAttendanceDay } from '../services/recordEdits';
+import { raiseAttendanceAlert } from '../services/alerts';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL, FACE_MATCH_THRESHOLD } from '../services/face';
+import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
@@ -180,219 +182,9 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
     }
   });
 
-  // STEP 1 of 3 — Face liveness/identity check. Verifies the capture burst
-  // against the identity embeddings from KYC AND confirms every action in
-  // the challenge issued above was actually performed (not just displayed
-  // as an on-screen instruction). Does not write an attendance_logs row —
-  // on success it mints a short-lived token the later steps/final submit
-  // use instead of re-uploading images.
-router.post('/api/attendance/verify-face', authenticate, async (req: any, res: any) => {
-    try {
-      const { images, mode } = req.body;
-      if (!images || !Array.isArray(images) || images.length === 0) {
-        return res.status(400).json({ error: 'images (a short camera burst) are required.' });
-      }
-
-      const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
-      if (usersList.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      const user = usersList[0];
-      if (!user.isKycCompleted) {
-        return res.status(400).json({ error: 'KYC registration not completed yet.' });
-      }
-
-      if (mode === 'photo') {
-        let faceResult: any;
-        try {
-          faceResult = await callFaceService('/verify', { images, challengeActions: [] });
-        } catch (faceErr: any) {
-          return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
-        }
-
-        const livenessScore = faceResult.faceDetected ? (faceResult.livenessScore ?? 0) : 0;
-        const LIVENESS_MIN = 0.6;
-
-        let bestSimilarity = -1;
-        const enrolledEmbeddings = user.faceEmbeddings as number[][];
-        if (faceResult.faceDetected && enrolledEmbeddings && enrolledEmbeddings.length > 0) {
-          for (const enrolled of enrolledEmbeddings) {
-            const sim = cosineSimilarity(enrolled, faceResult.embedding);
-            if (sim > bestSimilarity) bestSimilarity = sim;
-          }
-        }
-
-        const matchThreshold = FACE_MATCH_THRESHOLD;
-        const identityEnrolled = !!(enrolledEmbeddings && enrolledEmbeddings.length > 0);
-
-        const isLivenessConvincing = faceResult.faceDetected && livenessScore >= LIVENESS_MIN;
-        const isIdentityMatched = faceResult.faceDetected && identityEnrolled && bestSimilarity >= matchThreshold;
-
-        // Diagnostics-only screen-replay signal (see services/face-service's
-        // moire_score()) — logged on every attempt, pass or fail, so its
-        // distribution across real check-ins can be reviewed before it's
-        // ever allowed to gate anything (same rollout as matchThreshold/
-        // LIVENESS_MIN originally needed). Never affects `passed` today.
-        const moireScore = typeof faceResult.moireScore === 'number' ? faceResult.moireScore : 0;
-        console.log(`[verify-face] user=${user.id} moireScore=${moireScore.toFixed(3)} (diagnostics-only, not gating) liveness=${livenessScore.toFixed(3)} bestMatch=${bestSimilarity.toFixed(3)}`);
-
-        if (isLivenessConvincing && isIdentityMatched) {
-          const token = signShortLivedToken({
-            purpose: 'attendance_face_pass',
-            userId: user.id,
-            faceMatchScore: bestSimilarity,
-            livenessScore,
-            challengeRequested: ['look_center'],
-            challengeVerified: ['look_center']
-          }, FACE_TOKEN_TTL);
-
-          return res.json({ passed: true, token, faceMatchScore: bestSimilarity, livenessScore });
-        }
-
-        // If photo verification failed, return the fallback actions registered during KYC in sequential order
-        let fallbackActions: string[] = [];
-        if (user.kycActionLog && typeof user.kycActionLog === 'object') {
-          const actionLog = user.kycActionLog as Record<string, any>;
-          fallbackActions = DAILY_CHALLENGE_ACTIONS.filter(a => actionLog[a]?.verified === true);
-        }
-
-        if (fallbackActions.length === 0) {
-          fallbackActions = [...DAILY_CHALLENGE_ACTIONS];
-        }
-
-        console.warn(`[verify-face] user=${user.id} photo check failed. Initiating fallback challenge with actions: ${fallbackActions.join(', ')}`);
-
-        return res.status(403).json({
-          passed: false,
-          needsFallback: true,
-          fallbackActions: fallbackActions,
-          error: 'Initial photo check was not convincing (liveness or identity mismatch). Fallback verification required.',
-          diagnostics: {
-            faceDetected: faceResult.faceDetected,
-            liveness: Number(livenessScore.toFixed(3)),
-            livenessMin: LIVENESS_MIN,
-            bestMatch: Number(bestSimilarity.toFixed(3)),
-            matchMin: matchThreshold,
-            moireScore: Number(moireScore.toFixed(3)), // diagnostics-only, does not affect pass/fail
-          }
-        });
-      }
-
-      const pending = pendingChallenges.get(user.id);
-      if (!pending || Date.now() - pending.issuedAt > CHALLENGE_TTL_MS) {
-        pendingChallenges.delete(user.id);
-        return res.status(400).json({ error: 'Your liveness challenge expired. Please try again.', expired: true });
-      }
-
-      let faceResult: any;
-      try {
-        faceResult = await callFaceService('/verify', { images, challengeActions: pending.actions });
-      } catch (faceErr: any) {
-        return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
-      }
-
-      const errors: string[] = [];
-
-      if (!faceResult.faceDetected) {
-        errors.push('No face detected. Look directly at the camera with good lighting and try again.');
-      }
-
-      // Liveness: landmark micro-movement across the burst. A printed photo /
-      // frozen replay scores near 0 (no movement) or ~0.3 (single usable
-      // frame); a live person performing the guided actions produces large
-      // movement and scores ~1.0. Threshold lowered from 0.8 to 0.6 so a
-      // genuine person on a low-framerate device (e.g. a basic Redmi capturing
-      // fewer distinct frames, hence smaller measured inter-frame movement)
-      // isn't wrongly rejected — a static-photo spoof still lands well below
-      // 0.6, and identity match below is the hard anti-impersonation gate
-      // regardless.
-      const livenessScore = faceResult.faceDetected ? (faceResult.livenessScore ?? 0) : 0;
-      const LIVENESS_MIN = 0.6;
-      if (faceResult.faceDetected && livenessScore < LIVENESS_MIN) {
-        errors.push('Liveness verification failed (possible spoofing attempt).');
-      }
-
-      // Challenge-response: how many of the requested actions the face service
-      // actually detected in the burst. Previously ALL had to be confirmed;
-      // that made a single flaky detection (a blink whose closed-eye frame the
-      // camera happened not to capture, a subtle head turn) fail the whole
-      // check — exactly the fragility that shows up on cheaper cameras. Now we
-      // require a MAJORITY (at least ceil(n/2), and always ≥1): still proves
-      // the person is live and responding to on-screen prompts in real time (a
-      // photo can perform none), while tolerating one missed detection.
-      const confirmedActions = pending.actions.filter(a => faceResult.actionResults?.[a]);
-      const unconfirmed = pending.actions.filter(a => !faceResult.actionResults?.[a]);
-      const requiredConfirmed = Math.max(1, Math.ceil(pending.actions.length / 2));
-      if (faceResult.faceDetected && confirmedActions.length < requiredConfirmed) {
-        errors.push(`We couldn't confirm enough of the requested movements (${unconfirmed.map(a => a.replace('_', ' ')).join(', ')}). Please try again, following the on-screen instruction for each step.`);
-      }
-
-      let bestSimilarity = -1;
-      const enrolledEmbeddings = user.faceEmbeddings as number[][];
-      if (faceResult.faceDetected && enrolledEmbeddings && enrolledEmbeddings.length > 0) {
-        for (const enrolled of enrolledEmbeddings) {
-          const sim = cosineSimilarity(enrolled, faceResult.embedding);
-          if (sim > bestSimilarity) bestSimilarity = sim;
-        }
-      }
-      // Identity match — the hard anti-impersonation gate, deliberately NOT
-      // relaxed. If enrollment is missing entirely (no embeddings), this stays
-      // at -1 and fails, which is correct: you can't verify against nothing.
-      const matchThreshold = FACE_MATCH_THRESHOLD;
-      const identityEnrolled = !!(enrolledEmbeddings && enrolledEmbeddings.length > 0);
-      if (faceResult.faceDetected && !identityEnrolled) {
-        errors.push('No enrolled face on file — please complete (or redo) your biometric KYC before checking in.');
-      } else if (faceResult.faceDetected && bestSimilarity < matchThreshold) {
-        errors.push('Facial biometrics verification failed (identity mismatch).');
-      }
-
-      // Diagnostics-only screen-replay signal — see the photo-mode branch
-      // above and services/face-service's moire_score() for why this is
-      // logged on every attempt (pass or fail) but never gates anything yet.
-      const moireScore = typeof faceResult.moireScore === 'number' ? faceResult.moireScore : 0;
-
-      if (errors.length > 0) {
-        // Log the full breakdown so a persistent "why does check-in keep
-        // failing" can be diagnosed from the server side without guessing —
-        // which specific gate failed, and by how much.
-        console.warn(`[verify-face] user=${user.id} REJECTED — faceDetected=${faceResult.faceDetected} liveness=${livenessScore.toFixed(3)} (min ${LIVENESS_MIN}) confirmedActions=${confirmedActions.length}/${pending.actions.length} (need ${requiredConfirmed}) bestMatch=${bestSimilarity.toFixed(3)} (min ${matchThreshold}) moireScore=${moireScore.toFixed(3)} (diagnostics-only) framesWithFace=${faceResult.framesWithFace}/${faceResult.framesSubmitted}`);
-        return res.status(403).json({
-          passed: false,
-          error: errors.join(' | '),
-          diagnostics: {
-            liveness: Number(livenessScore.toFixed(3)),
-            livenessMin: LIVENESS_MIN,
-            actionsConfirmed: confirmedActions.length,
-            actionsRequested: pending.actions.length,
-            bestMatch: Number(bestSimilarity.toFixed(3)),
-            matchMin: matchThreshold,
-            moireScore: Number(moireScore.toFixed(3)),
-          },
-        });
-      }
-
-      // Single-use: this specific challenge has now been satisfied.
-      pendingChallenges.delete(user.id);
-      console.log(`[verify-face] user=${user.id} PASSED (challenge mode) moireScore=${moireScore.toFixed(3)} (diagnostics-only, not gating) liveness=${livenessScore.toFixed(3)} bestMatch=${bestSimilarity.toFixed(3)}`);
-
-      const token = signShortLivedToken({
-        purpose: 'attendance_face_pass',
-        userId: user.id,
-        faceMatchScore: bestSimilarity,
-        livenessScore,
-        challengeRequested: pending.actions,
-        challengeVerified: pending.actions.filter(a => faceResult.actionResults?.[a])
-      }, FACE_TOKEN_TTL);
-
-      res.json({ passed: true, token, faceMatchScore: bestSimilarity, livenessScore });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  function decodeFacePassToken(req: any): any {
+  function decodeIdentityPassToken(req: any): any {
     const decoded = verifyToken(req.body?.token);
-    if (!decoded || decoded.purpose !== 'attendance_face_pass' || decoded.userId !== req.user.userId) {
+    if (!decoded || decoded.purpose !== IDENTITY_PASS_PURPOSE || decoded.userId !== req.user.userId) {
       return null;
     }
     return decoded;
@@ -403,9 +195,9 @@ router.post('/api/attendance/verify-face', authenticate, async (req: any, res: a
   // actually records anything).
 router.post('/api/attendance/verify-location', authenticate, async (req: any, res: any) => {
     try {
-      const facePass = decodeFacePassToken(req);
-      if (!facePass) {
-        return res.status(400).json({ error: 'Face verification expired or missing. Please restart.', expired: true });
+      const identityPass = decodeIdentityPassToken(req);
+      if (!identityPass) {
+        return res.status(400).json({ error: 'Device verification expired or missing. Please restart.', expired: true });
       }
       const { lat, lng } = req.body;
       if (lat === undefined || lng === undefined) {
@@ -437,9 +229,9 @@ router.post('/api/attendance/verify-location', authenticate, async (req: any, re
   // the client) when the tenant admin has explicitly enabled it.
 router.post('/api/attendance/verify-network', authenticate, async (req: any, res: any) => {
     try {
-      const facePass = decodeFacePassToken(req);
-      if (!facePass) {
-        return res.status(400).json({ error: 'Face verification expired or missing. Please restart.', expired: true });
+      const identityPass = decodeIdentityPassToken(req);
+      if (!identityPass) {
+        return res.status(400).json({ error: 'Device verification expired or missing. Please restart.', expired: true });
       }
       const { simulatedIp } = req.body;
 
@@ -463,78 +255,12 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
     }
   });
 
-  router.post('/api/attendance/verify-action', authenticate, async (req: any, res: any) => {
-    try {
-      const { action, images } = req.body || {};
-      if (!action || !DAILY_CHALLENGE_ACTIONS.includes(action)) {
-        return res.status(400).json({ error: 'A valid attendance action is required.' });
-      }
-      if (!Array.isArray(images) || images.length === 0) {
-        return res.status(400).json({ error: 'images are required.' });
-      }
-
-      const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
-      if (usersList.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-      const user = usersList[0];
-      if (!user.isKycCompleted) {
-        return res.status(400).json({ error: 'KYC registration not completed yet.' });
-      }
-
-      let faceResult: any;
-      try {
-        faceResult = await callFaceService('/verify', { images, challengeActions: [action] });
-      } catch (faceErr: any) {
-        return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
-      }
-
-      if (!faceResult.faceDetected) {
-        return res.status(422).json({ passed: false, error: 'No face detected clearly enough. Please keep your face inside the frame and try again.' });
-      }
-      if (!faceResult.actionResults?.[action]) {
-        return res.status(422).json({ passed: false, error: `We couldn't confirm ${action.replace('_', ' ')}. Please repeat that action more clearly.` });
-      }
-
-      let bestSimilarity = -1;
-      const enrolledEmbeddings = user.faceEmbeddings as number[][];
-      if (enrolledEmbeddings && enrolledEmbeddings.length > 0) {
-        for (const enrolled of enrolledEmbeddings) {
-          const sim = cosineSimilarity(enrolled, faceResult.embedding);
-          if (sim > bestSimilarity) bestSimilarity = sim;
-        }
-      }
-      const matchThreshold = FACE_MATCH_THRESHOLD;
-      if (!enrolledEmbeddings || enrolledEmbeddings.length === 0 || bestSimilarity < matchThreshold) {
-        return res.status(422).json({ passed: false, error: 'Face match was not strong enough for this action. Please face the camera directly and try again.' });
-      }
-
-      const token = signShortLivedToken({
-        purpose: 'attendance_face_pass',
-        userId: user.id,
-        faceMatchScore: bestSimilarity,
-        livenessScore: 1.0, // action completed successfully proves liveness
-        challengeRequested: [action],
-        challengeVerified: [action]
-      }, FACE_TOKEN_TTL);
-
-      res.json({
-        passed: true,
-        action,
-        faceMatchScore: bestSimilarity,
-        token,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // FINAL CHECK-IN SUBMIT — re-validates everything itself (face-pass
+  // FINAL CHECK-IN SUBMIT — re-validates everything itself (identity-pass
   // token, device pinning, clock drift, GPS geofence, Wi-Fi if enabled)
-  // before writing the log. The verify-face/verify-location/verify-network
-  // endpoints above are fast-fail UX previews only; nothing about pass/fail
-  // is ever trusted from the client — this endpoint remains the sole
-  // authoritative writer.
+  // before writing the log. The verify-location/verify-network endpoints
+  // above are fast-fail UX previews only; nothing about pass/fail is ever
+  // trusted from the client — this endpoint remains the sole authoritative
+  // writer.
 router.post('/api/attendance', authenticate, async (req: any, res: any) => {
     try {
       const { token, deviceId, lat, lng, simulatedIp, clientTimestamp, explanation, mode, wfhReason } = req.body;
@@ -549,16 +275,17 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       const user = usersList[0];
 
       if (!user.isKycCompleted) {
-        return res.status(400).json({ error: 'KYC registration not completed yet.' });
+        return res.status(400).json({ error: 'Device registration not completed yet.' });
       }
 
-      // --- 0. Face-pass token: proves the Face step (identity + liveness +
-      // challenge-response) already happened for THIS user, recently. It's
+      // --- 0. Identity-pass token: proves a WebAuthn signature challenge
+      // (Windows Hello / Touch ID / Android biometric-or-PIN / security key)
+      // was just satisfied by this user's registered device credential. It's
       // signed server-side and expires in minutes — nothing here trusts a
-      // client-asserted "I passed the camera step". ---
-      const facePass = verifyToken(token);
-      if (!facePass || facePass.purpose !== 'attendance_face_pass' || facePass.userId !== user.id) {
-        return res.status(400).json({ error: 'Face verification expired or missing. Please restart from the camera step.' });
+      // client-asserted "I passed the device check". ---
+      const identityPass = verifyToken(token);
+      if (!identityPass || identityPass.purpose !== IDENTITY_PASS_PURPOSE || identityPass.userId !== user.id) {
+        return res.status(400).json({ error: 'Device verification expired or missing. Please restart and verify your device again.' });
       }
 
       // --- 1. Client-Server Clock Drift Check ---
@@ -632,7 +359,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       let wfhHomeLocation: any = null;
       if (attendanceMode === 'wfh') {
         const wfhPolicy = extractWfhPolicy(tenant);
-        if (!wfhPolicy.wfhEnabled) {
+        if (!wfhPolicy.wfhEnabled || !isPlatformFeatureAllowed(tenant, 'wfh')) {
           return res.status(403).json({ error: 'Work From Home is not enabled for your organization.' });
         }
         if (!isRoleAllowedForWfh(user.role, wfhPolicy)) {
@@ -659,23 +386,13 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       let fraudType = '';
       let wfhDistanceMeters: number | null = null;
 
-      // --- 3. Face verification: identity match, liveness, and
-      // challenge-response were already computed by /verify-face against
-      // the raw camera burst; the signed token is what carries those
-      // results here, authoritatively — nothing here is trusted from the
-      // client beyond what the token itself asserts. ---
-      const bestSimilarity: number = facePass.faceMatchScore;
-      const livenessScore: number = facePass.livenessScore;
-
-      const matchThreshold = FACE_MATCH_THRESHOLD;
-      if (bestSimilarity < matchThreshold) {
-        verificationErrors.push('Facial biometrics verification failed (Identity mismatch).');
-        fraudType = 'FRAUD_BIOMETRICS_FAILED';
-      }
-      if (livenessScore < 0.6) {
-        verificationErrors.push('Liveness verification failed (Possible spoofing attempt).');
-        if (!fraudType) fraudType = 'FRAUD_LIVENESS_FAILED';
-      }
+      // --- 3. Identity verification: the WebAuthn challenge-response
+      // signature was already checked against the user's registered device
+      // credential by /api/webauthn/authenticate/verify; the signed
+      // identity-pass token above is what carries that result here — either
+      // it decoded (signature checked out) or the request was already
+      // rejected above. There's no similarity score to threshold-check
+      // anymore: a WebAuthn signature is a binary cryptographic pass/fail. ---
 
       // --- 4. Location checking: office geofence vs. home-location distance
       // — mutually exclusive by mode. WFH never checks the office geofence;
@@ -789,7 +506,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       let reason = isVerified
         ? (attendanceMode === 'wfh'
             ? (pendingApproval ? 'Work From Home — pending manager approval' : 'Work From Home — verified successfully')
-            : (isLate ? `Verified successfully (Late Arrival — pending manager approval)` : `Verified successfully (Biometric, GPS, and Wi-Fi context match)`))
+            : (isLate ? `Verified successfully (Late Arrival — pending manager approval)` : `Verified successfully (Device Identity, GPS, and Wi-Fi context match)`))
         : verificationErrors.join(' | ');
 
       const log = await db.insert(schema.attendanceLogs).values({
@@ -798,14 +515,11 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
         status: pendingApproval ? 'pending' : status,
         type: logType,
         clientTimestamp: clientTimestamp ? new Date(clientTimestamp) : new Date(),
-        faceMatchScore: bestSimilarity,
-        livenessScore: livenessScore,
         device: deviceId,
         locationLat: lat,
         locationLng: lng,
         reason: reason,
         explanation: (pendingApproval && isLate) ? explanation : null,
-        challenge: { requested: facePass.challengeRequested || [], verified: facePass.challengeVerified || [] },
         attendanceMode,
         homeLat: attendanceMode === 'wfh' ? wfhHomeLocation.latitude : null,
         homeLng: attendanceMode === 'wfh' ? wfhHomeLocation.longitude : null,
@@ -832,7 +546,6 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
           attendanceMode,
           isLate,
           pendingApproval,
-          biometricSimilarity: bestSimilarity,
           distanceFromHomeMeters: wfhDistanceMeters,
           clientTimestamp,
           errors: verificationErrors
@@ -860,10 +573,13 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       }
 
       // A late check-in or a WFH check-in (when approval is required) is
-      // pending manager approval — notify whoever holds 'attendance.approve'.
-      // The employee is not blocked in the meantime.
+      // pending manager approval — notify whoever holds the matching
+      // specific privilege (or the general legacy bucket). The employee is
+      // not blocked in the meantime.
       if (pendingApproval) {
-        const approvers = await getUsersWithPrivilege(user.tenantId || 1, 'attendance.approve');
+        const approvers = await getUsersWithPrivilege(user.tenantId || 1, attendanceMode === 'wfh'
+          ? ['attendance.approve.wfh', 'attendance.approve']
+          : ['attendance.approve.late_arrival', 'attendance.approve']);
         if (attendanceMode === 'wfh') {
           for (const approver of approvers) {
             await sendWfhApprovalRequestEmail(
@@ -939,6 +655,35 @@ router.post('/api/attendance/heartbeat', authenticate, async (req: any, res: any
         const radius = tenant.locationRadiusMeters || 100;
         if (distance > radius) {
           warning = `Geofence exited by ${Math.round(distance - radius)}m.`;
+
+          // "GPS out of company area during working hours" — distinct from
+          // break_outside_geofence (which fires when trying to END a break
+          // from off-site); this covers drifting outside the geofence while
+          // still actively clocked in and NOT on a break. Rate-limited to
+          // one open alert per 30 minutes per employee so a lingering drift
+          // doesn't spam a new alert on every ~heartbeat tick.
+          const activeBreak = await db.select().from(schema.breakSessions).where(
+            and(eq(schema.breakSessions.userId, user.id), eq(schema.breakSessions.status, 'active'))
+          ).limit(1);
+          if (activeBreak.length === 0) {
+            const recentWindow = new Date(Date.now() - 30 * 60 * 1000);
+            const recentAlert = await db.select().from(schema.attendanceAlerts).where(
+              and(
+                eq(schema.attendanceAlerts.userId, user.id),
+                eq(schema.attendanceAlerts.type, 'geofence_exit_working_hours'),
+                eq(schema.attendanceAlerts.status, 'pending'),
+                gte(schema.attendanceAlerts.createdAt, recentWindow),
+              )
+            ).limit(1);
+            if (recentAlert.length === 0) {
+              await raiseAttendanceAlert({
+                tenantId: user.tenantId || 1,
+                userId: user.id,
+                type: 'geofence_exit_working_hours',
+                message: `${user.name} is ${Math.round(distance - radius)}m outside the company geofence while clocked in (not on break).`,
+              });
+            }
+          }
         }
       }
 
@@ -967,6 +712,56 @@ router.post('/api/attendance/heartbeat', authenticate, async (req: any, res: any
       }
 
       res.json({ success: true, status: 'ok' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Directly correct an already-finalized day's attendance — gated by the
+  // delegable 'attendance.edit' privilege (distinct from 'attendance.approve',
+  // which only covers the pending late-login/WFH queue). This is the
+  // standalone version of what a ticket resolution does internally (see
+  // tickets.routes.ts) — same underlying editAttendanceDay() call, so a fix
+  // made directly and a fix made via resolving a ticket behave identically.
+router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: any, res: any) => {
+    try {
+      if (!await hasPrivilege(req.user, 'attendance.edit')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+      }
+      const targetUserId = parseInt(req.params.userId, 10);
+      const date = req.params.date;
+      const { newStatus, checkInTime, checkOutTime, reason } = req.body || {};
+      if (!['present', 'absent'].includes(newStatus)) {
+        return res.status(400).json({ error: "newStatus must be 'present' or 'absent'." });
+      }
+      if (!reason || !String(reason).trim()) {
+        return res.status(400).json({ error: 'reason is required — this becomes part of the permanent attendance record.' });
+      }
+
+      const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
+      if (targetRows.length === 0 || targetRows[0].tenantId !== req.user.tenantId) {
+        return res.status(404).json({ error: 'Employee not found.' });
+      }
+      const scopedBranchIds = await getScopedBranchIds(req.user);
+      if (scopedBranchIds !== null && targetRows[0].branchId && !scopedBranchIds.includes(targetRows[0].branchId)) {
+        return res.status(403).json({ error: "Access denied: You are not scoped to this employee's branch." });
+      }
+
+      const result = await editAttendanceDay({
+        tenantId: req.user.tenantId,
+        targetUserId,
+        date,
+        newStatus,
+        checkInTime,
+        checkOutTime,
+        editedByUserId: req.user.userId,
+        editedByName: req.user.name,
+        reason: String(reason).trim(),
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+        deviceInfo: req.headers['user-agent'] || '',
+      });
+
+      res.json({ success: true, ...result });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

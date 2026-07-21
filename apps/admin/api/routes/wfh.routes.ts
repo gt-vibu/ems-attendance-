@@ -14,10 +14,9 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
@@ -28,7 +27,7 @@ export const router = Router();
   // ==========================================================
   // WORK FROM HOME (WFH) — additive attendance mode. The actual check-in/
   // check-out write for WFH goes through the SAME /api/attendance handler
-  // above (via body.mode === 'wfh') so it reuses face verification, clock-
+  // above (via body.mode === 'wfh') so it reuses device identity verification, clock-
   // drift checks, device pinning, and audit logging unchanged rather than
   // forking a parallel, less-audited write path. The routes below only
   // cover what's genuinely new: policy eligibility, home-location
@@ -165,7 +164,7 @@ router.post('/api/attendance/wfh/location-change-request', authenticate, async (
         details: { requestId: inserted[0].id, lat, lng }
       });
 
-      const approvers = await getUsersWithPrivilege(user.tenantId || 1, 'attendance.approve');
+      const approvers = await getUsersWithPrivilege(user.tenantId || 1, ['attendance.approve.wfh', 'attendance.approve']);
       for (const approver of approvers) {
         await sendWfhLocationChangeRequestEmail(approver.email, approver.name, user.name, geocoded?.address || `${lat}, ${lng}`, reason || '');
       }
@@ -191,7 +190,7 @@ router.get('/api/attendance/wfh/location-change-requests/mine', authenticate, as
   // /api/tenant/corrections and /api/tenant/attendance/pending above.
 router.get('/api/tenant/wfh/location-change-requests', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.wfh', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const list = await db.select().from(schema.wfhLocationChangeRequests)
@@ -216,7 +215,7 @@ router.get('/api/tenant/wfh/location-change-requests', authenticate, async (req:
 
 router.post('/api/tenant/wfh/location-change-requests/action', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.wfh', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const { requestId, action } = req.body; // 'approve' | 'reject'

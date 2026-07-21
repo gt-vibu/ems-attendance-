@@ -17,6 +17,10 @@
 # Local email simulation drops recipients' messages here as plaintext.
 apps/admin/emails/
 **/emails/
+# Uploaded employee documents (offer letters, contracts, ID proof) — local
+# disk storage backing the documents feature toggle, real PII.
+apps/admin/uploads/
+**/uploads/
 # Local JSON fallback datastore contains real users/tenants/attendance.
 **/db_fallback.json
 **/db_fallback.json.*
@@ -40,14 +44,6 @@ build/
 # --- Turborepo ----------------------------------------------------------------
 .turbo/
 **/.turbo/
-
-# --- Python face-service ------------------------------------------------------
-# The committed venv is why the archive ballooned to ~350 MB. Never commit it.
-**/venv/
-**/.venv/
-**/__pycache__/
-*.py[cod]
-services/face-service/models/
 
 # --- Logs & runtime -----------------------------------------------------------
 *.log

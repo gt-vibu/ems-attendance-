@@ -14,10 +14,9 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
@@ -38,29 +37,48 @@ router.get('/api/tenant/config', authenticate, async (req: any, res: any) => {
   });
 
   // Update Tenant Config (Policy configuration — geofence, network, shift
-  // timings, break budget, etc.). This is intentionally NOT gated by the
-  // delegable 'settings.edit' privilege: policy-setting is a strategic
-  // decision that only the tenant admin account itself can make. HR/GM/
-  // Manager can still be granted 'settings.edit' to approve day-to-day
-  // device-change requests (see /api/tenant/device-requests/action above),
-  // but they can never change the underlying policies those approvals are
-  // judged against.
+  // timings, break budget, etc.). Gated by the delegable 'tenant.config.manage'
+  // privilege (distinct from 'settings.edit', which only covers approving
+  // day-to-day device-change requests) — tenant_admin holds it implicitly,
+  // and may choose to delegate it to a trusted role.
 router.post('/api/tenant/config/update', authenticate, async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'tenant_admin') {
-        return res.status(403).json({ error: 'Access denied: Only the tenant admin can change organization policies.' });
+      if (!await hasPrivilege(req.user, 'tenant.config.manage')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const {
         wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
         wfhEnabled, wfhAllowedRoles, wfhMaxDaysPerMonth, wfhAllowedWeekdays, wfhRadiusMeters, wfhApprovalRequired, wfhRequireReason, wfhLateLoginGraceMins,
-        kycEnabled,
+        kycEnabled, documentsEnabled, passwordExpiryDays, idleTimeoutMinutes, attendanceRetentionMonths,
       } = req.body;
+
+      // Platform layer: a tenant admin can only turn a module ON if the
+      // super admin's plan for this tenant allows it at all — turning it
+      // OFF is always allowed regardless (never block someone from
+      // disabling something). See isPlatformFeatureAllowed() in rbac.ts.
+      const tenantRow = (await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      const modulesToggledOn: Array<[boolean | undefined, string, string]> = [
+        [kycEnabled, 'kyc', 'Device Identity Check'],
+        [documentsEnabled, 'documents', 'Document Storage'],
+        [wifiCheckEnabled, 'wifi_lock', 'Corporate Wi-Fi IP Security'],
+        [wfhEnabled, 'wfh', 'Work From Home'],
+      ];
+      for (const [turningOn, platformKey, label] of modulesToggledOn) {
+        if (turningOn === true && !isPlatformFeatureAllowed(tenantRow as any, platformKey)) {
+          return res.status(403).json({ error: `${label} is not included in your organization's plan. Contact your platform provider to enable it.` });
+        }
+      }
 
       const updates: any = {};
       // Company-wide switch: when off, no employee at this tenant needs
-      // KYC/face verification to check in — GPS-within-radius becomes the
-      // sole gate. Independent of QR attendance's own qrRequireFace toggle.
+      // device identity verification to check in — GPS-within-radius becomes
+      // the sole gate. Independent of QR attendance's own qrRequireFace toggle.
       if (kycEnabled !== undefined) updates.kycEnabled = !!kycEnabled;
+      if (documentsEnabled !== undefined) updates.documentsEnabled = !!documentsEnabled;
+      // 0 disables each — same "0/null means off" convention as wfhMaxDaysPerMonth.
+      if (passwordExpiryDays !== undefined && passwordExpiryDays !== '') updates.passwordExpiryDays = Math.max(0, parseInt(passwordExpiryDays));
+      if (idleTimeoutMinutes !== undefined && idleTimeoutMinutes !== '') updates.idleTimeoutMinutes = Math.max(0, parseInt(idleTimeoutMinutes));
+      if (attendanceRetentionMonths !== undefined && attendanceRetentionMonths !== '') updates.attendanceRetentionMonths = Math.max(0, parseInt(attendanceRetentionMonths));
       if (wifiSsid !== undefined) updates.wifiSsid = wifiSsid;
       if (officeIp !== undefined) updates.officeIp = officeIp;
       if (wifiCheckEnabled !== undefined) updates.wifiCheckEnabled = !!wifiCheckEnabled;

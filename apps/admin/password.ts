@@ -37,3 +37,41 @@ export async function verifyPassword(plain: string | undefined | null, stored: s
 }
 
 export { looksHashed as isPasswordHashed };
+
+/**
+ * Baseline complexity policy applied to every self-chosen password (reset,
+ * forgot-password confirm, forced-change) — NOT applied to system-generated
+ * temp passwords (those come from crypto.randomBytes and are already far
+ * stronger than anything this checks for). Returns an error message, or
+ * null if the password passes.
+ */
+export function validatePasswordStrength(password: string): string | null {
+  if (!password || password.length < 8) return 'Password must be at least 8 characters long.';
+  if (password.length > 128) return 'Password is too long.';
+  let classes = 0;
+  if (/[a-z]/.test(password)) classes++;
+  if (/[A-Z]/.test(password)) classes++;
+  if (/[0-9]/.test(password)) classes++;
+  if (/[^a-zA-Z0-9]/.test(password)) classes++;
+  if (classes < 3) return 'Password must include at least 3 of: lowercase letters, uppercase letters, numbers, symbols.';
+  return null;
+}
+
+/**
+ * True if `plain` matches the current password or any of the last few
+ * remembered hashes — checked before accepting a password change so a
+ * reset can't just bounce straight back to what it was.
+ */
+export async function isPasswordReused(plain: string, currentHash: string | null | undefined, history: string[] | null | undefined): Promise<boolean> {
+  const candidates = [currentHash, ...(history || [])].filter((h): h is string => !!h);
+  for (const hash of candidates) {
+    if (looksHashed(hash) && await bcrypt.compare(plain, hash)) return true;
+  }
+  return false;
+}
+
+/** Appends a new hash to the remembered-password list, capped at `max`. */
+export function pushPasswordHistory(history: string[] | null | undefined, newHash: string, max = 5): string[] {
+  const next = [...(Array.isArray(history) ? history : []), newHash];
+  return next.slice(-max);
+}

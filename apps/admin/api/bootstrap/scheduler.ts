@@ -7,6 +7,10 @@ import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendB
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { logToAuditLedger } from '../services/audit';
+import { dispatchWebhookEvent } from '../services/webhooks';
+import { raiseAttendanceAlert } from '../services/alerts';
+import { resolveNextEscalation } from '../services/escalation';
+import { notifyUser } from '../services/notifications';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
@@ -16,6 +20,7 @@ export function runBackgroundScheduler() {
   let lastCheckoutRun = '';
   let lastSummaryRun = '';
   let lastAttendanceCheckRun = '';
+  let lastArchivalRun = '';
 
   // 1. Break overstay scanner (runs every minute)
   setInterval(async () => {
@@ -57,7 +62,11 @@ export function runBackgroundScheduler() {
             action: 'BREAK_VIOLATION',
             details: { elapsedMins: Math.round(elapsedMins), allowedLimit: budget, autoCompleted: true }
           });
-          
+
+          if (brk.tenantId) {
+            dispatchWebhookEvent(brk.tenantId, 'attendance.break_violation', { userId: brk.userId, userName: brk.userName, elapsedMins: Math.round(elapsedMins), allowedLimit: budget });
+          }
+
           // Send alerts
           await sendBreakViolationAlert(brk.userEmail, brk.userName, new Date().toLocaleDateString(), Math.round(elapsedMins), budget);
           
@@ -202,12 +211,11 @@ export function runBackgroundScheduler() {
           // Couldn't confirm they'd actually left — flag it for a manager
           // to review rather than silently trusting the guess.
           if (!outsideOffice) {
-            await db.insert(schema.attendanceAlerts).values({
+            await raiseAttendanceAlert({
               tenantId: row.tenant_id as number,
               userId: row.user_id as number,
               type: 'auto_checkout_unverified',
               message: `${row.user_name} was auto-checked-out at end-of-day, but their location couldn't be confirmed as outside the office. Please review.`,
-              status: 'pending'
             });
           }
         }
@@ -310,12 +318,11 @@ export function runBackgroundScheduler() {
               details: { percentage, threshold }
             });
 
-            await db.insert(schema.attendanceAlerts).values({
+            await raiseAttendanceAlert({
               tenantId: tenant.id,
               userId: u.id,
               type: 'low_attendance',
               message: `${u.name} (${u.role}) is at ${percentage}% attendance this month, below the required minimum of ${threshold}%.`,
-              status: 'pending'
             });
 
             await sendLowAttendanceAlertEmail(u.email, u.name, u.name, u.role, percentage, threshold, true);
@@ -327,8 +334,86 @@ export function runBackgroundScheduler() {
           }
         }
       }
+
+      // --- Attendance log archival (1st of the month, 2:00 AM) ---
+      // Moves rows older than each tenant's own attendanceRetentionMonths
+      // (0 = disabled — most tenants never run this) from the hot
+      // attendance_logs table into attendance_logs_archive, unmodified.
+      // Insert-then-delete against the same cutoff, not a single
+      // move-in-place statement, so an interrupted run is safe to resume —
+      // ON CONFLICT DO NOTHING means re-running never double-inserts, and
+      // the delete only ever removes rows already confirmed archived.
+      const archivalMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
+      if (now.getDate() === 1 && currentHour === 2 && currentMin === 0 && lastArchivalRun !== archivalMonthKey) {
+        lastArchivalRun = archivalMonthKey;
+        console.log('Running Attendance Log Archival Job...');
+        const tenantsList = await db.select().from(schema.tenants);
+        for (const tenant of tenantsList) {
+          const months = tenant.attendanceRetentionMonths || 0;
+          if (months <= 0) continue;
+          const cutoff = new Date();
+          cutoff.setMonth(cutoff.getMonth() - months);
+
+          try {
+            await db.execute(sql`
+              INSERT INTO attendance_logs_archive (id, user_id, tenant_id, status, type, client_timestamp, device, location_lat, location_lng, reason, explanation, attendance_mode, home_lat, home_lng, distance_from_home_meters, wfh_reason, checkout_at, worked_minutes, branch_id, created_at)
+              SELECT id, user_id, tenant_id, status, type, client_timestamp, device, location_lat, location_lng, reason, explanation, attendance_mode, home_lat, home_lng, distance_from_home_meters, wfh_reason, checkout_at, worked_minutes, branch_id, created_at
+              FROM attendance_logs
+              WHERE tenant_id = ${tenant.id} AND created_at < ${cutoff}
+              ON CONFLICT (id) DO NOTHING
+            `);
+            await db.execute(sql`
+              DELETE FROM attendance_logs WHERE tenant_id = ${tenant.id} AND created_at < ${cutoff}
+            `);
+          } catch (archiveErr) {
+            console.error(`Error archiving attendance logs for tenant ${tenant.id}:`, archiveErr);
+          }
+        }
+      }
     } catch (err) {
       console.error('Error in daily schedule job:', err);
+    }
+  }, 60000);
+
+  // 3. Ticket / alert 24h auto-escalation — checked every minute, no
+  // day-boundary dedupe needed: escalating resets lastAssignedAt to now, so
+  // the same row naturally stops matching this query for another 24h.
+  // Walks escalationLevel forward exactly one step (manager -> GM ->
+  // tenant_admin) per timeout, same as a manual "Escalate" action, so a
+  // ticket/alert that keeps getting ignored eventually always lands on
+  // tenant_admin (the permanent backstop).
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const staleTickets = await db.select().from(schema.tickets).where(
+        and(eq(schema.tickets.status, 'open'), sql`${schema.tickets.lastAssignedAt} < ${cutoff}`)
+      );
+      for (const ticket of staleTickets) {
+        const next = await resolveNextEscalation(ticket.tenantId, ticket.raisedByUserId, ticket.escalationLevel as 0 | 1 | 2);
+        if (!next) continue; // already at tenant_admin — nowhere further to go, leave it for a human to notice
+        await db.insert(schema.ticketEscalations).values({
+          ticketId: ticket.id, fromUserId: ticket.currentAssigneeUserId, toUserId: next.userId,
+          fromLevel: ticket.escalationLevel, toLevel: next.level, reason: 'auto_24h_timeout',
+        });
+        await db.update(schema.tickets).set({ escalationLevel: next.level, currentAssigneeUserId: next.userId, lastAssignedAt: new Date(), updatedAt: new Date() }).where(eq(schema.tickets.id, ticket.id));
+        await logToAuditLedger({ tenantId: ticket.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'TICKET_AUTO_ESCALATED', details: { ticketId: ticket.id, toLevel: next.level, toUserId: next.userId } });
+        dispatchWebhookEvent(ticket.tenantId, 'ticket.escalated', { ticketId: ticket.id, toLevel: next.level, toUserId: next.userId, auto: true });
+        await notifyUser(next.userId, `Ticket auto-escalated to you: ${ticket.subject}`, `This ${ticket.priority} priority ticket wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+      }
+
+      const staleAlerts = await db.select().from(schema.attendanceAlerts).where(
+        and(eq(schema.attendanceAlerts.status, 'pending'), sql`${schema.attendanceAlerts.lastAssignedAt} < ${cutoff}`)
+      );
+      for (const alert of staleAlerts) {
+        const next = await resolveNextEscalation(alert.tenantId, alert.userId, alert.escalationLevel as 0 | 1 | 2);
+        if (!next) continue;
+        await db.update(schema.attendanceAlerts).set({ escalationLevel: next.level, currentAssigneeUserId: next.userId, lastAssignedAt: new Date() }).where(eq(schema.attendanceAlerts.id, alert.id));
+        await logToAuditLedger({ tenantId: alert.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'ALERT_AUTO_ESCALATED', details: { alertId: alert.id, type: alert.type, toLevel: next.level, toUserId: next.userId } });
+        await notifyUser(next.userId, `Alert auto-escalated to you`, `An unresolved ${alert.type.replace(/_/g, ' ')} alert wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+      }
+    } catch (err) {
+      console.error('Error in ticket/alert auto-escalation job:', err);
     }
   }, 60000);
 }

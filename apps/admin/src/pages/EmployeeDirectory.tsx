@@ -4,7 +4,9 @@ import { Search, X } from 'lucide-react';
 import type { User } from '../lib/auth';
 import PortalShell from '../components/PortalShell';
 import EmployeeDetailPanel from '../components/EmployeeDetailPanel';
+import DocumentsPanel from '../components/DocumentsPanel';
 import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
+import { downloadCsv } from '../lib/csv';
 
 type Employee = {
   id: number;
@@ -14,6 +16,7 @@ type Employee = {
   designation: string;
   dateOfJoining: string;
   role: string;
+  employeeStatus?: string;
 };
 
 type Status = 'Present' | 'Late' | 'Absent' | 'On Leave';
@@ -39,6 +42,59 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   const [selectedBalance, setSelectedBalance] = useState<{ remainingDays: number } | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [detailUserId, setDetailUserId] = useState<number | null>(null);
+  const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
+  const [terminateTarget, setTerminateTarget] = useState<Employee | null>(null);
+  const [terminateReason, setTerminateReason] = useState('');
+  const [terminateSubmitting, setTerminateSubmitting] = useState(false);
+  const [terminateError, setTerminateError] = useState('');
+  const [terminateResultMsg, setTerminateResultMsg] = useState('');
+
+  useEffect(() => {
+    fetch('/api/tenant/my-privileges', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (d.privileges) setMyPrivileges(d.privileges); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const canTerminate = myPrivileges === 'ALL' || myPrivileges.includes('employee.terminate');
+
+  const openTerminate = (emp: Employee) => {
+    setTerminateTarget(emp);
+    setTerminateReason('');
+    setTerminateError('');
+    setTerminateResultMsg('');
+  };
+
+  const submitTerminate = async () => {
+    if (!terminateTarget) return;
+    if (user.role !== 'tenant_admin' && !terminateReason.trim()) {
+      setTerminateError('A reason is required.');
+      return;
+    }
+    setTerminateSubmitting(true);
+    setTerminateError('');
+    try {
+      const res = await fetch(`/api/tenant/employees/${terminateTarget.id}/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason: terminateReason.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to submit termination.');
+
+      if (data.terminated) {
+        setEmployees((prev) => prev.map((e) => (e.id === terminateTarget.id ? { ...e, employeeStatus: 'terminated' } : e)));
+        setTerminateResultMsg(`${terminateTarget.name} has been terminated.`);
+      } else {
+        setTerminateResultMsg(`Termination request for ${terminateTarget.name} submitted for admin approval.`);
+      }
+    } catch (err: any) {
+      setTerminateError(err.message || 'Failed to submit termination.');
+    } finally {
+      setTerminateSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const q = searchParams.get('q');
@@ -122,6 +178,19 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
 
   const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
 
+  const eraseEmployeeData = async (employeeId: number, name: string) => {
+    if (!window.confirm(`Permanently erase ${name}'s personal data (name, email, phone, documents)? Attendance and payroll history are kept for compliance. This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/tenant/employees/${employeeId}/erase-data`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to erase data.');
+      setSelected(null);
+      setEmployees((prev) => prev.map((e) => (e.id === employeeId ? { ...e, name: 'Deleted User' } : e)));
+    } catch (err: any) {
+      setError(err.message || 'Failed to erase data.');
+    }
+  };
+
   const content = (
     <>
       {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
@@ -142,20 +211,32 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
               className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] py-3 pl-10 pr-4 text-sm focus:outline-none"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {departments.map((dept) => (
-              <button
-                key={dept}
-                onClick={() => setDepartment(dept)}
-                className={`rounded-xl px-3.5 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
-                  department === dept
-                    ? 'bg-[var(--color-nexus-primary)] text-white'
-                    : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]'
-                }`}
-              >
-                {dept}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              type="button"
+              onClick={() => downloadCsv(
+                `employee-directory-${new Date().toISOString().slice(0, 10)}.csv`,
+                [
+                  ['Name', 'Email', 'Department', 'Designation', 'Role', 'Joined', 'Status'],
+                  ...filtered.map((e) => [e.name, e.email, e.department || '', e.designation || '', e.role, e.dateOfJoining ? new Date(e.dateOfJoining).toLocaleDateString() : '', statusByUserId[e.id] || 'Absent']),
+                ]
+              )}
+              className="rounded-xl px-3.5 py-2 text-xs font-bold uppercase tracking-wider bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] border border-[var(--color-nexus-border)]"
+            >
+              Export CSV
+            </button>
+            {/* Dropdown instead of one button per department — a button row
+                grows unbounded as departments are added and crowds the
+                toolbar; a select stays a fixed size regardless of count. */}
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] focus:outline-none"
+            >
+              {departments.map((dept) => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
           </div>
         </section>
 
@@ -242,18 +323,94 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
               </div>
             </dl>
 
+            <div className="mt-4">
+              <DocumentsPanel userId={selected.id} canUpload={myPrivileges === 'ALL' || myPrivileges.includes('employee.create')} />
+            </div>
+
+            {user.role === 'tenant_admin' && selected.employeeStatus === 'terminated' && (
+              <button
+                onClick={() => eraseEmployeeData(selected.id, selected.name)}
+                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-error)] py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
+              >
+                Erase Personal Data (GDPR)
+              </button>
+            )}
+
             <button
               onClick={() => setDetailUserId(selected.id)}
               className="mt-6 w-full rounded-2xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
             >
               View Full Calendar
             </button>
+            {canTerminate && selected.role !== 'tenant_admin' && selected.role !== 'super_admin' && selected.employeeStatus !== 'terminated' && (
+              <button
+                onClick={() => { const emp = selected; setSelected(null); openTerminate(emp); }}
+                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
+              >
+                Terminate
+              </button>
+            )}
             <button
               onClick={() => setSelected(null)}
               className="mt-3 w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {terminateTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !terminateSubmitting && setTerminateTarget(null)}>
+          <div className="w-full max-w-sm rounded-3xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            {terminateResultMsg ? (
+              <>
+                <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Done</h3>
+                <p className="mt-3 text-sm text-[var(--color-nexus-muted)]">{terminateResultMsg}</p>
+                <button
+                  onClick={() => setTerminateTarget(null)}
+                  className="mt-6 w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Terminate {terminateTarget.name}?</h3>
+                <p className="mt-2 text-xs text-[var(--color-nexus-muted)]">
+                  {user.role === 'tenant_admin'
+                    ? 'This removes them immediately — their access is revoked right away.'
+                    : "This submits a termination request. The employee is not removed until the tenant admin approves it."}
+                </p>
+                <label className="mt-4 block text-[10px] font-bold uppercase tracking-widest text-[var(--color-nexus-muted)]">
+                  Reason{user.role !== 'tenant_admin' ? ' (required)' : ' (optional)'}
+                </label>
+                <textarea
+                  value={terminateReason}
+                  onChange={(e) => setTerminateReason(e.target.value)}
+                  rows={3}
+                  className="mt-1.5 w-full resize-none rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
+                  placeholder="Why is this employee being terminated?"
+                />
+                {terminateError && <p className="mt-2 text-[11px] text-[var(--color-nexus-error)]">{terminateError}</p>}
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={() => setTerminateTarget(null)}
+                    disabled={terminateSubmitting}
+                    className="flex-1 rounded-2xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitTerminate}
+                    disabled={terminateSubmitting}
+                    className="flex-1 rounded-2xl bg-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {terminateSubmitting ? 'Submitting…' : user.role === 'tenant_admin' ? 'Terminate' : 'Submit Request'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -132,7 +132,7 @@ router.post('/api/branches/bulk', authenticate, async (req: any, res: any) => {
     }
     for (const b of branchPayloads) {
       if (b.kycEnabled !== undefined) {
-        return res.status(400).json({ error: 'kycEnabled is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
+        return res.status(400).json({ error: 'Device Identity Check is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
       }
       if (!b.name) return res.status(400).json({ error: 'Each branch requires a name' });
     }
@@ -186,7 +186,7 @@ router.post('/api/branches', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     if (req.body.kycEnabled !== undefined) {
-      return res.status(400).json({ error: 'kycEnabled is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
+      return res.status(400).json({ error: 'Device Identity Check is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
     }
     if (!req.body.name) return res.status(400).json({ error: 'name is required' });
 
@@ -216,7 +216,7 @@ router.patch('/api/branches/:id', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     if (req.body.kycEnabled !== undefined) {
-      return res.status(400).json({ error: 'kycEnabled is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
+      return res.status(400).json({ error: 'Device Identity Check is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
     }
     const branchId = parseInt(req.params.id, 10);
     const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));

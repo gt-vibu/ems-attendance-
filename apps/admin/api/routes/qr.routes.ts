@@ -13,12 +13,11 @@ import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineM
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
-import { FACE_MATCH_THRESHOLD } from '../services/face';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant, isPlatformFeatureAllowed } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
+import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getEffectiveShiftId } from '../services/shiftOverrides';
@@ -124,7 +123,7 @@ router.post('/api/qr/session/start', authenticate, async (req: any, res: any) =>
       const tenantRec = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId));
       if (tenantRec.length === 0) return res.status(404).json({ error: 'Tenant registration context not found.' });
       const policy = extractQrPolicy(tenantRec[0]);
-      if (!policy.qrEnabled) {
+      if (!policy.qrEnabled || !isPlatformFeatureAllowed(tenantRec[0] as any, 'qr_attendance')) {
         return res.status(403).json({ error: 'QR Attendance is not enabled for your organization.' });
       }
 
@@ -246,7 +245,7 @@ router.post('/api/qr/validate', authenticate, async (req: any, res: any) => {
         return res.status(403).json({ error: 'This role does not mark attendance.' });
       }
       if (!user.isKycCompleted) {
-        return res.status(400).json({ error: 'KYC registration not completed yet.' });
+        return res.status(400).json({ error: 'Device registration not completed yet.' });
       }
 
       const result = await validateAndConsumeQrToken(token, user.tenantId);
@@ -313,7 +312,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       const user = userRec[0];
 
       if (!user.isKycCompleted) {
-        return res.status(400).json({ error: 'KYC registration not completed yet.' });
+        return res.status(400).json({ error: 'Device registration not completed yet.' });
       }
 
       const scanRecList = await db.select().from(schema.qrScans).where(eq(schema.qrScans.id, scanPass.scanId));
@@ -366,26 +365,21 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
         }
       }
 
-      // --- Face: reuses the face-pass token minted by the existing,
-      // UNCHANGED /api/attendance/verify-face endpoint — only required
-      // when this tenant's QR policy calls for it. ---
+      // --- Identity: reuses the identity-pass token minted by
+      // /api/webauthn/authenticate/verify (a WebAuthn device-signature
+      // check) — only required when this tenant's QR policy calls for it.
+      // `faceMatchScore`/`livenessScore`/`facePassed` are kept as 1/1/true
+      // on success rather than dropped, since they're existing DB columns
+      // (schema unchanged) — a WebAuthn signature is binary pass/fail, so
+      // there's no meaningful score to store beyond "it passed".
       if (policy.requireFace) {
-        const facePass = verifyToken(faceToken);
-        if (!facePass || facePass.purpose !== 'attendance_face_pass' || facePass.userId !== user.id) {
-          return res.status(400).json({ error: 'Face verification expired or missing. Please restart from the camera step.' });
+        const identityPass = verifyToken(faceToken);
+        if (!identityPass || identityPass.purpose !== IDENTITY_PASS_PURPOSE || identityPass.userId !== user.id) {
+          return res.status(400).json({ error: 'Device verification expired or missing. Please verify your device again.' });
         }
-        faceMatchScore = facePass.faceMatchScore;
-        livenessScore = facePass.livenessScore;
-        const matchThreshold = FACE_MATCH_THRESHOLD;
-        facePassedFlag = faceMatchScore >= matchThreshold && livenessScore >= 0.8;
-        if (faceMatchScore < matchThreshold) {
-          errors.push('Facial biometrics verification failed (Identity mismatch).');
-          if (!fraudType) fraudType = 'FRAUD_BIOMETRICS_FAILED';
-        }
-        if (livenessScore < 0.8) {
-          errors.push('Liveness verification failed (Possible spoofing attempt).');
-          if (!fraudType) fraudType = 'FRAUD_LIVENESS_FAILED';
-        }
+        faceMatchScore = 1;
+        livenessScore = 1;
+        facePassedFlag = true;
       }
 
       // Geofence/Wi-Fi/shift source: the scanning employee's own branch,
@@ -533,7 +527,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
 
       if (pendingApproval) {
         const checkInTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const approvers = await getUsersWithPrivilege(user.tenantId || 1, 'attendance.approve');
+        const approvers = await getUsersWithPrivilege(user.tenantId || 1, ['attendance.approve.late_arrival', 'attendance.approve']);
         for (const approver of approvers) {
           await sendLateArrivalApprovalRequestEmail(
             approver.email, approver.name, user.name,
@@ -694,15 +688,18 @@ router.get('/api/qr/config', authenticate, async (req: any, res: any) => {
     }
   });
 
-  // Policy changes are org-wide and security-sensitive — same hard
-  // tenant_admin-only gate as /api/tenant/config/update and the holiday
-  // calendar, not delegable via privileges.
+  // Policy changes are org-wide and security-sensitive — gated by the same
+  // delegable 'tenant.config.manage' privilege as /api/tenant/config/update.
 router.put('/api/qr/config', authenticate, async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'tenant_admin') {
-        return res.status(403).json({ error: 'Access denied: Only the tenant admin can change QR attendance policy.' });
+      if (!await hasPrivilege(req.user, 'tenant.config.manage')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const { qrEnabled, qrRotationSeconds, qrRequireGps, qrRequireWifi, qrRequireFace, qrGeofenceRadiusMeters, qrRequireDeviceTrust } = req.body;
+
+      if (qrEnabled === true && !(await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'qr_attendance'))) {
+        return res.status(403).json({ error: "QR Attendance is not included in your organization's plan. Contact your platform provider to enable it." });
+      }
 
       const updates: any = {};
       if (qrEnabled !== undefined) updates.qrEnabled = !!qrEnabled;

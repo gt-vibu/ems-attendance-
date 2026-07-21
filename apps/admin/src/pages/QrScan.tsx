@@ -4,10 +4,10 @@ import { motion } from 'motion/react';
 import jsQR from 'jsqr';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
-import { ensureFaceServiceReady } from '../lib/faceService';
 import { describeCameraError } from '../lib/cameraError';
+import { verifyThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
 
-type Step = 'scanning' | 'validating' | 'face' | 'gps' | 'submitting' | 'success' | 'error';
+type Step = 'scanning' | 'validating' | 'identity' | 'gps' | 'submitting' | 'success' | 'error';
 
 interface RequiredChecks {
   face: boolean;
@@ -46,9 +46,8 @@ export default function QrScan({ user }: { user: User }) {
   const [success, setSuccess] = useState('');
   const [requiredChecks, setRequiredChecks] = useState<RequiredChecks | null>(null);
   const [scanPassToken, setScanPassToken] = useState<string | null>(null);
-  const [faceStatus, setFaceStatus] = useState('Starting camera...');
-  const [challenge, setChallenge] = useState<string[]>([]);
-  const [faceToken, setFaceToken] = useState<string | null>(null);
+  const [identityStatus, setIdentityStatus] = useState('Ready to verify');
+  const [identityToken, setIdentityToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -147,7 +146,7 @@ export default function QrScan({ user }: { user: User }) {
       setScanPassToken(data.scanPassToken);
       setRequiredChecks(data.requiredChecks);
       if (data.requiredChecks.face) {
-        setStep('face');
+        setStep('identity');
       } else if (data.requiredChecks.gps) {
         setStep('gps');
       } else {
@@ -167,79 +166,22 @@ export default function QrScan({ user }: { user: User }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.token]);
 
-  // --- STEP: face (reuses the existing, unchanged challenge/verify-face
-  // endpoints — same camera-capture pattern as EmployeeAttendance.tsx) ---
-  useEffect(() => {
-    if (step !== 'face') return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        await ensureFaceServiceReady();
-        const challengeRes = await fetch('/api/attendance/challenge', { headers: { 'Authorization': `Bearer ${token}` } });
-        const challengeData = await challengeRes.json();
-        if (!challengeRes.ok) {
-          throw new Error(challengeData.error || 'Could not start the liveness challenge.');
-        }
-        if (!cancelled) setChallenge(challengeData.challenge || []);
-
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
-        if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        setFaceStatus('Ready to scan');
-      } catch (err: any) {
-        console.error(err);
-        const isCameraError = err instanceof DOMException;
-        setError(isCameraError ? describeCameraError(err) : (err?.message || 'Camera access denied.'));
-        setStep('error');
-      }
-    })();
-
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
-
-  const handleFaceScan = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  // --- STEP: identity (WebAuthn device signature check) ---
+  const handleVerifyIdentity = async () => {
     setLoading(true);
     setError('');
     try {
-      setFaceStatus('Hold steady — capturing a few frames...');
-      const frames: string[] = [];
-      for (let i = 0; i < 8; i++) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx && video.videoWidth) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL('image/jpeg', 0.85));
-        }
-        await new Promise(resolve => setTimeout(resolve, 260));
-      }
-      if (frames.length < 4) throw new Error('Could not capture enough frames from the camera. Please try again.');
-
-      setFaceStatus('Verifying identity and liveness...');
-      const res = await fetch('/api/attendance/verify-face', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ images: frames })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.passed) throw new Error(data.error || 'Face verification failed.');
-
-      stopCamera();
-      setFaceToken(data.token);
+      setIdentityStatus('Waiting for your device...');
+      const tok = await verifyThisDevice();
+      setIdentityToken(tok);
       if (requiredChecks?.gps) {
         setStep('gps');
       } else {
-        submitAttendance(scanPassToken, requiredChecks, data.token, null, null);
+        submitAttendance(scanPassToken, requiredChecks, tok, null, null);
       }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed.');
-      setFaceStatus('Ready to scan');
+    } catch (err) {
+      setError(describeWebAuthnError(err));
+      setIdentityStatus('Ready to verify');
     } finally {
       setLoading(false);
     }
@@ -255,7 +197,7 @@ export default function QrScan({ user }: { user: User }) {
     }
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        submitAttendance(scanPassToken, requiredChecks, faceToken, position.coords.latitude, position.coords.longitude);
+        submitAttendance(scanPassToken, requiredChecks, identityToken, position.coords.latitude, position.coords.longitude);
       },
       (err) => {
         setError(err.code === err.TIMEOUT
@@ -306,7 +248,7 @@ export default function QrScan({ user }: { user: User }) {
   const retry = () => {
     setError('');
     setScanPassToken(null);
-    setFaceToken(null);
+    setIdentityToken(null);
     setRequiredChecks(null);
     setStep('scanning');
   };
@@ -325,21 +267,13 @@ export default function QrScan({ user }: { user: User }) {
           <p className="text-sm text-[var(--color-nexus-muted)] mt-2 font-medium">{user.name}</p>
         </div>
 
-        {(step === 'scanning' || step === 'face') && (
+        {step === 'scanning' && (
           <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-4 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
             <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
             <canvas ref={canvasRef} className="hidden" />
-            {step === 'scanning' && (
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-56 h-56 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-2xl"></div>
-              </div>
-            )}
-            {step === 'face' && (
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-48 h-64 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-[40px]"></div>
-                <div className="scan-line"></div>
-              </div>
-            )}
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <div className="w-56 h-56 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-2xl"></div>
+            </div>
           </div>
         )}
 
@@ -356,22 +290,18 @@ export default function QrScan({ user }: { user: User }) {
           </div>
         )}
 
-        {step === 'face' && (
-          <div className="space-y-4">
-            {challenge.length > 0 && (
-              <div className="p-3 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 rounded-xl text-center">
-                <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
-                  Look at the camera and {challenge.join(', then ')}.
-                </p>
-              </div>
-            )}
-            <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">{faceStatus}</p>
+        {step === 'identity' && (
+          <div className="py-6 space-y-5 text-center">
+            <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-full flex items-center justify-center">
+              <div className={`w-8 h-8 border-2 ${loading ? 'border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] animate-spin' : 'border-[var(--color-nexus-secondary)]'} rounded-full`} />
+            </div>
+            <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider">{identityStatus}</p>
             <button
-              onClick={handleFaceScan}
+              onClick={handleVerifyIdentity}
               disabled={loading}
               className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40"
             >
-              {loading ? 'Verifying...' : 'Scan & Verify'}
+              {loading ? 'Verifying...' : 'Verify With This Device'}
             </button>
           </div>
         )}

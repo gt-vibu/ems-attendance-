@@ -110,7 +110,7 @@ export const openApiSpec = {
     title: 'Smart Teams API',
     version: '1.0.0',
     description:
-      'Multi-tenant employee attendance, biometric KYC, and Work From Home API. ' +
+      'Multi-tenant employee attendance, WebAuthn device identity, and Work From Home API. ' +
       'All endpoints below are shown at their unversioned path (/...); external ' +
       'integrations should prefix every path with /api/v1 instead of /api — both ' +
       'resolve to the exact same handler (see server.ts).\n\n' +
@@ -144,7 +144,7 @@ export const openApiSpec = {
     { name: 'Tenancy Onboarding', description: 'Public sign-up request + super-admin approval' },
     { name: 'Super Admin', description: 'Platform-wide oversight (role: super_admin only)' },
     { name: 'Tenant Admin', description: 'Per-tenant configuration and staff management' },
-    { name: 'KYC', description: 'Biometric enrollment (server-side face detection/liveness)' },
+    { name: 'WebAuthn', description: 'Device identity — register a device credential (Windows Hello/Touch ID/Android biometric or PIN/security key) and verify it at check-in' },
     { name: 'Attendance', description: 'Office check-in/out, corrections, heartbeat' },
     { name: 'Work From Home', description: 'WFH attendance mode, home-location registration and change requests' },
     { name: 'Breaks', description: 'Break session start/end and daily budget' },
@@ -277,33 +277,53 @@ export const openApiSpec = {
       },
     },
 
-    '/kyc': {
+    '/webauthn/register/options': {
       post: {
-        tags: ['KYC'],
-        summary: 'Submit guided-pose biometric enrollment (one-time; all detection happens server-side)',
+        tags: ['WebAuthn'],
+        summary: 'Step 1/2: get a challenge for navigator.credentials.create() — one-time device registration',
         security: [bearerAuth],
-        requestBody: jsonBody({ type: 'object', required: ['actions', 'deviceId'], properties: { actions: { type: 'object', description: "{ [poseName]: string[] } — a burst of JPEG data URLs per guided pose (look_center, turn_left, turn_right, look_up, look_down, smile, open_mouth, blink)." }, deviceId: { type: 'string' } } }),
+        responses: { '200': okResponse({ type: 'object', description: 'PublicKeyCredentialCreationOptions (from @simplewebauthn/server)' }), ...errorResponses },
+      },
+    },
+    '/webauthn/register/verify': {
+      post: {
+        tags: ['WebAuthn'],
+        summary: 'Step 2/2: verify the signed attestation and store the device credential',
+        security: [bearerAuth],
+        requestBody: jsonBody({ type: 'object', required: ['response', 'deviceId'], properties: { response: { type: 'object', description: 'RegistrationResponseJSON from navigator.credentials.create()' }, deviceId: { type: 'string' }, deviceName: { type: 'string' } } }),
         responses: {
           '200': okResponse({ type: 'object', properties: { success: { type: 'boolean' }, token: { type: 'string' }, user: User } }),
-          '422': okResponse({ type: 'object', properties: { error: { type: 'string' }, failedActions: { type: 'array', items: { type: 'string' } } } }, 'One or more poses could not be confirmed — redo just those poses.'),
+          '422': okResponse({ type: 'object', properties: { error: { type: 'string' } } }, 'Registration could not be verified.'),
           ...errorResponses,
         },
       },
     },
+    '/webauthn/authenticate/options': {
+      post: {
+        tags: ['WebAuthn'],
+        summary: 'Step 1/2: get a challenge for navigator.credentials.get() — daily identity check before attendance',
+        security: [bearerAuth],
+        responses: { '200': okResponse({ type: 'object', description: 'PublicKeyCredentialRequestOptions (from @simplewebauthn/server)' }), ...errorResponses },
+      },
+    },
+    '/webauthn/authenticate/verify': {
+      post: {
+        tags: ['WebAuthn'],
+        summary: 'Step 2/2: verify the signed assertion — mints the identity-pass token attendance/QR submit requires',
+        security: [bearerAuth],
+        requestBody: jsonBody({ type: 'object', required: ['response'], properties: { response: { type: 'object', description: 'AuthenticationResponseJSON from navigator.credentials.get()' } } }),
+        responses: {
+          '200': okResponse({ type: 'object', properties: { passed: { type: 'boolean' }, token: { type: 'string', description: "Short-lived 'attendance_identity_pass' token, required by /attendance/verify-location, /verify-network, and the final /attendance submit" } } }),
+          '403': okResponse({ type: 'object', properties: { passed: { type: 'boolean' }, error: { type: 'string' } } }),
+          ...errorResponses,
+        },
+      },
+    },
+    '/webauthn/credentials': { get: { tags: ['WebAuthn'], summary: "List the caller's registered device credentials", security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { credentials: { type: 'array', items: { type: 'object' } } } }) } } },
 
-    '/attendance/challenge': { get: { tags: ['Attendance'], summary: 'Get a fresh liveness challenge (3 random actions) for the next face scan', security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { challenge: { type: 'array', items: { type: 'string' } } } }) } } },
     '/attendance/today': { get: { tags: ['Attendance'], summary: "Caller's attendance state for today", security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { state: { type: 'string', enum: ['not_started', 'checked_in', 'checked_out'] }, pending: { type: 'boolean' }, log: AttendanceLog } }) } } },
     '/attendance/percentage': { get: { tags: ['Attendance'], summary: 'Monthly attendance percentage vs. the tenant minimum', security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { percentage: { type: 'integer' }, threshold: { type: 'integer' }, daysPresent: { type: 'integer' }, workingDaysSoFar: { type: 'integer' } } }) } } },
     '/attendance/mine': { get: { tags: ['Attendance'], summary: 'Read-only attendance history (capped, ?limit=)', security: [bearerAuth], responses: { '200': okResponse({ type: 'object', properties: { logs: { type: 'array', items: AttendanceLog } } }) } } },
-    '/attendance/verify-face': {
-      post: {
-        tags: ['Attendance'],
-        summary: 'Step 1/3: submit a camera burst for identity + liveness + challenge-response verification',
-        security: [bearerAuth],
-        requestBody: jsonBody({ type: 'object', required: ['images'], properties: { images: { type: 'array', items: { type: 'string' }, description: 'Short burst of JPEG data URLs' } } }),
-        responses: { '200': okResponse({ type: 'object', properties: { passed: { type: 'boolean' }, token: { type: 'string', description: "Short-lived 'attendance_face_pass' token, required by /attendance/verify-location, /verify-network, and the final /attendance submit" }, faceMatchScore: { type: 'number' }, livenessScore: { type: 'number' } } }), '403': okResponse({ type: 'object', properties: { passed: { type: 'boolean' }, error: { type: 'string' } } }), ...errorResponses },
-      },
-    },
     '/attendance/verify-location': { post: { tags: ['Attendance'], summary: 'Step 2/3: fast-fail office-geofence preview (not authoritative)', security: [bearerAuth], requestBody: jsonBody({ type: 'object', required: ['lat', 'lng', 'token'], properties: { lat: { type: 'number' }, lng: { type: 'number' }, token: { type: 'string' } } }), responses: { '200': okResponse({ type: 'object', properties: { passed: { type: 'boolean' }, distanceMeters: { type: 'number' } } }), ...errorResponses } } },
     '/attendance/verify-network': { post: { tags: ['Attendance'], summary: 'Step 3/3: fast-fail corporate-Wi-Fi preview (only relevant if the tenant enabled it)', security: [bearerAuth], requestBody: jsonBody({ type: 'object', required: ['token'], properties: { simulatedIp: { type: 'string' }, token: { type: 'string' } } }), responses: { '200': okResponse({ type: 'object', properties: { passed: { type: 'boolean' } } }), ...errorResponses } } },
     '/attendance': {
@@ -319,7 +339,7 @@ export const openApiSpec = {
           type: 'object',
           required: ['token', 'deviceId', 'lat', 'lng'],
           properties: {
-            token: { type: 'string', description: "attendance_face_pass token from /attendance/verify-face" },
+            token: { type: 'string', description: "attendance_identity_pass token from /webauthn/authenticate/verify" },
             deviceId: { type: 'string' },
             lat: { type: 'number' },
             lng: { type: 'number' },
@@ -333,7 +353,7 @@ export const openApiSpec = {
         responses: {
           '200': okResponse({ type: 'object', properties: { success: { type: 'boolean' }, log: AttendanceLog, pendingApproval: { type: 'boolean' } } }),
           '400': okResponse({ type: 'object', properties: { error: { type: 'string' }, requiresExplanation: { type: 'boolean' }, requiresWfhReason: { type: 'boolean' }, needsHomeRegistration: { type: 'boolean' }, locked: { type: 'boolean' } } }),
-          '403': okResponse({ type: 'object', properties: { error: { type: 'string' }, log: AttendanceLog } }, 'Verification failed (biometric/location/network) — log is still recorded as rejected.'),
+          '403': okResponse({ type: 'object', properties: { error: { type: 'string' }, log: AttendanceLog } }, 'Verification failed (device identity/location/network) — log is still recorded as rejected.'),
           ...errorResponses,
         },
       },

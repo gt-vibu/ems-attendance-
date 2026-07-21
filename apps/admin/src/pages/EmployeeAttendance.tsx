@@ -4,11 +4,12 @@ import { motion } from 'motion/react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
-import { describeCameraError } from '../lib/cameraError';
+import { verifyThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
+import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 
-type Step = 'ready' | 'mode_select' | 'home_registration' | 'wfh_reason' | 'face' | 'gps' | 'wifi' | 'submitting' | 'late_reason';
+type Step = 'ready' | 'mode_select' | 'home_registration' | 'wfh_reason' | 'identity' | 'gps' | 'wifi' | 'submitting' | 'late_reason';
 type TodayState = 'not_started' | 'checked_in' | 'checked_out';
 type AttendanceMode = 'office' | 'wfh';
 
@@ -33,20 +34,9 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
-  const [challenge, setChallenge] = useState<string[]>([]);
   const [wifiCheckEnabled, setWifiCheckEnabled] = useState(false);
-  const [faceScores, setFaceScores] = useState<{ faceMatchScore: number, livenessScore: number } | null>(null);
-
-  // Sequential per-action capture progress during the daily liveness
-  // challenge — see handleFaceScan for why this replaced a single lumped
-  // burst (asking someone to turn their head AND blink AND smile inside one
-  // ~2s "hold steady" window never actually worked).
-  const [actionPhase, setActionPhase] = useState<'idle' | 'get_ready' | 'capturing' | 'verifying' | 'done'>('idle');
-  const [currentActionIndex, setCurrentActionIndex] = useState(0);
-  const [isFallbackMode, setIsFallbackMode] = useState(false);
-  const [currentActionProgress, setCurrentActionProgress] = useState(0);
-  const [faceActionBusy, setFaceActionBusy] = useState(false);
-  const [verifiedChallengeActions, setVerifiedChallengeActions] = useState<string[]>([]);
+  const [identityVerified, setIdentityVerified] = useState(false);
+  const [identityBusy, setIdentityBusy] = useState(false);
 
   // Wi-Fi simulation context input — DEV ONLY, never rendered in production
   // builds. Lives on its own Wi-Fi step now, not inline with the camera.
@@ -82,12 +72,10 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
   const [correctionSubmitted, setCorrectionSubmitted] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
-  const faceTokenRef = useRef<string | null>(null);
+  const identityTokenRef = useRef<string | null>(null);
   // Mirrors `location` state, but readable synchronously — `checkNetwork`
   // can run in the same tick as `setLocation`, before React re-renders and
   // the `location` state closure updates, so the async chain threads
@@ -96,24 +84,6 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   // Last IP override used for the final submit — kept so the late-reason
   // resubmit can reuse it without repeating the Wi-Fi step.
   const ipOverrideRef = useRef<string>('');
-
-  const CHALLENGE_LABELS: Record<string, string> = {
-    look_center: 'look directly at the camera',
-    blink: 'blink',
-    turn_left: 'turn your head slightly left',
-    turn_right: 'turn your head slightly right',
-    smile: 'smile',
-    open_mouth: 'open your mouth',
-    look_up: 'look up briefly',
-    look_down: 'look down briefly',
-  };
-
-  // Same per-action timing already proven in EmployeeKYC.tsx's guided-pose
-  // capture — a brief pause to get into position, then a burst of frames
-  // while actually holding/performing that one pose.
-  const CHALLENGE_FRAMES_PER_ACTION = 6;
-  const CHALLENGE_CAPTURE_INTERVAL_MS = 350;
-  const CHALLENGE_GET_READY_MS = 1100;
 
   // Device fingerprint helper
   const getDeviceFingerprint = () => {
@@ -125,13 +95,29 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     return deviceId;
   };
 
+  const [queuedCount, setQueuedCount] = useState(0);
+
+  const attemptQueueFlush = async () => {
+    const pending = await getQueuedAttendance();
+    if (pending.length === 0) { setQueuedCount(0); return; }
+    const result = await flushAttendanceQueue();
+    const remaining = await getQueuedAttendance();
+    setQueuedCount(remaining.length);
+    if (result.succeeded > 0) {
+      setSuccess(`${result.succeeded} saved check-in(s) submitted successfully.`);
+      initToday();
+    }
+    if (result.failedMessages.length > 0) {
+      setError(result.failedMessages[0]);
+    }
+  };
+
   useEffect(() => {
     fetchTenantConfig();
     initToday();
-
-    return () => {
-      stopCamera();
-    };
+    attemptQueueFlush();
+    window.addEventListener('online', attemptQueueFlush);
+    return () => window.removeEventListener('online', attemptQueueFlush);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -310,14 +296,6 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     enterFaceStep();
   };
 
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-  };
-
   const fetchTenantConfig = async () => {
     try {
       const res = await fetch('/api/tenant/config', {
@@ -333,216 +311,33 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   };
 
   // ==========================================
-  // STEP 1 — Face liveness/identity challenge
+  // STEP 1 — WebAuthn device identity check
   // ==========================================
 
   const enterFaceStep = async () => {
-    setStep('face');
+    setStep('identity');
     setError('');
-    setIsFallbackMode(false);
-    setChallenge([]);
-    faceTokenRef.current = null;
-    setFaceScores(null);
-    setStatus('Starting camera...');
-    setLoading(true);
-    setActionPhase('idle');
-    setCurrentActionIndex(0);
-    setCurrentActionProgress(0);
-    setVerifiedChallengeActions([]);
-    await startCamera();
+    identityTokenRef.current = null;
+    setIdentityVerified(false);
+    setStatus('Ready to verify');
+    setLoading(false);
   };
 
-  const startCamera = async () => {
+  const handleVerifyIdentity = async () => {
+    if (identityBusy) return;
+    setError('');
+    setIdentityBusy(true);
+    setStatus('Waiting for your device...');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 640, height: 480 }
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-      setStatus('Ready to scan');
-      setLoading(false);
+      const identityToken = await verifyThisDevice();
+      identityTokenRef.current = identityToken;
+      setIdentityVerified(true);
+      enterGpsStep();
     } catch (err) {
-      console.error(err);
-      setError(describeCameraError(err));
-      setLoading(false);
-    }
-  };
-
-  // Snapshot the current video frame to a compressed JPEG data URL. No face
-  // detection happens client-side — the Python face service (called from
-  // the Node backend) does all of that from the raw frames we send it.
-  const captureFrame = (): string | null => {
-    if (!videoRef.current || !canvasRef.current) return null;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video.videoWidth || !video.videoHeight) return null;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.85);
-  };
-
-  // True only while an actual live camera frame is flowing — not just
-  // "srcObject is set", since a track can end (device unplugged, OS-level
-  // revoke) without srcObject ever going back to null.
-  const hasLiveCameraTrack = () =>
-    !!(videoRef.current?.srcObject as MediaStream | null)?.getVideoTracks().some(t => t.readyState === 'live');
-
-  const handleFaceScan = async () => {
-    if (!videoRef.current || faceActionBusy) return;
-
-    setError('');
-    setFaceActionBusy(true);
-
-    // The camera may never have started — denied last time, dismissed
-    // without a choice, or revoked mid-session — so don't try to capture
-    // from a dead stream. Re-run getUserMedia right here instead: a browser
-    // only ever suppresses its own permission prompt once the user has
-    // permanently blocked this site from its own settings UI; every other
-    // denial (closed the prompt, denied once this tab, revoked later)
-    // re-prompts on a fresh call, so this button doubles as a retry.
-    if (!hasLiveCameraTrack()) {
-      setStatus('Requesting camera access...');
-      setLoading(true);
-      await startCamera();
-      if (!hasLiveCameraTrack()) {
-        setFaceActionBusy(false);
-        return;
-      }
-    }
-
-    try {
-      if (!isFallbackMode) {
-        // --- PHOTO MODE ---
-        setActionPhase('get_ready');
-        setCurrentActionProgress(0);
-        setStatus('Get ready for photo verification');
-        await new Promise(resolve => setTimeout(resolve, CHALLENGE_GET_READY_MS));
-
-        setActionPhase('capturing');
-        setStatus('Looking straight at the camera...');
-        const frames: string[] = [];
-        for (let f = 0; f < CHALLENGE_FRAMES_PER_ACTION; f++) {
-          const frame = captureFrame();
-          if (frame) {
-            frames.push(frame);
-            setCurrentActionProgress(frames.length);
-          }
-          await new Promise(resolve => setTimeout(resolve, CHALLENGE_CAPTURE_INTERVAL_MS));
-        }
-
-        if (frames.length < 4) {
-          throw new Error('Could not capture enough frames from the camera. Please try again.');
-        }
-
-        setActionPhase('verifying');
-        setStatus('Verifying photo...');
-
-        const res = await fetch('/api/attendance/verify-face', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ images: frames, mode: 'photo' })
-        });
-
-        const data = await res.json();
-
-        if (res.ok && data.passed) {
-          faceTokenRef.current = data.token;
-          setFaceScores({ faceMatchScore: data.faceMatchScore, livenessScore: data.livenessScore });
-          stopCamera();
-          setLoading(false);
-          enterGpsStep();
-          return;
-        }
-
-        if (data.needsFallback) {
-          setIsFallbackMode(true);
-          setChallenge(data.fallbackActions || []);
-          setCurrentActionIndex(0);
-          setCurrentActionProgress(0);
-          setVerifiedChallengeActions([]);
-          setActionPhase('idle');
-          setStatus('One more quick check needed.');
-          setError('We occasionally ask for an extra check for security — follow the prompt below.');
-          return;
-        }
-
-        throw new Error(data.error || 'Photo verification failed.');
-      } else {
-        // --- FALLBACK ACTIONS MODE ---
-        const currentAction = challenge[currentActionIndex];
-        
-        setActionPhase('get_ready');
-        setCurrentActionProgress(0);
-        setStatus(`Get ready: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
-        await new Promise(resolve => setTimeout(resolve, CHALLENGE_GET_READY_MS));
-
-        setActionPhase('capturing');
-        setStatus(`Now: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
-        const frames: string[] = [];
-        for (let f = 0; f < CHALLENGE_FRAMES_PER_ACTION; f++) {
-          const frame = captureFrame();
-          if (frame) {
-            frames.push(frame);
-            setCurrentActionProgress(frames.length);
-          }
-          await new Promise(resolve => setTimeout(resolve, CHALLENGE_CAPTURE_INTERVAL_MS));
-        }
-
-        if (frames.length < 4) {
-          throw new Error('Could not capture enough frames from the camera. Please try again.');
-        }
-
-        setActionPhase('verifying');
-        setStatus(`Checking: ${CHALLENGE_LABELS[currentAction] || currentAction}`);
-
-        const res = await fetch('/api/attendance/verify-action', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ action: currentAction, images: frames })
-        });
-
-        const data = await res.json();
-
-        if (res.ok && data.passed) {
-          faceTokenRef.current = data.token;
-          setFaceScores({ faceMatchScore: data.faceMatchScore, livenessScore: 1.0 });
-          stopCamera();
-          setLoading(false);
-          enterGpsStep();
-          return;
-        }
-
-        // If this fallback action failed, try the next one if available
-        if (currentActionIndex < challenge.length - 1) {
-          setCurrentActionIndex(prev => prev + 1);
-          setCurrentActionProgress(0);
-          setActionPhase('idle');
-          setStatus('Ready to scan');
-          setError(`Verification failed for ${CHALLENGE_LABELS[currentAction] || currentAction}. Please try the next action.`);
-          return;
-        }
-
-        // All fallback actions failed
-        throw new Error('All fallback verification actions failed. Please restart face verification.');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed.');
-      setLoading(false);
-      setStatus('Ready to scan');
-      setActionPhase('idle');
-      setCurrentActionProgress(0);
+      setError(describeWebAuthnError(err));
+      setStatus('Ready to verify');
     } finally {
-      setFaceActionBusy(false);
+      setIdentityBusy(false);
     }
   };
 
@@ -586,7 +381,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ lat: coords.lat, lng: coords.lng, token: faceTokenRef.current })
+            body: JSON.stringify({ lat: coords.lat, lng: coords.lng, token: identityTokenRef.current })
           });
           const data = await res.json();
           if (!res.ok || !data.passed) {
@@ -639,7 +434,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ simulatedIp: ipOverride, token: faceTokenRef.current })
+        body: JSON.stringify({ simulatedIp: ipOverride, token: identityTokenRef.current })
       });
       const data = await res.json();
       if (!res.ok || !data.passed) {
@@ -673,27 +468,46 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     // will resolve to a check-in or a check-out on the server.
     const isCheckIn = todayState !== 'checked_in';
 
+    const deviceId = getDeviceFingerprint();
+    const requestBody = {
+      token: identityTokenRef.current,
+      deviceId,
+      lat: coords.lat,
+      lng: coords.lng,
+      simulatedIp: ipOverride,
+      clientTimestamp: new Date().toISOString(),
+      explanation,
+      mode: attendanceMode,
+      wfhReason: attendanceMode === 'wfh' ? wfhReasonText.trim() : undefined
+    };
+
+    // The submit call itself is isolated in its own try/catch so a network
+    // failure here (identity + location already verified, just this last
+    // round-trip dropped) can be queued for automatic retry instead of
+    // being treated the same as a real validation failure below, which
+    // would otherwise throw the employee all the way back to the
+    // verification step for no reason.
+    let res: Response;
     try {
-      const deviceId = getDeviceFingerprint();
-      const res = await fetch('/api/attendance', {
+      res = await fetch('/api/attendance', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          token: faceTokenRef.current,
-          deviceId,
-          lat: coords.lat,
-          lng: coords.lng,
-          simulatedIp: ipOverride,
-          clientTimestamp: new Date().toISOString(),
-          explanation,
-          mode: attendanceMode,
-          wfhReason: attendanceMode === 'wfh' ? wfhReasonText.trim() : undefined
-        })
+        body: JSON.stringify(requestBody)
       });
+    } catch {
+      await queueAttendanceSubmit(token || '', requestBody);
+      setQueuedCount((c) => c + 1);
+      setLoading(false);
+      setStep('ready');
+      setSuccess('');
+      setError('You appear to be offline. This check-in is saved and will submit automatically once you\'re back online.');
+      return;
+    }
 
+    try {
       const data = await res.json();
 
       if (!res.ok) {
@@ -721,9 +535,8 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
           return;
         }
         // Day already completed (e.g. a second tab) — lock the UI instead
-        // of restarting the camera.
+        // of restarting the flow.
         if (data.locked) {
-          stopCamera();
           setTodayState('checked_out');
           setError(data.error || 'Attendance already completed for today.');
           setLoading(false);
@@ -811,13 +624,13 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     mode_select: 'Attendance Mode',
     home_registration: 'Register Home Location',
     wfh_reason: 'Reason for WFH',
-    face: '1. Face Verification',
+    identity: '1. Device Verification',
     gps: attendanceMode === 'wfh' ? '2. Home Location' : '2. Location',
     wifi: '3. Corporate Network',
     submitting: 'Recording',
     late_reason: 'Explain Late Arrival',
   };
-  const stepOrder: Step[] = wifiCheckEnabled ? ['face', 'gps', 'wifi'] : ['face', 'gps'];
+  const stepOrder: Step[] = wifiCheckEnabled ? ['identity', 'gps', 'wifi'] : ['identity', 'gps'];
 
   return (
     <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans text-[var(--color-nexus-ink)] selection:bg-[var(--color-nexus-primary)] selection:text-white relative overflow-hidden">
@@ -854,6 +667,11 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
           {attendanceMode === 'wfh' && step !== 'mode_select' && (
             <span className="ml-2 px-3 py-1 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 text-[var(--color-nexus-secondary)] rounded-full text-[9px] font-mono tracking-widest uppercase">
               🏠 Work From Home
+            </span>
+          )}
+          {queuedCount > 0 && (
+            <span className="ml-2 px-3 py-1 bg-[var(--color-nexus-warning-soft)] border border-[var(--color-nexus-warning)]/30 text-[var(--color-nexus-warning)] rounded-full text-[9px] font-mono tracking-widest uppercase">
+              {queuedCount} check-in{queuedCount > 1 ? 's' : ''} pending sync
             </span>
           )}
           <h1 className="font-sans text-3xl font-extrabold tracking-tight text-[var(--color-nexus-ink)] mt-4">
@@ -937,7 +755,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 <div>
                   <h2 className="text-lg font-sans font-bold text-[var(--color-nexus-ink)]">Ready to mark attendance?</h2>
                   <p className="text-xs text-[var(--color-nexus-muted)] mt-1.5">
-                    You'll be asked to allow camera{pendingMode === 'office' ? ' and location' : ''} access for identity and {pendingMode === 'wfh' ? 'home-location' : 'geofence'} verification.
+                    You'll be asked to verify with your device (fingerprint, face, or PIN){pendingMode === 'office' ? ' and allow location access' : ''} for identity and {pendingMode === 'wfh' ? 'home-location' : 'geofence'} verification.
                   </p>
                 </div>
                 <button
@@ -1042,79 +860,32 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   onClick={confirmWfhReason}
                   className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all"
                 >
-                  Continue to Face Verification
+                  Continue to Device Verification
                 </button>
               </div>
             )}
 
-            {/* STEP 1 — Face */}
-            {step === 'face' && (
-              <>
-                <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-6 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="absolute inset-0 w-full h-full object-cover opacity-90 grayscale-[10%]"
-                  />
-                  <canvas ref={canvasRef} className="hidden" />
-
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="w-48 h-64 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-[40px] shadow-[0_0_15px_rgba(34,199,184,0.15)]"></div>
-                    {!loading && <div className="scan-line"></div>}
-                  </div>
-
-                  {loading && (
-                    <div className="absolute inset-0 bg-[var(--color-nexus-ink)]/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-4">
-                      <div className="w-10 h-10 border-4 border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] rounded-full animate-spin"></div>
-                      <p className="text-xs text-white/70 uppercase tracking-widest font-mono">Loading Biometrics...</p>
-                    </div>
-                  )}
+            {/* STEP 1 — WebAuthn device identity */}
+            {step === 'identity' && (
+              <div className="py-8 text-center space-y-5">
+                <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-full flex items-center justify-center">
+                  <div className={`w-8 h-8 border-2 ${identityBusy ? 'border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] animate-spin' : 'border-[var(--color-nexus-secondary)]'} rounded-full`} />
                 </div>
-
-                {isFallbackMode && challenge.length > 0 && (
-                  <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 rounded-2xl mb-6 text-center">
-                    <p className="text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-1 font-mono">One more quick check</p>
-                    {actionPhase === 'idle' ? (
-                      <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
-                        We occasionally ask for an extra check for security. Perform the action prompted below and tap Capture.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="text-sm text-[var(--color-nexus-ink)] font-bold">
-                          {actionPhase === 'get_ready' ? 'Get ready to' : 'Now:'} {CHALLENGE_LABELS[challenge[currentActionIndex]] || challenge[currentActionIndex]}
-                        </p>
-                        <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1 font-mono uppercase tracking-wider">
-                          Attempt {currentActionIndex + 1} of {challenge.length}
-                          {actionPhase === 'capturing' ? ` • ${currentActionProgress}/${CHALLENGE_FRAMES_PER_ACTION}` : ''}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                )}
+                <p className="text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider h-6">● {status}</p>
 
                 <div className="space-y-4">
-                  <p className="text-center text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider h-6 animate-pulse">
-                    ● {status}
-                  </p>
-
                   <button
-                    onClick={handleFaceScan}
-                    disabled={loading || faceActionBusy}
+                    onClick={handleVerifyIdentity}
+                    disabled={identityBusy}
                     className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {faceActionBusy
-                      ? 'Checking...'
-                      : !isFallbackMode
-                        ? 'Verify Photo'
-                        : `Capture ${CHALLENGE_LABELS[challenge[currentActionIndex]] || challenge[currentActionIndex]}`}
+                    {identityBusy ? 'Verifying...' : 'Verify With This Device'}
                   </button>
 
                   {/* Dynamic QR Attendance — alternative entry point; a
                       receptionist/security desk displaying a QR code is a
                       separate way to reach the same verification engine,
-                      not a replacement for this direct camera flow. */}
+                      not a replacement for this direct flow. */}
                   <button
                     type="button"
                     onClick={() => navigate('/employee/qr-scan')}
@@ -1123,7 +894,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                     Scan QR Code Instead
                   </button>
                 </div>
-              </>
+              </div>
             )}
 
             {/* STEP 2 — GPS */}
@@ -1224,16 +995,10 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
               </div>
             )}
 
-            {faceScores && step !== 'face' && (
-              <div className="mt-4 p-3.5 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[11px] space-y-1.5 font-mono">
-                <div className="flex justify-between items-center text-[var(--color-nexus-muted)]">
-                  <span>Face Match</span>
-                  <span className="text-[var(--color-nexus-secondary)] font-semibold">{(faceScores.faceMatchScore * 100).toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between items-center text-[var(--color-nexus-muted)]">
-                  <span>Liveness</span>
-                  <span className="text-[var(--color-nexus-secondary)] font-semibold">{(faceScores.livenessScore * 100).toFixed(1)}%</span>
-                </div>
+            {identityVerified && step !== 'identity' && (
+              <div className="mt-4 p-3.5 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[11px] font-mono flex justify-between items-center text-[var(--color-nexus-muted)]">
+                <span>Device Identity</span>
+                <span className="text-[var(--color-nexus-secondary)] font-semibold">Verified</span>
               </div>
             )}
 

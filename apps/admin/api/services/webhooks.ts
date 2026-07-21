@@ -9,10 +9,19 @@ import { logger } from '../../logger';
 export const WEBHOOK_EVENTS = [
   'attendance.checked_in',
   'attendance.checked_out',
+  'attendance.correction_resolved',
+  'attendance.break_violation',
+  'attendance.edited',
   'leave.requested',
   'leave.approved',
   'leave.rejected',
+  'leave.amended',
   'payroll.run_completed',
+  'employee.terminated',
+  'shift.swap_approved',
+  'ticket.raised',
+  'ticket.resolved',
+  'ticket.escalated',
 ] as const;
 export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 

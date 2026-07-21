@@ -150,6 +150,98 @@ export function useWfhLocationRequests(token: string | null, { setLoading, setEr
   return { wfhLocationRequests, hasWfhLocationAccess, fetchWfhLocationRequests, handleResolveWfhLocationRequest };
 }
 
+// Termination requests — submitted by anyone holding 'employee.terminate'
+// who is NOT the tenant_admin (the tenant_admin's own terminations are
+// immediate and never appear here). Approve/reject-only (tenant_admin-only
+// access, enforced server-side), same 200/403-probe convention as the
+// queues above.
+export function useTerminationRequests(token: string | null, { setLoading, setError, setSuccess }: Setters) {
+  const [terminationRequests, setTerminationRequests] = useState<any[]>([]);
+  const [hasTerminationAccess, setHasTerminationAccess] = useState(false);
+
+  const fetchTerminationRequests = async () => {
+    try {
+      const res = await fetch('/api/tenant/termination-requests', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) { setHasTerminationAccess(false); return; }
+      const data = await res.json();
+      setHasTerminationAccess(true);
+      if (data.requests) setTerminationRequests(data.requests);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleResolveTermination = async (requestId: number, action: 'approve' | 'reject') => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/termination-requests/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ requestId, action })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
+      setSuccess(`Termination request ${action === 'approve' ? 'approved — employee removed' : 'rejected'}.`);
+      fetchTerminationRequests();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resolve request');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { terminationRequests, hasTerminationAccess, fetchTerminationRequests, handleResolveTermination };
+}
+
+// Shift-swap requests awaiting manager approval — the two colleagues have
+// already agreed (see ShiftSwapWidget.tsx); this is just the final policy
+// sign-off (shift.manage), same convention as the queues above.
+export function useShiftSwapRequests(token: string | null, { setLoading, setError, setSuccess }: Setters) {
+  const [shiftSwapRequests, setShiftSwapRequests] = useState<any[]>([]);
+  const [hasShiftSwapAccess, setHasShiftSwapAccess] = useState(false);
+
+  const fetchShiftSwapRequests = async () => {
+    try {
+      const res = await fetch('/api/tenant/shift-swap/pending-approval', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) { setHasShiftSwapAccess(false); return; }
+      const data = await res.json();
+      setHasShiftSwapAccess(true);
+      if (data.requests) setShiftSwapRequests(data.requests);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleResolveShiftSwap = async (requestId: number, action: 'approve' | 'reject') => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/tenant/shift-swap/${requestId}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ action })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
+      setSuccess(`Shift swap ${action === 'approve' ? 'approved' : 'rejected'}.`);
+      fetchShiftSwapRequests();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resolve request');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { shiftSwapRequests, hasShiftSwapAccess, fetchShiftSwapRequests, handleResolveShiftSwap };
+}
+
 // Attendance alerts (e.g. anomaly/violation notices) — gated by alerts.receive.
 export function useAlerts(token: string | null, { setLoading, setError, setSuccess }: Setters) {
   const [attendanceAlerts, setAttendanceAlerts] = useState<any[]>([]);

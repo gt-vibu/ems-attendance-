@@ -3,7 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 // Lightweight ambient background for the premium auth/portal pages (Login,
-// EmployeeLogin, EmployeeKYC, EmployeeAttendance, EmployeeHome, ForgotPassword,
+// EmployeeLogin, RegisterDevice, EmployeeAttendance, EmployeeHome, ForgotPassword,
 // ResetPassword) — a few slowly drifting soft blobs, no interaction, no
 // labels. Modeled on the Canvas/useFrame pattern in three/FlightPath.tsx but
 // deliberately simpler/cheaper since it's mounted full-bleed behind page

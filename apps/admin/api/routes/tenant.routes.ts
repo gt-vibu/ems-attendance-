@@ -17,7 +17,6 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, getScopedBranchIds } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
@@ -388,6 +387,102 @@ router.post('/api/tenant/users/create', authenticate, async (req: any, res: any)
       // their credentials", so it can say so honestly instead of always
       // claiming success even when no mail provider is configured.
       res.json({ success: true, isNewRole: existingRoleRow.length === 0, role, emailDelivered: emailResult.delivered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Bulk hire via CSV — same core validation as POST /api/tenant/users/create
+  // (role restriction, branch/shift ownership, scoped-branch precedence, no
+  // duplicate email), run per-row so one bad row doesn't fail the whole
+  // batch. Deliberately simpler than the single-hire endpoint: every hire in
+  // a batch gets exactly its role's default privileges, no per-row custom
+  // "additional access" grant or multi-branch assignment — those still go
+  // through the single hire form when a specific person needs more than
+  // their role's baseline.
+router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res: any) => {
+    try {
+      if (!await hasPrivilege(req.user, 'employee.create')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+      }
+      const { rows } = req.body;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ error: 'rows (a non-empty array) is required' });
+      }
+      if (rows.length > 200) {
+        return res.status(400).json({ error: 'A single batch is limited to 200 rows — split larger files.' });
+      }
+
+      const scopedBranchIds = await getScopedBranchIds(req.user);
+      const tenantId = req.user.tenantId;
+      const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+      const seenEmailsThisBatch = new Set<string>();
+      const results: Array<{ row: number; email: string; success: boolean; error?: string }> = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const rowNum = i + 1;
+        const { email, name, role, branchId: rawBranchId, shiftId: rawShiftId, department } = rows[i] || {};
+        try {
+          if (!email || !name || !role) throw new Error('email, name, and role are required');
+          const normalizedEmail = String(email).trim().toLowerCase();
+          if (seenEmailsThisBatch.has(normalizedEmail)) throw new Error('duplicate email within this batch');
+          seenEmailsThisBatch.add(normalizedEmail);
+
+          const normalizedRole = String(role).trim().toLowerCase();
+          if (normalizedRole === 'super_admin' || normalizedRole === 'tenant_admin' || normalizedRole === 'superadmin') {
+            throw new Error('this role cannot be assigned via bulk hire');
+          }
+
+          const branchId = Number(rawBranchId);
+          const shiftId = Number(rawShiftId);
+          if (!branchId || !shiftId) throw new Error('branchId and shiftId are required');
+          if (scopedBranchIds !== null && !scopedBranchIds.includes(branchId)) throw new Error('you are not scoped to this branch');
+
+          const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
+          if (branchRows.length === 0 || branchRows[0].tenantId !== tenantId) throw new Error('invalid branchId');
+          const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
+          if (shiftRows.length === 0 || shiftRows[0].branchId !== branchId) throw new Error('invalid shiftId for the selected branch');
+
+          const existing = await db.select().from(schema.users).where(eq(schema.users.email, email));
+          if (existing.length > 0) throw new Error('email already registered');
+
+          const roleDefaults = await getDefaultPrivilegesForRole(tenantId, role);
+          const existingRoleRow = await db.select().from(schema.rolePrivilegeDefaults).where(
+            and(eq(schema.rolePrivilegeDefaults.tenantId, tenantId), eq(schema.rolePrivilegeDefaults.roleName, role))
+          ).limit(1);
+          if (existingRoleRow.length === 0) {
+            await db.insert(schema.rolePrivilegeDefaults).values({ tenantId, roleName: role, privileges: roleDefaults });
+          }
+
+          const tempPassword = 'temp_' + crypto.randomBytes(6).toString('hex');
+          const userUid = crypto.randomUUID();
+          await db.insert(schema.users).values({
+            uid: userUid, email, name, department: department || null, password: '',
+            tempPassword: await hashPassword(tempPassword), role, privileges: [],
+            mustChangePassword: true, tenantId, branchId, shiftId,
+          });
+
+          const activationLink = `${baseUrl}/login?email=${encodeURIComponent(email)}&temp=${tempPassword}`;
+          await sendEmail({
+            to: email,
+            subject: `Smart Teams Invitation - Registered as ${role}`,
+            text: `Hello ${name},\n\nYou have been registered on Smart Teams as a ${role}.\n\nYour credentials:\nUsername: ${email}\nTemporary Password: ${tempPassword}\n\nLogin and set your password here: ${activationLink}\n\nBest Regards,\nSmart Teams Team`,
+            html: `<h3>Hello ${name},</h3><p>You have been registered on Smart Teams as a <strong>${role}</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#FF3D8A;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Set Your Password</a></p><br/><p>Best Regards,<br/>Smart Teams Team</p>`,
+          }).catch(() => undefined);
+
+          await logToAuditLedger({
+            tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'EMPLOYEE_CREATED',
+            ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '', deviceInfo: req.headers['user-agent'] || '',
+            details: { email, name, role, department: department || null, branchId, shiftId, viaBulkImport: true },
+          });
+
+          results.push({ row: rowNum, email, success: true });
+        } catch (rowErr: any) {
+          results.push({ row: rowNum, email: email || '(missing)', success: false, error: rowErr.message || 'Unknown error' });
+        }
+      }
+
+      res.json({ success: true, results, created: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

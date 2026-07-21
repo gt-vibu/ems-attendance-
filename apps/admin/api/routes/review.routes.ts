@@ -14,31 +14,62 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { notifyUsers } from '../services/notifications';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
+import { dispatchWebhookEvent } from '../services/webhooks';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
 export const router = Router();
 
 
-  // List alerts for whoever has 'alerts.receive' — tenant admin always sees all.
+  // Which per-type receive/resolve privilege family covers a given
+  // alert type — see featureCatalog.ts's "Timing Alerts" category. Late
+  // arrival deliberately has no entry here: it's not an attendanceAlerts
+  // row at all, it's handled entirely by the pending-attendance-log queue
+  // below, gated by 'attendance.approve'.
+const ALERT_TYPE_PRIVILEGE_PREFIX: Record<string, string> = {
+  break_exceeded: 'alerts.break_violation',
+  break_outside_geofence: 'alerts.break_violation',
+  geofence_exit_working_hours: 'alerts.geofence_exit',
+  spoofing_suspected: 'alerts.security',
+  auto_checkout_unverified: 'alerts.security',
+  low_attendance: 'alerts.low_attendance',
+};
+
+  // Visible to: (a) whoever it's currently routed to (see
+  // services/escalation.ts / raiseAttendanceAlert) — always, regardless of
+  // privileges, since routing already decided they're the responsible
+  // party; or (b) anyone holding the matching per-type '.receive' privilege
+  // (or the general legacy 'alerts.receive'), which grants tenant-wide
+  // visibility into that alert type beyond just their own routed queue.
 router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'alerts.receive')) {
-        return res.status(403).json({ error: 'Access denied: You have not been granted permission to receive alerts.' });
-      }
+      const effective = await getEffectivePrivileges(req.user);
+      const holds = (key: string) => effective === 'ALL' || effective.includes(key);
+
       const alerts = await db.select().from(schema.attendanceAlerts)
         .where(eq(schema.attendanceAlerts.tenantId, req.user.tenantId))
         .orderBy(desc(schema.attendanceAlerts.createdAt));
 
-      // Attach the violator's name for display
-      const withNames = await Promise.all(alerts.map(async (a: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, a.userId));
-        return { ...a, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
+      const visible = alerts.filter((a: any) => {
+        if (a.currentAssigneeUserId === req.user.userId) return true;
+        if (holds('alerts.receive')) return true;
+        const prefix = ALERT_TYPE_PRIVILEGE_PREFIX[a.type];
+        return !!prefix && holds(`${prefix}.receive`);
+      });
+
+      // Attach the violator's + current assignee's names for display
+      const userIds = [...new Set(visible.flatMap((a: any) => [a.userId, a.currentAssigneeUserId].filter(Boolean)))];
+      const users = userIds.length > 0 ? await db.select().from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId)) : [];
+      const userMap = new Map<number, any>(users.map((u: any) => [u.id, u]));
+      const withNames = visible.map((a: any) => ({
+        ...a,
+        userName: userMap.get(a.userId)?.name || 'Unknown',
+        userRole: userMap.get(a.userId)?.role || '',
+        currentAssigneeName: a.currentAssigneeUserId ? (userMap.get(a.currentAssigneeUserId)?.name || 'Unknown') : null,
       }));
 
       res.json({ alerts: withNames });
@@ -47,19 +78,17 @@ router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
     }
   });
 
-  // Accept or reject an alert. Each action is gated by its own privilege —
-  // a user might be allowed to receive and accept alerts but not reject
-  // them, or vice versa, exactly as the tenant admin configured.
+  // Accept or reject an alert — both actions gated by the SAME single
+  // '.resolve' privilege (matches how every other approval flow in this
+  // catalog works: attendance.approve, leave.approve, employee.terminate.
+  // approve all gate approve+reject together in one toggle). Authorized if:
+  // (a) it's currently routed to you (see above), or (b) you hold the
+  // matching per-type '.resolve' privilege (or the general legacy one).
 router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any) => {
     try {
       const { alertId, action } = req.body; // action: 'accept' | 'reject'
       if (!alertId || !['accept', 'reject'].includes(action)) {
         return res.status(400).json({ error: 'alertId and a valid action (accept|reject) are required' });
-      }
-
-      const requiredPrivilege = action === 'accept' ? 'alerts.accept' : 'alerts.reject';
-      if (!await hasPrivilege(req.user, requiredPrivilege)) {
-        return res.status(403).json({ error: `Access denied: You have not been granted permission to ${action} alerts.` });
       }
 
       const alertList = await db.select().from(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.id, alertId));
@@ -75,6 +104,16 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
       }
       if (alert.status !== 'pending') {
         return res.status(400).json({ error: 'This alert has already been resolved.' });
+      }
+
+      const isAssignee = alert.currentAssigneeUserId === req.user.userId;
+      const prefix = ALERT_TYPE_PRIVILEGE_PREFIX[alert.type];
+      const specificPrivilege = prefix ? `${prefix}.resolve` : null;
+      const authorized = isAssignee
+        || await hasPrivilege(req.user, 'alerts.resolve')
+        || (specificPrivilege ? await hasPrivilege(req.user, specificPrivilege) : false);
+      if (!authorized) {
+        return res.status(403).json({ error: `Access denied: You have not been granted permission to resolve this alert type.` });
       }
 
       await db.update(schema.attendanceAlerts)
@@ -201,7 +240,7 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
       });
 
       // Notify whoever can actually approve corrections.
-      const approvers = await getUsersWithPrivilege(req.user.tenantId, 'attendance.approve');
+      const approvers = await getUsersWithPrivilege(req.user.tenantId, ['attendance.approve.corrections', 'attendance.approve']);
       for (const approver of approvers) {
         await sendManagerEscalationEmail(
           approver.email,
@@ -230,10 +269,11 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
     }
   });
 
-  // Whoever holds 'attendance.approve' reviews the tenant's pending requests.
+  // Whoever holds 'attendance.approve.corrections' (or the general legacy
+  // 'attendance.approve') reviews the tenant's pending requests.
 router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const list = await db.select().from(schema.attendanceCorrections)
@@ -253,7 +293,7 @@ router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) =
 
 router.post('/api/tenant/corrections/action', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const { correctionId, action } = req.body; // 'approve' | 'reject'
@@ -290,6 +330,8 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         details: { correctionId, subjectUserId: correction.userId }
       });
 
+      dispatchWebhookEvent(req.user.tenantId, 'attendance.correction_resolved', { correctionId, subjectUserId: correction.userId, status: action === 'approve' ? 'approved' : 'rejected' });
+
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -300,7 +342,7 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
   // pendingApproval logic). Same shape/gating as /api/tenant/corrections.
 router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.late_arrival', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const list = await db.select().from(schema.attendanceLogs)
@@ -325,7 +367,7 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
 
 router.post('/api/tenant/attendance/action', authenticate, async (req: any, res: any) => {
     try {
-      if (!await hasPrivilege(req.user, 'attendance.approve')) {
+      if (!await hasAnyPrivilege(req.user, ['attendance.approve.late_arrival', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const { logId, action } = req.body; // 'approve' | 'reject'

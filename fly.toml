@@ -1,7 +1,6 @@
 # Fly.io config for the admin app (Express API + bundled React SPA).
-# Postgres and the face-service are separate Fly resources — see DEPLOYMENT.md
-# for the full step-by-step (fly postgres create, deploying the face-service as
-# its own app, and `fly secrets set` for the values below).
+# Postgres is a separate Fly resource — see DEPLOYMENT.md for the full
+# step-by-step (fly postgres create, and `fly secrets set` for the values below).
 #
 # Deploy:  fly launch --no-deploy   (first time, to create the app)
 #          fly secrets set JWT_SECRET=... SQL_HOST=... SQL_ADMIN_PASSWORD=... (etc)
@@ -18,8 +17,6 @@ primary_region = "sin"     # pick a region near your users
 [env]
   NODE_ENV = "production"
   PORT = "3000"
-  # Internal address of the separately-deployed face-service app.
-  FACE_SERVICE_URL = "http://smartteams-face-service.internal:8001"
 
 [http_service]
   internal_port = 3000

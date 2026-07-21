@@ -28,15 +28,29 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     icon: 'Users',
     features: [
       { key: 'employee.create', label: 'Hire Employees', description: 'Onboard new employees and assign their role, branch, and shift.' },
+      { key: 'employee.edit', label: 'Edit Employee Details', description: 'Update an existing employee\'s name, role, department, designation, branch, or shift. Separate from Hire — a role can be trusted to keep records current without being able to onboard new headcount.' },
       { key: 'employee.read', label: 'View Employee Roster', description: 'See the full list of employees and their details.' },
+      { key: 'employee.terminate', label: 'Terminate Employees', description: 'Remove an employee from the organization. The tenant admin does this immediately; anyone else with this permission must submit a reason for the tenant admin to approve first.' },
     ],
   },
   {
+    // 'attendance.approve' used to be one bucket covering three unrelated
+    // approval queues (late arrivals, WFH, missed-punch corrections) — split
+    // per-type below, same reasoning as the Timing Alerts split: a floor
+    // supervisor might reasonably approve late arrivals without also being
+    // trusted to approve WFH. 'attendance.approve' is kept as a general/
+    // legacy bucket so anyone already holding it keeps working exactly as
+    // before (no regression) — see review.routes.ts/wfh.routes.ts, which
+    // check the specific key OR this one.
     category: 'Attendance',
     icon: 'Clock',
     features: [
       { key: 'attendance.read', label: 'View Attendance Records', description: 'See check-in/check-out history for the team.' },
-      { key: 'attendance.approve', label: 'Approve Late Arrivals & WFH', description: 'Review and approve or reject late check-ins and Work From Home requests.' },
+      { key: 'attendance.approve.late_arrival', label: 'Approve Late Arrivals', description: 'Review and approve or reject late check-ins.' },
+      { key: 'attendance.approve.wfh', label: 'Approve Work From Home', description: 'Review and approve or reject Work From Home check-ins and home-location change requests.' },
+      { key: 'attendance.approve.corrections', label: 'Approve Attendance Corrections', description: 'Review and approve or reject employee-submitted corrections (missed check-in/out, wrong location flagged).' },
+      { key: 'attendance.approve', label: 'Approve All Attendance Requests (general)', description: 'General bucket — anyone holding this can approve every request type above regardless of the specific toggles.' },
+      { key: 'attendance.edit', label: 'Edit Attendance Records', description: 'Directly correct an existing attendance record\'s status or times (e.g. flip a wrongly-marked Absent to Present) — the fix reflects immediately in attendance history, leave, and payroll.' },
     ],
   },
   {
@@ -48,13 +62,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     features: [
       { key: 'leave.approve', label: 'Approve Leave Requests', description: 'Review, approve, or reject employee leave requests.' },
       { key: 'leave.read', label: 'View Leave Tracker', description: 'See leave balances, requests, and leave history.' },
-    ],
-  },
-  {
-    category: 'Breaks',
-    icon: 'Coffee',
-    features: [
-      { key: 'breaks.manage', label: 'Manage Break Violations', description: 'Review break-overstay and geofence-exit violations.' },
+      { key: 'leave.edit', label: 'Amend Leave History', description: 'Change the dates, type, or outcome of an already-decided leave request — the fix reflects immediately in leave history and payroll.' },
     ],
   },
   {
@@ -118,12 +126,46 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     ],
   },
   {
+    // One receive/resolve PAIR per violation type, instead of one bucket
+    // covering everything — so a tenant admin can e.g. give a floor
+    // supervisor visibility into break overstays without also handing them
+    // fraud/spoofing alerts. 'Resolve' covers both accept AND reject in one
+    // toggle — matching the same read/write shape used everywhere else in
+    // this catalog (attendance.approve, leave.approve, employee.terminate.
+    // approve all gate approve+reject together; there's no reason alerts
+    // should be the one place split into three). 'alerts.receive'/'resolve'
+    // below are kept as a general/legacy bucket: anyone already holding them
+    // keeps seeing/resolving every alert type (no regression), and they
+    // still cover the two types with no dedicated toggle (security/fraud
+    // signals, low-attendance compliance). Late-arrival alerts are
+    // deliberately NOT duplicated here — they already have their own
+    // dedicated toggle under Attendance ('attendance.approve.late_arrival').
     category: 'Timing Alerts',
     icon: 'AlertTriangle',
     features: [
-      { key: 'alerts.receive', label: 'Receive Timing Alerts', description: 'Get notified of break overstays and geofence exits.' },
-      { key: 'alerts.accept', label: 'Accept Alerts', description: 'Mark a timing alert as accepted/valid.' },
-      { key: 'alerts.reject', label: 'Reject Alerts', description: 'Dismiss a timing alert as a false positive.' },
+      { key: 'alerts.break_violation.receive', label: 'Receive Break Violation Alerts', description: 'Get notified when an employee overstays a break or leaves the geofence while on break.' },
+      { key: 'alerts.break_violation.resolve', label: 'Resolve Break Violation Alerts', description: 'Accept or dismiss a break violation alert.' },
+      { key: 'alerts.geofence_exit.receive', label: 'Receive GPS Out-of-Bounds Alerts', description: 'Get notified when a clocked-in employee\'s location drifts outside the company area during working hours (not on break).' },
+      { key: 'alerts.geofence_exit.resolve', label: 'Resolve GPS Out-of-Bounds Alerts', description: 'Accept or dismiss a GPS out-of-bounds alert (e.g. dismiss a legitimate off-site errand).' },
+      { key: 'alerts.security.receive', label: 'Receive Security & Fraud Alerts', description: 'Get notified of spoofing signals and unverified auto-checkouts.' },
+      { key: 'alerts.security.resolve', label: 'Resolve Security & Fraud Alerts', description: 'Accept or dismiss a security/fraud alert.' },
+      { key: 'alerts.low_attendance.receive', label: 'Receive Low-Attendance Alerts', description: 'Get notified when an employee\'s monthly attendance percentage drops below the configured threshold.' },
+      { key: 'alerts.receive', label: 'Receive All Other Alerts (general)', description: 'General alert bucket — anyone holding this sees every alert type regardless of the specific toggles above.' },
+      { key: 'alerts.resolve', label: 'Resolve All Other Alerts (general)', description: 'General resolve permission (accept or dismiss) across every alert type.' },
+    ],
+  },
+  {
+    // Whether someone is even eligible to be routed a ticket at all is NOT
+    // gated by this — routing follows the real org hierarchy (manager -> GM
+    // -> tenant_admin, see services/escalation.ts) regardless of privileges,
+    // since a ticket must always reach someone. This privilege instead
+    // gates the manual "view every ticket / act on any ticket" override —
+    // tenant_admin has it implicitly; a delegated HR/ops role can be given
+    // it to act as a backup resolver across the whole tenant.
+    category: 'Tickets & Disputes',
+    icon: 'Ticket',
+    features: [
+      { key: 'tickets.manage', label: 'Manage All Tickets', description: 'View and act on every ticket tenant-wide, not just ones routed to you personally.' },
     ],
   },
   {
@@ -133,6 +175,25 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'tenant.policy.manage', label: 'Set Company Policy Announcement', description: 'Write or update the company-wide policy banner shown on every employee and admin dashboard.' },
     ],
   },
+  {
+    // Capabilities that used to be hardcoded to `role === 'tenant_admin'`
+    // with no delegation path at all. Folded into the same catalog as
+    // everything else so a tenant admin can choose to hand any of these to
+    // a trusted role instead of being the sole person who can ever do them —
+    // per the standing "no capability is special-cased, everything is a
+    // toggle" rule. tenant_admin/super_admin still hold all of these
+    // implicitly (hasPrivilege() short-circuits true for those two roles),
+    // so nothing changes unless the admin explicitly grants one of these.
+    category: 'Administration',
+    icon: 'ShieldCheck',
+    features: [
+      { key: 'tenant.config.manage', label: 'Manage Company Policy Settings', description: 'Change WiFi/GPS geofence rules, shift defaults, grace period, break budget, and other org-wide policy settings.' },
+      { key: 'employee.terminate.approve', label: 'Approve Termination Requests', description: 'Review and approve or reject termination requests submitted by delegated staff.' },
+      { key: 'gdpr.manage', label: 'Manage Data Privacy (GDPR)', description: 'Erase a terminated employee\'s personal data on request, per data-privacy regulations.' },
+      { key: 'webhooks.manage', label: 'Manage Webhooks & Integrations', description: 'Create, view, and remove outbound webhook subscriptions for external integrations.' },
+      { key: 'serviceAccounts.manage', label: 'Manage API Keys (Service Accounts)', description: 'Create and revoke machine-to-machine API keys used by external integrations.' },
+    ],
+  },
 ];
 
 // Flat set of every valid catalog key, for quick membership checks
@@ -140,3 +201,18 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
 export const FEATURE_CATALOG_KEYS: Set<string> = new Set(
   FEATURE_CATALOG.flatMap((c) => c.features.map((f) => f.key))
 );
+
+// key -> the other key(s) it's useless without. Only genuinely hard
+// dependencies belong here (not "commonly granted together") — a
+// '.resolve' toggle with no matching '.receive' means the grantee can be
+// routed alerts they're not allowed to even see, which is a real broken
+// state, not just an unusual one. Consumed by both directions in the UI
+// (see FeatureCatalogGrid.tsx): granting the dependent auto-grants the
+// dependency; revoking the dependency warns about (and cascades to) every
+// dependent currently granted, before the change is saved.
+export const FEATURE_DEPENDENCIES: Record<string, string[]> = {
+  'alerts.break_violation.resolve': ['alerts.break_violation.receive'],
+  'alerts.geofence_exit.resolve': ['alerts.geofence_exit.receive'],
+  'alerts.security.resolve': ['alerts.security.receive'],
+  'alerts.resolve': ['alerts.receive'],
+};

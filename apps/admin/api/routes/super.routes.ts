@@ -14,11 +14,10 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES } from '../auth/rbac';
 import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
@@ -116,7 +115,7 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
         name: request.companyName,
         adminUid,
         plan: plan || request.plan,
-        featuresAllowed: featuresAllowed || ['kyc', 'wifi_lock', 'gps_geofence']
+        featuresAllowed: featuresAllowed || ['device_identity', 'wifi_lock', 'gps_geofence']
       }).returning();
 
       // No branch/shift is auto-created here, deliberately: every branch a
@@ -183,6 +182,16 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
 
   // SUPER ADMIN API: List all tenants (with live employee counts) for the
   // "manage tenants" view — suspend/reactivate, review plan & features.
+  // The server-driven list of platform-level module keys — same list used
+  // to validate /api/super/approve and /api/super/tenants/features, exposed
+  // so the frontend never hardcodes its own copy.
+router.get('/api/super/platform-features', authenticate, async (req: any, res: any) => {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    res.json({ features: PLATFORM_FEATURES });
+  });
+
 router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
     try {
       if (req.user.role !== 'super_admin') {
@@ -237,6 +246,45 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
     }
   });
 
+  // SUPER ADMIN API: Edit the platform feature whitelist for an EXISTING
+  // tenant — the ongoing counterpart to the one-time selection made in
+  // /api/super/approve. This is the top layer of the toggle cascade:
+  // whatever a tenant admin can turn on/delegate is bounded by what's in
+  // this list (see isPlatformFeatureAllowed() in rbac.ts).
+router.post('/api/super/tenants/features', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const { tenantId, featuresAllowed } = req.body;
+      if (!tenantId || !Array.isArray(featuresAllowed) || featuresAllowed.some((f: any) => typeof f !== 'string')) {
+        return res.status(400).json({ error: 'tenantId and featuresAllowed (a string array) are required' });
+      }
+      const tenantList = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+      if (tenantList.length === 0) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+      const validKeys = new Set<string>(PLATFORM_FEATURES.map((f) => f.key));
+      const cleaned = [...new Set(featuresAllowed.filter((f: string) => validKeys.has(f)))];
+
+      await db.update(schema.tenants).set({ featuresAllowed: cleaned }).where(eq(schema.tenants.id, tenantId));
+
+      await logToAuditLedger({
+        tenantId,
+        actorId: req.user.userId,
+        actorName: req.user.name,
+        action: 'TENANT_FEATURES_UPDATED',
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+        deviceInfo: req.headers['user-agent'] || '',
+        details: { tenantName: tenantList[0].name, featuresAllowed: cleaned }
+      });
+
+      res.json({ success: true, featuresAllowed: cleaned });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // SUPER ADMIN API: Permanently delete a tenant and everything belonging
   // to it. Unlike suspend/reactivate (reversible, no data loss), this is a
   // one-way door: every employee's login, attendance history, branches,
@@ -277,7 +325,38 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
             userIds.length > 0 ? inArray(schema.auditLedger.actorId, userIds) : sql`false`
           ));
 
-        // Children of attendanceLogs/qrSessions/breakSessions must go first.
+        // Full cascade, deepest-child-first. Every table anywhere in schema.ts
+        // that carries a tenantId or a userId pointing into this tenant has to
+        // be listed here — the previous version of this cascade only covered
+        // whatever existed when it was first written, and every feature added
+        // since (leave, payroll, teams, roles, integrations, and this
+        // session's own additions) silently accumulated as un-deleted FK
+        // blockers. Grouped by dependency depth rather than alphabetically so
+        // the ordering constraints are visible at a glance:
+
+        // Depth 3 — reference something below that itself references users/tenants.
+        await tx.delete(schema.roleCompensationComponents).where(eq(schema.roleCompensationComponents.tenantId, tenantId));
+        await tx.delete(schema.payrollRuns).where(eq(schema.payrollRuns.tenantId, tenantId));
+        await tx.delete(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.tenantId, tenantId));
+        await tx.delete(schema.teamMembers).where(userIds.length > 0 ? inArray(schema.teamMembers.userId, userIds) : sql`false`);
+        await tx.delete(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.tenantId, tenantId));
+        await tx.delete(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.tenantId, tenantId));
+        await tx.delete(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, tenantId));
+
+        // Depth 2 — reference users/tenants/branches/shifts directly.
+        await tx.delete(schema.employeeCompensationProfiles).where(eq(schema.employeeCompensationProfiles.tenantId, tenantId));
+        await tx.delete(schema.roleCompensationDefaults).where(eq(schema.roleCompensationDefaults.tenantId, tenantId));
+        await tx.delete(schema.teams).where(eq(schema.teams.tenantId, tenantId));
+        await tx.delete(schema.leaveBalanceAdjustments).where(eq(schema.leaveBalanceAdjustments.tenantId, tenantId));
+        await tx.delete(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId));
+        await tx.delete(schema.compensationHistory).where(eq(schema.compensationHistory.tenantId, tenantId));
+        await tx.delete(schema.payrollSettings).where(eq(schema.payrollSettings.tenantId, tenantId));
+        await tx.delete(schema.rolePrivilegeDefaults).where(eq(schema.rolePrivilegeDefaults.tenantId, tenantId));
+        await tx.delete(schema.serviceAccounts).where(eq(schema.serviceAccounts.tenantId, tenantId));
+        await tx.delete(schema.webhookSubscriptions).where(eq(schema.webhookSubscriptions.tenantId, tenantId));
+        await tx.delete(schema.departments).where(eq(schema.departments.tenantId, tenantId));
+        await tx.delete(schema.shiftOverrides).where(eq(schema.shiftOverrides.tenantId, tenantId));
+        await tx.delete(schema.userBranchAccess).where(userIds.length > 0 ? inArray(schema.userBranchAccess.userId, userIds) : sql`false`);
         await tx.delete(schema.qrScans).where(eq(schema.qrScans.tenantId, tenantId));
         await tx.delete(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.tenantId, tenantId));
         await tx.delete(schema.qrSessions).where(eq(schema.qrSessions.tenantId, tenantId));
@@ -288,10 +367,25 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
         await tx.delete(schema.deviceChangeRequests).where(eq(schema.deviceChangeRequests.tenantId, tenantId));
         await tx.delete(schema.holidays).where(eq(schema.holidays.tenantId, tenantId));
         await tx.delete(schema.attendanceLogs).where(eq(schema.attendanceLogs.tenantId, tenantId));
+        await tx.delete(schema.attendanceLogsArchive).where(eq(schema.attendanceLogsArchive.tenantId, tenantId));
+        await tx.delete(schema.terminationRequests).where(eq(schema.terminationRequests.tenantId, tenantId));
+        await tx.delete(schema.employeeDocuments).where(eq(schema.employeeDocuments.tenantId, tenantId));
+        await tx.delete(schema.shiftSwapRequests).where(eq(schema.shiftSwapRequests.tenantId, tenantId));
+        await tx.delete(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.tenantId, tenantId));
+        if (userIds.length > 0) {
+          await tx.delete(schema.webauthnChallenges).where(inArray(schema.webauthnChallenges.userId, userIds));
+        }
 
-        // Tenant-wide notifications are stored with userId = tenantId (see
-        // GET /api/tenant/notifications) — no FK, just cleanup.
+        // Notifications carry no DB-level FK (userId is a plain integer
+        // column, not a .references() column) so they were never actually a
+        // deletion blocker — cleaned up anyway so no row is left pointing at
+        // a user/tenant id that no longer exists. Tenant-wide broadcast rows
+        // use userId = tenantId (see GET /api/tenant/notifications); per-user
+        // rows use a real user id.
         await tx.delete(schema.notifications).where(eq(schema.notifications.userId, tenantId));
+        if (userIds.length > 0) {
+          await tx.delete(schema.notifications).where(inArray(schema.notifications.userId, userIds));
+        }
 
         // Users must go before branches/shifts (users.branchId/shiftId
         // reference them) and before tenants itself.
@@ -302,6 +396,18 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
         await tx.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));
       });
 
+      // Best-effort cleanup of on-disk document files — outside the DB
+      // transaction on purpose (file I/O shouldn't be part of a rollback-able
+      // transaction). The DB rows are already gone at this point either way,
+      // so a failure here just leaves orphaned files on disk, never a
+      // reachable-but-broken document.
+      try {
+        const { deleteTenantDocumentsDir } = await import('../services/documentStorage');
+        await deleteTenantDocumentsDir(tenantId);
+      } catch (err) {
+        logger.warn('[tenant-delete] failed to clean up on-disk documents', { tenantId, err: (err as any)?.message });
+      }
+
       await logToAuditLedger({
         tenantId: null,
         actorId: req.user.userId,
@@ -310,6 +416,97 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
         ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
         deviceInfo: req.headers['user-agent'] || '',
         details: { deletedTenantId: tenantId, tenantName: tenant.name, employeeCount }
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // SUPER ADMIN API: List the tenant_admin account(s) for a given tenant —
+  // feeds the "delete tenant admin" picker (a tenant can in principle have
+  // more than one).
+router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const tenantId = parseInt(req.params.tenantId, 10);
+      const admins = await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, 'tenant_admin')));
+      res.json({ admins: admins.map(a => ({ id: a.id, name: a.name, email: a.email, createdAt: a.createdAt })) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // SUPER ADMIN API: Permanently delete a single tenant_admin account —
+  // narrower than /api/super/tenants/delete, which wipes the whole
+  // organization. The tenant and its employees/data are untouched; only
+  // this one admin's login is removed. Session is revoked immediately
+  // (activeSessionId cleared) so any of their open tabs 401 on the next
+  // request. Nullable references (audit-ledger authorship, corrections/WFH/
+  // termination-request reviews, and being listed as someone's manager) are
+  // detached rather than deleted, same reasoning as the tenant-wide delete
+  // above — those records shouldn't vanish just because their reviewer's
+  // account did. If this admin authored something that can't be safely
+  // orphaned (e.g. a NOT NULL reference like a generated QR session or a
+  // payroll adjustment), Postgres rejects the delete with a foreign-key
+  // error and the whole transaction rolls back — reported back as a 409
+  // rather than silently destroying that data.
+router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+      }
+
+      const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+      if (targetRows.length === 0) {
+        return res.status(404).json({ error: 'Admin account not found' });
+      }
+      const target = targetRows[0];
+      if (target.role !== 'tenant_admin') {
+        return res.status(400).json({ error: 'This account is not a tenant admin.' });
+      }
+
+      try {
+        await db.transaction(async (tx: any) => {
+          await tx.update(schema.auditLedger).set({ actorId: null }).where(eq(schema.auditLedger.actorId, target.id));
+          await tx.update(schema.attendanceCorrections).set({ reviewedByUserId: null }).where(eq(schema.attendanceCorrections.reviewedByUserId, target.id));
+          await tx.update(schema.wfhLocationChangeRequests).set({ reviewedByUserId: null }).where(eq(schema.wfhLocationChangeRequests.reviewedByUserId, target.id));
+          await tx.update(schema.attendanceAlerts).set({ resolvedByUserId: null }).where(eq(schema.attendanceAlerts.resolvedByUserId, target.id));
+          await tx.update(schema.terminationRequests).set({ reviewedByUserId: null }).where(eq(schema.terminationRequests.reviewedByUserId, target.id));
+          await tx.update(schema.leaveRequests).set({ reviewedByUserId: null }).where(eq(schema.leaveRequests.reviewedByUserId, target.id));
+          await tx.update(schema.leaveEncashmentRequests).set({ reviewedByUserId: null }).where(eq(schema.leaveEncashmentRequests.reviewedByUserId, target.id));
+          await tx.update(schema.shiftSwapRequests).set({ reviewedByUserId: null }).where(eq(schema.shiftSwapRequests.reviewedByUserId, target.id));
+          await tx.update(schema.compensationHistory).set({ changedByUserId: null }).where(eq(schema.compensationHistory.changedByUserId, target.id));
+          await tx.update(schema.serviceAccounts).set({ createdByUserId: null }).where(eq(schema.serviceAccounts.createdByUserId, target.id));
+          await tx.update(schema.departments).set({ headUserId: null }).where(eq(schema.departments.headUserId, target.id));
+          await tx.update(schema.users).set({ managerId: null }).where(eq(schema.users.managerId, target.id));
+          await tx.delete(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, target.id));
+          await tx.delete(schema.webauthnChallenges).where(eq(schema.webauthnChallenges.userId, target.id));
+          await tx.delete(schema.notifications).where(eq(schema.notifications.userId, target.id));
+          await tx.delete(schema.users).where(eq(schema.users.id, target.id));
+        });
+      } catch (txErr: any) {
+        return res.status(409).json({
+          error: 'This admin has associated records (e.g. generated QR sessions or payroll changes) that must be reassigned before their account can be deleted.',
+          detail: txErr.message,
+        });
+      }
+
+      await logToAuditLedger({
+        tenantId: target.tenantId,
+        actorId: req.user.userId,
+        actorName: req.user.name,
+        action: 'TENANT_ADMIN_DELETED',
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+        deviceInfo: req.headers['user-agent'] || '',
+        details: { deletedUserId: target.id, deletedUserName: target.name, deletedUserEmail: target.email, tenantId: target.tenantId }
       });
 
       res.json({ success: true });

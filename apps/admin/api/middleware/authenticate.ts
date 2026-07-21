@@ -42,10 +42,35 @@ export async function authenticate(req: any, res: any, next: any) {
     // mustChangePassword tempReset token) never had one and are unaffected.
     if (decoded.sid) {
       try {
-        const rows = await db.select({ activeSessionId: schema.users.activeSessionId })
-          .from(schema.users).where(eq(schema.users.id, decoded.userId));
+        const rows = await db.select({
+          activeSessionId: schema.users.activeSessionId,
+          tenantId: schema.users.tenantId,
+          lastActivityAt: schema.users.lastActivityAt,
+        }).from(schema.users).where(eq(schema.users.id, decoded.userId));
         if (rows.length === 0 || rows[0].activeSessionId !== decoded.sid) {
           return res.status(401).json({ error: 'session_expired', message: 'Your session has ended. Please log in again.' });
+        }
+
+        // Idle-session timeout — tenant-configurable, 0 = disabled.
+        // Independent of the JWT's own 24h expiry: this can log someone out
+        // much sooner if they've simply been inactive.
+        if (rows[0].tenantId) {
+          const tenantRows = await db.select({ idleTimeoutMinutes: schema.tenants.idleTimeoutMinutes })
+            .from(schema.tenants).where(eq(schema.tenants.id, rows[0].tenantId)).limit(1);
+          const idleTimeoutMinutes = tenantRows[0]?.idleTimeoutMinutes || 0;
+          if (idleTimeoutMinutes > 0 && rows[0].lastActivityAt) {
+            const idleMs = Date.now() - new Date(rows[0].lastActivityAt).getTime();
+            if (idleMs > idleTimeoutMinutes * 60 * 1000) {
+              await db.update(schema.users).set({ activeSessionId: null, sessionExpiresAt: null }).where(eq(schema.users.id, decoded.userId));
+              return res.status(401).json({ error: 'session_expired', message: 'Your session ended due to inactivity. Please log in again.' });
+            }
+          }
+          // Throttled heartbeat write — only touch the row if it's been a
+          // while, so this doesn't become a write on every single request.
+          const shouldTouch = !rows[0].lastActivityAt || (Date.now() - new Date(rows[0].lastActivityAt).getTime()) > 60000;
+          if (shouldTouch) {
+            db.update(schema.users).set({ lastActivityAt: new Date() }).where(eq(schema.users.id, decoded.userId)).catch(() => {});
+          }
         }
       } catch (err: any) {
         return res.status(500).json({ error: err.message });

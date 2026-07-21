@@ -8,7 +8,6 @@ behavior; it documents how to run the existing app safely in production.
 | Component      | What it is                                   | Port |
 | -------------- | -------------------------------------------- | ---- |
 | `admin`        | Express API + bundled React SPA (one image)  | 3000 |
-| `face-service` | Python face detection/recognition/liveness   | 8001 |
 | `postgres`     | PostgreSQL 16 (system of record)             | 5432 |
 
 The admin app resolves Postgres vs. its local JSON fallback **once at startup**.
@@ -34,8 +33,7 @@ commit it.
 | `SQL_ADMIN_USER`     | Postgres user                                                |
 | `SQL_ADMIN_PASSWORD` | Postgres password                                            |
 | `SQL_DB_NAME`        | Database name                                                |
-| `FACE_SERVICE_URL`   | URL of the face-service (e.g. `http://face-service:8001`)    |
-| `APP_BASE_URL`       | Public URL of the app — used in activation/reset email links |
+| `APP_BASE_URL`       | Public URL of the app — used in activation/reset email links, and as the WebAuthn origin/rpID |
 
 **Optional**
 
@@ -48,7 +46,7 @@ commit it.
 | `SEED_SUPER_ADMIN_EMAIL/PASSWORD`          | First-run super-admin bootstrap                     |
 | `GOOGLE_CLIENT_ID`, `VITE_GOOGLE_CLIENT_ID`| Google Sign-in (existing accounts only)             |
 | `NOMINATIM_URL` / `NOMINATIM_USER_AGENT`   | Optional overrides for WFH reverse geocoding (free OpenStreetMap; no key) |
-| `FACE_SERVICE_WORKERS`                     | face-service uvicorn workers (default 1; ~1GB RAM each) |
+| `WEBAUTHN_RP_NAME` / `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | Override WebAuthn relying-party identity; defaults derive from `APP_BASE_URL` |
 
 ### Generate strong secrets
 
@@ -142,8 +140,8 @@ Certificates persist in the `caddy_data` volume — keep it.
 
 ### Path B — Render (managed Postgres + backups)
 
-`render.yaml` in the repo root is a Render Blueprint that provisions Postgres,
-the private face-service, and the public admin service.
+`render.yaml` in the repo root is a Render Blueprint that provisions Postgres
+and the public admin service.
 
 1. Push the repo to GitHub.
 2. Render dashboard → **New → Blueprint** → select the repo.
@@ -156,8 +154,8 @@ Managed daily Postgres backups are included on paid database plans.
 
 ### Path C — Fly.io
 
-`fly.toml` (repo root) configures the admin app. Postgres and the face-service
-are separate Fly resources.
+`fly.toml` (repo root) configures the admin app. Postgres is a separate Fly
+resource.
 
 ```bash
 fly launch --no-deploy                     # create the admin app from fly.toml (rename the app first)
@@ -170,23 +168,20 @@ fly secrets set \
   SQL_ADMIN_USER=<user> SQL_ADMIN_PASSWORD=<pass> SQL_DB_NAME=<db> \
   APP_BASE_URL=https://<app>.fly.dev
 
-# Deploy the face-service as its own Fly app:
-cd services/face-service && fly launch --no-deploy --name smartteams-face-service && fly deploy && cd -
-
 fly deploy                                 # deploy the admin app
 ```
 
 > Don't put the Express **server** on serverless functions (Vercel/Netlify
-> Functions) — the long-lived process, the Python face-service, and the
-> background scheduler don't fit the function model. Hosting the **static
-> frontend** on Vercel is fine and is exactly what Path D does.
+> Functions) — the long-lived process and the background scheduler don't fit
+> the function model. Hosting the **static frontend** on Vercel is fine and
+> is exactly what Path D does.
 
-### Path D — Split: Vercel + Render + Neon + Cloud Run
+### Path D — Split: Vercel + Render + Neon
 
 Each piece on a managed service, all from this **one monorepo** (no repo
 splitting). Request flow: browser loads the SPA from **Vercel** → the SPA calls
 the API on **Render** directly (`VITE_API_BASE_URL`, CORS-allowed) → Render talks
-to **Neon** Postgres (TLS) and the **Cloud Run** face-service.
+to **Neon** Postgres (TLS).
 
 Deploy in this order (each step needs the previous one's URL/creds):
 
@@ -194,27 +189,18 @@ Deploy in this order (each step needs the previous one's URL/creds):
 string note: host (`ep-...aws.neon.tech`), user, password, database (e.g.
 `neondb`), port 5432. These become the `SQL_*` vars on Render with `SQL_SSL=true`.
 
-**2) Cloud Run (face-service).** From the repo root:
-```bash
-gcloud run deploy smartteams-face-service \
-  --source ./services/face-service --region <region> \
-  --memory 2Gi --cpu 2 --allow-unauthenticated \
-  --min-instances 1   # keep 1 warm (no model cold-start); drop to 0 for pure-free (adds lag)
-```
-Memory MUST be ≥1Gi (2Gi recommended). Note the printed URL → that's `FACE_SERVICE_URL`.
-
-**3) Render (backend/API).** New → **Web Service** → this repo. Runtime
+**2) Render (backend/API).** New → **Web Service** → this repo. Runtime
 **Docker**, Dockerfile `apps/admin/Dockerfile`, context `.` (repo root), health
 check path `/api/health`. No start command (the Dockerfile handles it). Set the
 Render env vars listed below.
 
-**4) Vercel (frontend).** New Project → import this repo, **Root Directory = repo
+**3) Vercel (frontend).** New Project → import this repo, **Root Directory = repo
 root** (the committed `vercel.json` builds `apps/admin`). Set the Vercel env vars
 below (`VITE_API_BASE_URL` = the Render URL) and deploy. Then copy the Vercel URL
 and set it as `CORS_ALLOWED_ORIGINS` **and** `APP_BASE_URL` on Render, and
 redeploy Render.
 
-**5) Migrate + seed Neon.** From your machine (repo cloned, `.env` pointing at
+**4) Migrate + seed Neon.** From your machine (repo cloned, `.env` pointing at
 Neon with `SQL_SSL=true`):
 ```bash
 pnpm db:migrate        # create tables in Neon
@@ -231,7 +217,6 @@ SQL_ADMIN_USER=<neon user>
 SQL_ADMIN_PASSWORD=<neon password>
 SQL_DB_NAME=<neon database>
 SQL_SSL=true
-FACE_SERVICE_URL=<cloud run url>
 APP_BASE_URL=<your vercel url>
 CORS_ALLOWED_ORIGINS=<your vercel url>
 SEED_SUPER_ADMIN_EMAIL=vibudarshan1717@gmail.com
@@ -250,24 +235,19 @@ VITE_GOOGLE_CLIENT_ID=<google client id>       # only if using Google Sign-In
 ```
 These are inlined at build time — **redeploy after changing them**.
 
-#### Cloud Run env vars (face-service)
-None required. Optional: `FACE_SERVICE_WORKERS=1`.
-
 #### Keep it warm (fight cold-start lag)
-Free tiers sleep. Add repo **Variables** (Settings → Secrets and variables →
-Actions → Variables): `BACKEND_URL` = Render URL, `FACE_SERVICE_URL` = Cloud Run
-URL. The committed `.github/workflows/keepalive.yml` then pings both every ~5 min
-(`/api/health/db` warms Render **and** Neon; `/health` warms Cloud Run). For
-tighter, more reliable intervals, point UptimeRobot or cron-job.org at the same
-two URLs.
+Free tiers sleep. Add a repo **Variable** (Settings → Secrets and variables →
+Actions → Variables): `BACKEND_URL` = Render URL. The committed
+`.github/workflows/keepalive.yml` then pings `/api/health/db` every ~5 min,
+which warms Render **and** Neon. For tighter, more reliable intervals, point
+UptimeRobot or cron-job.org at the same URL.
 
 #### Honest note on "no lag"
 - **Vercel frontend:** genuinely fast, no cold start.
-- **Backend / DB / face on free tiers:** subject to cold starts. Keep-alive
-  greatly reduces this but isn't a 100% guarantee (GitHub's scheduler drifts;
-  Cloud Run may still scale to zero between pings). For a hard guarantee,
-  Cloud Run `--min-instances 1` plus a paid always-on Render instance remove the
-  last of the lag — a few dollars/month total.
+- **Backend / DB on free tiers:** subject to cold starts. Keep-alive greatly
+  reduces this but isn't a 100% guarantee (GitHub's scheduler drifts). For a
+  hard guarantee, a paid always-on Render instance removes the last of the
+  lag — a few dollars/month.
 
 ---
 
@@ -279,9 +259,6 @@ two URLs.
   multiple `admin` replicas without duplicate emails/jobs.
 - **Graceful shutdown** is handled (SIGTERM/SIGINT drains in-flight requests and
   closes the DB pool) so rolling deploys don't drop connections.
-- **face-service memory:** each uvicorn worker loads a full ~1GB model bundle.
-  Scale it with RAM in mind; raise `FACE_SERVICE_WORKERS` only if the host has
-  the cores/RAM for concurrent check-in throughput.
 - **Postgres connection pool:** the app pools up to 20 connections per instance
   — keep `instances × 20` under your Postgres `max_connections`.
 
@@ -295,7 +272,7 @@ two URLs.
 - [ ] First-run super-admin password captured from logs (or set via `SEED_*`)
 - [ ] Logged in, changed the seeded password
 - [ ] A test email actually sends (Resend/SMTP configured)
-- [ ] Face check-in flow works end-to-end against the face-service
+- [ ] Device registration ("Register This Device") and WebAuthn check-in work end-to-end over HTTPS (WebAuthn requires a secure origin, `localhost` excepted)
 - [ ] `.env` is **not** in version control (`git check-ignore .env` prints the path)
 - [ ] Secrets rotated from any values previously shared
 - [ ] Postgres backups scheduled

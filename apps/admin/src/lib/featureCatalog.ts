@@ -15,23 +15,41 @@ export interface FeatureCatalogCategory {
   features: FeatureCatalogEntry[];
 }
 
-let cached: FeatureCatalogCategory[] | null = null;
+// key -> the other key(s) it requires — see FEATURE_DEPENDENCIES in
+// apps/admin/api/auth/featureCatalog.ts for what belongs here and why.
+export type FeatureDependencies = Record<string, string[]>;
+
+let cachedCatalog: FeatureCatalogCategory[] | null = null;
+let cachedDependencies: FeatureDependencies = {};
 let inflight: Promise<FeatureCatalogCategory[]> | null = null;
 
-export async function fetchFeatureCatalog(): Promise<FeatureCatalogCategory[]> {
-  if (cached) return cached;
-  if (inflight) return inflight;
+function load(): Promise<FeatureCatalogCategory[]> {
   const token = localStorage.getItem('auth_token');
-  inflight = fetch('/api/tenant/feature-catalog', { headers: { Authorization: `Bearer ${token}` } })
+  return fetch('/api/tenant/feature-catalog', { headers: { Authorization: `Bearer ${token}` } })
     .then(res => res.json())
     .then(data => {
-      cached = Array.isArray(data.catalog) ? data.catalog : [];
+      cachedCatalog = Array.isArray(data.catalog) ? data.catalog : [];
+      cachedDependencies = data.dependencies && typeof data.dependencies === 'object' ? data.dependencies : {};
       inflight = null;
-      return cached;
+      return cachedCatalog;
     })
     .catch(err => {
       inflight = null;
       throw err;
     });
+}
+
+export async function fetchFeatureCatalog(): Promise<FeatureCatalogCategory[]> {
+  if (cachedCatalog) return cachedCatalog;
+  if (inflight) return inflight;
+  inflight = load();
   return inflight;
+}
+
+// Dependency map is always fetched alongside the catalog (same endpoint) —
+// call fetchFeatureCatalog() first (or let this trigger it) so this is
+// populated before you need it.
+export async function fetchFeatureDependencies(): Promise<FeatureDependencies> {
+  if (!cachedCatalog) await fetchFeatureCatalog();
+  return cachedDependencies;
 }

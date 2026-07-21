@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, ChevronRight, Banknote, CalendarDays } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Banknote, CalendarDays, Pencil, Check } from 'lucide-react';
 
 // Reusable, self-contained employee detail overlay. Given just a userId, it
 // fetches everything it needs (basic profile, a navigable month calendar
@@ -97,6 +97,109 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
   });
   const [monthLoading, setMonthLoading] = useState(true);
   const [payrollDetail, setPayrollDetail] = useState<any>(null);
+
+  // What this viewer is actually allowed to do here — same "fetch my own
+  // privileges" convention used throughout the app, so an Edit/correction
+  // control only ever appears for someone who can actually use it.
+  const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
+  useEffect(() => {
+    fetch('/api/tenant/my-privileges', { headers: authHeaders })
+      .then((r) => r.json())
+      .then((d) => setMyPrivileges(d.privileges ?? []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const hasPriv = (...keys: string[]) => myPrivileges === 'ALL' || keys.some((k) => myPrivileges.includes(k));
+  const canEditDetails = hasPriv('employee.edit', 'employee.create');
+  const canEditAttendance = hasPriv('attendance.edit');
+
+  // Edit Details — toggles the profile grid into editable inputs; saved via
+  // PUT /api/tenant/employees/:id (the endpoint already accepted these
+  // fields, there was just no UI calling it with anything but the shift).
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', department: '', designation: '', dateOfJoining: '', role: '' });
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsError, setDetailsError] = useState('');
+
+  const startEditingDetails = () => {
+    setEditForm({
+      name: employee?.name || '', email: employee?.email || '', phone: employee?.phone || '',
+      department: employee?.department || '', designation: employee?.designation || '',
+      dateOfJoining: employee?.dateOfJoining ? String(employee.dateOfJoining).slice(0, 10) : '', role: employee?.role || '',
+    });
+    setDetailsError('');
+    setEditingDetails(true);
+  };
+
+  const handleSaveDetails = async () => {
+    setDetailsSaving(true);
+    setDetailsError('');
+    try {
+      const res = await fetch(`/api/tenant/employees/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save these changes.');
+      setEmployee(data.employee || { ...employee, ...editForm });
+      setEditingDetails(false);
+    } catch (err: any) {
+      setDetailsError(err.message || 'Could not save these changes.');
+    } finally {
+      setDetailsSaving(false);
+    }
+  };
+
+  // Attendance correction — click a day on the calendar to flip it
+  // present/absent or adjust its times, via the same editAttendanceDay()
+  // endpoint the standalone attendance-edit flow and ticket resolution use.
+  const [editingDate, setEditingDate] = useState<string | null>(null);
+  const [dayNewStatus, setDayNewStatus] = useState<'present' | 'absent'>('present');
+  const [dayCheckIn, setDayCheckIn] = useState('09:00');
+  const [dayCheckOut, setDayCheckOut] = useState('18:00');
+  const [dayReason, setDayReason] = useState('');
+  const [daySaving, setDaySaving] = useState(false);
+  const [dayError, setDayError] = useState('');
+
+  const openDayEditor = (dateKey: string, currentStatus: DayStatus) => {
+    setEditingDate(dateKey);
+    setDayNewStatus(currentStatus === 'absent' ? 'present' : 'absent');
+    setDayCheckIn('09:00');
+    setDayCheckOut('18:00');
+    setDayReason('');
+    setDayError('');
+  };
+
+  const handleSaveDayEdit = async () => {
+    if (!editingDate) return;
+    if (!dayReason.trim()) { setDayError('A reason is required.'); return; }
+    setDaySaving(true);
+    setDayError('');
+    try {
+      const res = await fetch(`/api/tenant/attendance/${userId}/${editingDate}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          newStatus: dayNewStatus,
+          checkInTime: dayNewStatus === 'present' ? dayCheckIn : undefined,
+          checkOutTime: dayNewStatus === 'present' ? dayCheckOut : undefined,
+          reason: dayReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not correct this day.');
+      setEditingDate(null);
+      // Re-trigger the month fetch by nudging viewMonth to a new Date
+      // instance with the same value — cheaper than extracting the fetch
+      // into its own callback just for this one refresh.
+      setViewMonth((m) => new Date(m));
+    } catch (err: any) {
+      setDayError(err.message || 'Could not correct this day.');
+    } finally {
+      setDaySaving(false);
+    }
+  };
 
   // Basic profile + leave balance + holidays: fetched once per userId, not
   // per month (they don't depend on which month is being viewed).
@@ -340,34 +443,90 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                   <p className="truncate text-xs text-[var(--color-nexus-muted)]">{employee.designation || employee.role}{employee.department ? ` • ${employee.department}` : ''}</p>
                 </div>
               </div>
-              <button onClick={onClose} aria-label="Close" className="shrink-0 text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {canEditDetails && !editingDetails && (
+                  <button onClick={startEditingDetails} className="flex items-center gap-1.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)]">
+                    <Pencil className="h-3 w-3" /> Edit
+                  </button>
+                )}
+                <button onClick={onClose} aria-label="Close" className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {error && (
               <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-3 rounded-xl border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>
             )}
 
-            {/* Basic info */}
-            <dl className="grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
-                <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Email</dt>
-                <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.email}</dd>
+            {/* Basic info — read-only grid, or an editable form when
+                editingDetails is true (see startEditingDetails/handleSaveDetails
+                above). Saves via PUT /api/tenant/employees/:id, the same
+                endpoint the shift-override flow below already used for
+                shiftId — this just exposes the rest of the fields it
+                always accepted. */}
+            {editingDetails ? (
+              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 space-y-3">
+                {detailsError && <p className="text-xs font-semibold text-[var(--color-nexus-error)]">{detailsError}</p>}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Name</label>
+                    <input value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Email</label>
+                    <input type="email" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Role</label>
+                    <input value={editForm.role} onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Department</label>
+                    <input value={editForm.department} onChange={(e) => setEditForm((f) => ({ ...f, department: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Designation</label>
+                    <input value={editForm.designation} onChange={(e) => setEditForm((f) => ({ ...f, designation: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Phone</label>
+                    <input value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Joined</label>
+                    <input type="date" value={editForm.dateOfJoining} onChange={(e) => setEditForm((f) => ({ ...f, dateOfJoining: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveDetails} disabled={detailsSaving} className="flex items-center gap-1.5 rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                    <Check className="h-3.5 w-3.5" /> {detailsSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditingDetails(false)} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
+                    Cancel
+                  </button>
+                </div>
               </div>
-              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
-                <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Role</dt>
-                <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5 capitalize">{employee.role}</dd>
-              </div>
-              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
-                <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Department</dt>
-                <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.department || '—'}</dd>
-              </div>
-              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
-                <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Joined</dt>
-                <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString() : '—'}</dd>
-              </div>
-            </dl>
+            ) : (
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                  <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Email</dt>
+                  <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.email}</dd>
+                </div>
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                  <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Role</dt>
+                  <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5 capitalize">{employee.role}</dd>
+                </div>
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                  <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Department</dt>
+                  <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.department || '—'}</dd>
+                </div>
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                  <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Joined</dt>
+                  <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString() : '—'}</dd>
+                </div>
+              </dl>
+            )}
 
             {/* Shift + temporary shift change — additive alongside the
                 permanent shift (still changed via the employee edit form,
@@ -495,17 +654,62 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                 <div className="py-10 text-center text-xs text-[var(--color-nexus-muted)]">Loading calendar…</div>
               ) : (
                 <div className="grid grid-cols-7 gap-1.5" key={monthKey(viewMonth)}>
-                  {calendarDays.map((day) => (
-                    <div
-                      key={day.dateKey}
-                      title={day.inMonth ? `${day.dateKey} — ${day.label}` : undefined}
-                      className={`aspect-square rounded-lg flex items-center justify-center border text-[10px] font-mono font-bold ${
-                        day.inMonth ? STATUS_STYLES[day.status as Exclude<DayStatus, 'none'>] : 'border-transparent'
-                      }`}
-                    >
-                      {day.inMonth ? day.dayNum : ''}
-                    </div>
-                  ))}
+                  {calendarDays.map((day) => {
+                    const clickable = canEditAttendance && day.inMonth && day.status !== 'future';
+                    return (
+                      <button
+                        type="button"
+                        key={day.dateKey}
+                        disabled={!clickable}
+                        onClick={() => clickable && openDayEditor(day.dateKey, day.status)}
+                        title={day.inMonth ? `${day.dateKey} — ${day.label}${clickable ? ' (click to correct)' : ''}` : undefined}
+                        className={`aspect-square rounded-lg flex items-center justify-center border text-[10px] font-mono font-bold ${
+                          day.inMonth ? STATUS_STYLES[day.status as Exclude<DayStatus, 'none'>] : 'border-transparent'
+                        } ${clickable ? 'cursor-pointer hover:ring-2 hover:ring-[var(--color-nexus-primary)]' : 'cursor-default'}`}
+                      >
+                        {day.inMonth ? day.dayNum : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Attendance correction form — appears when a day is
+                  clicked (see openDayEditor above), gated by attendance.edit.
+                  Same underlying editAttendanceDay() call the standalone
+                  edit endpoint and ticket resolution use, so this reflects
+                  in attendance history, leave, and payroll immediately. */}
+              {editingDate && (
+                <div className="mt-4 p-4 rounded-2xl border border-[var(--color-nexus-primary)]/30 bg-[var(--color-nexus-primary-fixed)]/30 space-y-3">
+                  <p className="text-xs font-bold text-[var(--color-nexus-ink)]">Correct attendance for {editingDate}</p>
+                  {dayError && <p className="text-xs font-semibold text-[var(--color-nexus-error)]">{dayError}</p>}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={dayNewStatus} onChange={(e) => setDayNewStatus(e.target.value as any)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs">
+                      <option value="present">Mark Present</option>
+                      <option value="absent">Mark Absent</option>
+                    </select>
+                    {dayNewStatus === 'present' && (
+                      <>
+                        <input type="time" value={dayCheckIn} onChange={(e) => setDayCheckIn(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                        <span className="text-[10px] text-[var(--color-nexus-muted)]">to</span>
+                        <input type="time" value={dayCheckOut} onChange={(e) => setDayCheckOut(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                      </>
+                    )}
+                  </div>
+                  <input
+                    value={dayReason}
+                    onChange={(e) => setDayReason(e.target.value)}
+                    placeholder="Reason (required — becomes part of the permanent record)"
+                    className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={handleSaveDayEdit} disabled={daySaving} className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                      {daySaving ? 'Saving…' : 'Confirm Correction'}
+                    </button>
+                    <button onClick={() => setEditingDate(null)} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -525,6 +729,13 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                   ))}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => { onClose(); navigate(`/tenant/leave?tab=approval-queue&employee=${encodeURIComponent(employee.name)}`); }}
+                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-primary)] py-2.5 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)] transition-colors"
+              >
+                View Full Leave History
+              </button>
             </div>
 
             {/* Payroll breakdown — every real salary component (Basic, HRA,

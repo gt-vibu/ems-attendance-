@@ -5,8 +5,10 @@ import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege } from '../auth/rbac';
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
-import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings } from './leavePayrollShared';
+import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
 import { dispatchWebhookEvent } from '../services/webhooks';
+import { notifyUser, notifyUsers } from '../services/notifications';
+import { amendLeaveRequest } from '../services/recordEdits';
 
 export const router = Router();
 
@@ -21,13 +23,26 @@ async function computeLeaveBalancesForUser(userId: number, tenantId: number) {
     db.select().from(schema.leaveBalanceAdjustments).where(eq(schema.leaveBalanceAdjustments.userId, userId)),
   ]);
 
-  const year = new Date().getUTCFullYear();
-  const approvedByType = requests
-    .filter((r: any) => r.status === 'approved' && parseDateOnly(r.startDate).getUTCFullYear() === year)
-    .reduce((acc: Record<string, number>, request: any) => {
-      acc[request.leaveType] = (acc[request.leaveType] || 0) + Number(request.totalDays || 0);
-      return acc;
-    }, {});
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  // Months "unlocked" so far this year for accrual purposes — the 1st of
+  // the current month counts as already accrued (Jan = 1, not 0), same
+  // convention as most payroll/accrual engines.
+  const monthsElapsed = now.getUTCMonth() + 1;
+
+  // Approved days used, grouped by (year, leaveType) in one pass — used
+  // both for this year's balance and, when carryForwardEnabled, last
+  // year's ending balance. `requests` already covers every year for this
+  // user (no date filter on the query above), so no extra fetch is needed.
+  const approvedByYearType: Record<number, Record<string, number>> = {};
+  for (const request of requests as any[]) {
+    if (request.status !== 'approved') continue;
+    const requestYear = parseDateOnly(request.startDate).getUTCFullYear();
+    const bucket = approvedByYearType[requestYear] || (approvedByYearType[requestYear] = {});
+    bucket[request.leaveType] = (bucket[request.leaveType] || 0) + Number(request.totalDays || 0);
+  }
+  const approvedByType = approvedByYearType[year] || {};
+  const prevYearApprovedByType = approvedByYearType[year - 1] || {};
 
   const adjustmentsByType = adjustments.reduce((acc: Record<string, number>, adj: any) => {
     acc[adj.leaveType] = (acc[adj.leaveType] || 0) + Number(adj.adjustmentDays || 0);
@@ -37,11 +52,31 @@ async function computeLeaveBalancesForUser(userId: number, tenantId: number) {
   const balances = policies.map((policy: any) => {
     const used = approvedByType[policy.code] || approvedByType[policy.name] || 0;
     const adjustment = adjustmentsByType[policy.code] || adjustmentsByType[policy.name] || 0;
-    const maxDays = Number(policy.maxDaysPerYear || 0);
+    const annualMax = Number(policy.maxDaysPerYear || 0);
+
+    // Accrual: the full annual entitlement isn't available on Jan 1 —
+    // only 1/12th per completed month, capped at the annual max (so by
+    // December the two calculations agree exactly).
+    const availableThisYear = policy.accrualEnabled
+      ? Math.min(annualMax, (annualMax / 12) * monthsElapsed)
+      : annualMax;
+
+    // Carry-forward: one year back only (no chained/compounding
+    // carry-forward), capped at maxCarryForwardDays. Last year is always
+    // treated as fully accrued for this purpose since it already ended.
+    let carryForwardDays = 0;
+    if (policy.carryForwardEnabled) {
+      const prevUsed = prevYearApprovedByType[policy.code] || prevYearApprovedByType[policy.name] || 0;
+      const prevRemaining = Math.max(0, annualMax - prevUsed);
+      carryForwardDays = Math.min(prevRemaining, Number(policy.maxCarryForwardDays || 0));
+    }
+
+    const maxDays = availableThisYear + carryForwardDays;
     return {
       ...policy,
       usedDays: used,
       adjustmentDays: adjustment,
+      carryForwardDays,
       remainingDays: Math.max(0, maxDays + adjustment - used),
     };
   });
@@ -206,7 +241,7 @@ router.post('/api/tenant/leave/policies', authenticate, async (req: any, res: an
     if (!await hasPrivilege(req.user, 'leave.approve')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const { name, code, maxDaysPerYear, allowHalfDay, requiresApproval, medicalOnlyNoAdvanceNoticeDays, defaultDeductionPercent } = req.body || {};
+    const { name, code, maxDaysPerYear, allowHalfDay, requiresApproval, medicalOnlyNoAdvanceNoticeDays, defaultDeductionPercent, accrualEnabled, carryForwardEnabled, maxCarryForwardDays, encashmentEnabled } = req.body || {};
     if (!name || !code) return res.status(400).json({ error: 'name and code are required.' });
     const [policy] = await db.insert(schema.leavePolicies).values({
       tenantId: req.user.tenantId,
@@ -217,6 +252,10 @@ router.post('/api/tenant/leave/policies', authenticate, async (req: any, res: an
       requiresApproval: requiresApproval !== false,
       medicalOnlyNoAdvanceNoticeDays: Number(medicalOnlyNoAdvanceNoticeDays || 0),
       defaultDeductionPercent: Number(defaultDeductionPercent || 100),
+      accrualEnabled: !!accrualEnabled,
+      carryForwardEnabled: !!carryForwardEnabled,
+      maxCarryForwardDays: Number(maxCarryForwardDays || 0),
+      encashmentEnabled: !!encashmentEnabled,
     }).returning();
     res.json({ success: true, policy });
   } catch (err: any) {
@@ -326,6 +365,107 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
   }
 });
 
+// Bulk approve/reject — same gating and per-request effect as the single
+// action above, just looped so a manager clearing a backlog of pending
+// requests doesn't have to click through them one at a time. One shared
+// comment applies to every request in the batch; requests already decided
+// or belonging to another tenant are skipped (reported, not silently
+// dropped) rather than failing the whole batch.
+router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'leave.approve')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const { requestIds, action, comment } = req.body || {};
+    if (!Array.isArray(requestIds) || requestIds.length === 0 || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'requestIds (non-empty array) and a valid action are required.' });
+    }
+    if (requestIds.length > 200) {
+      return res.status(400).json({ error: 'A single batch is limited to 200 requests.' });
+    }
+
+    const results: Array<{ requestId: number; success: boolean; error?: string }> = [];
+    for (const rawId of requestIds) {
+      const requestId = Number(rawId);
+      try {
+        const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
+        if (requestRows.length === 0) throw new Error('not found');
+        const leaveRequest = requestRows[0];
+        if (leaveRequest.tenantId !== req.user.tenantId) throw new Error('not in your organization');
+        if (leaveRequest.status !== 'pending') throw new Error('already decided');
+
+        const [updated] = await db.update(schema.leaveRequests).set({
+          status: action === 'approve' ? 'approved' : 'rejected',
+          reviewedByUserId: req.user.userId,
+          reviewerComment: comment || null,
+          reviewedAt: new Date(),
+        }).where(eq(schema.leaveRequests.id, leaveRequest.id)).returning();
+
+        const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, leaveRequest.userId)).limit(1);
+        if (employeeRows.length > 0) {
+          const employee = employeeRows[0];
+          await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
+        }
+        dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
+          requestId: updated.id, userId: leaveRequest.userId, leaveType: leaveRequest.leaveType,
+          startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, comment: comment || null, viaBulkAction: true,
+        });
+        results.push({ requestId, success: true });
+      } catch (rowErr: any) {
+        results.push({ requestId, success: false, error: rowErr.message || 'Unknown error' });
+      }
+    }
+
+    res.json({ success: true, results, updated: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Amend an ALREADY-DECIDED leave request — gated by the delegable
+// 'leave.edit' privilege (distinct from 'leave.approve', which only covers
+// the initial pending decision). Same underlying amendLeaveRequest() call a
+// ticket resolution uses internally (see tickets.routes.ts), so a fix made
+// directly and a fix made via resolving a leave_dispute ticket behave
+// identically and both reconcile into payroll immediately.
+router.patch('/api/tenant/leave/requests/:id/amend', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'leave.edit')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const requestId = Number(req.params.id);
+    const { newStatus, startDate, endDate, leaveType, reason } = req.body || {};
+    if (newStatus !== undefined && !['approved', 'rejected'].includes(newStatus)) {
+      return res.status(400).json({ error: "newStatus must be 'approved' or 'rejected' if provided." });
+    }
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ error: 'reason is required — this is appended to the request\'s permanent review history.' });
+    }
+
+    const existingRows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, requestId), eq(schema.leaveRequests.tenantId, req.user.tenantId))).limit(1);
+    if (existingRows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
+
+    await amendLeaveRequest({
+      tenantId: req.user.tenantId,
+      leaveRequestId: requestId,
+      newStatus,
+      startDate,
+      endDate,
+      leaveType,
+      editedByUserId: req.user.userId,
+      editedByName: req.user.name,
+      reason: String(reason).trim(),
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      deviceInfo: req.headers['user-agent'] || '',
+    });
+
+    const [updated] = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
+    res.json({ success: true, request: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/api/tenant/leave/adjustments', authenticate, async (req: any, res: any) => {
   try {
     if (!await hasPrivilege(req.user, 'leave.read') && !await hasPrivilege(req.user, 'leave.approve')) {
@@ -391,6 +531,130 @@ router.post('/api/tenant/leave/adjustments', authenticate, async (req: any, res:
     }).returning();
 
     res.json({ success: true, adjustment });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================================
+// LEAVE ENCASHMENT — convert unused days of an encashment-enabled leave
+// type into pay. Days are deducted from the balance via the same
+// leaveBalanceAdjustments table used for HR corrections above (a negative
+// adjustment), and ratePerDay/amount are snapshotted from that month's
+// payroll daily rate the moment the request is approved — a later CTC
+// change never silently rewrites an already-approved encashment, same
+// non-retroactive principle payrollRuns already follows.
+// ==========================================================
+
+router.post('/api/leave/encashment', authenticate, async (req: any, res: any) => {
+  try {
+    const { policyId, days, reason } = req.body || {};
+    const daysNum = Number(days);
+    if (!policyId || !daysNum || daysNum <= 0) {
+      return res.status(400).json({ error: 'policyId and a positive number of days are required.' });
+    }
+
+    const policyRows = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1);
+    if (policyRows.length === 0 || policyRows[0].tenantId !== req.user.tenantId) {
+      return res.status(404).json({ error: 'Leave policy not found.' });
+    }
+    const policy = policyRows[0];
+    if (!policy.encashmentEnabled) {
+      return res.status(400).json({ error: `${policy.name} does not allow encashment.` });
+    }
+
+    const { balances } = await computeLeaveBalancesForUser(req.user.userId, req.user.tenantId);
+    const balance = balances.find((b: any) => b.id === policy.id);
+    if (!balance || balance.remainingDays < daysNum) {
+      return res.status(400).json({ error: `Not enough remaining ${policy.name} balance to encash ${daysNum} day(s).` });
+    }
+
+    const [request] = await db.insert(schema.leaveEncashmentRequests).values({
+      tenantId: req.user.tenantId,
+      userId: req.user.userId,
+      policyId: policy.id,
+      leaveType: policy.code,
+      days: daysNum,
+      reason: reason || null,
+    }).returning();
+
+    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId)).limit(1);
+    const approvers = uniqueById(await getUsersWithPrivilege(req.user.tenantId, 'leave.approve')).filter((a: any) => a.id !== req.user.userId);
+    await notifyUsers(approvers.map((a: any) => a.id), 'Leave encashment request', `${userRows[0]?.name || 'An employee'} requested to encash ${daysNum} day(s) of ${policy.name}.`);
+
+    res.json({ success: true, request });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tenant/leave/encashment-requests', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'leave.approve')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const tenantId = req.user.tenantId;
+    const rows = await db.select().from(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.tenantId, tenantId)).orderBy(desc(schema.leaveEncashmentRequests.createdAt));
+    const users = await db.select().from(schema.users).where(eq(schema.users.tenantId, tenantId));
+    const userById = new Map<number, any>(users.map((u: any) => [u.id, u]));
+    res.json({
+      requests: rows.map((r: any) => ({ ...r, employeeName: userById.get(r.userId)?.name || 'Unknown' })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tenant/leave/encashment-requests/action', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'leave.approve')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const { requestId, action } = req.body || {};
+    if (!requestId || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required.' });
+    }
+
+    const rows = await db.select().from(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.id, Number(requestId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Encashment request not found.' });
+    const request = rows[0];
+    if (request.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
+    if (request.status !== 'pending') return res.status(400).json({ error: 'This request has already been reviewed.' });
+
+    let ratePerDay: number | null = null;
+    let amount: number | null = null;
+
+    if (action === 'approve') {
+      ratePerDay = await getEffectiveDailyRate(req.user.tenantId, request.userId);
+      amount = ratePerDay * Number(request.days);
+
+      await db.insert(schema.leaveBalanceAdjustments).values({
+        tenantId: req.user.tenantId,
+        userId: request.userId,
+        leaveType: request.leaveType,
+        adjustmentDays: -Number(request.days),
+        reason: `Encashed ${request.days} day(s) (request #${request.id})`,
+        adjustedByUserId: req.user.userId,
+      });
+    }
+
+    const [updated] = await db.update(schema.leaveEncashmentRequests).set({
+      status: action === 'approve' ? 'approved' : 'rejected',
+      ratePerDay, amount,
+      reviewedByUserId: req.user.userId,
+      reviewedAt: new Date(),
+    }).where(eq(schema.leaveEncashmentRequests.id, request.id)).returning();
+
+    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, request.userId)).limit(1);
+    if (employeeRows.length > 0) {
+      const employee = employeeRows[0];
+      const message = action === 'approve'
+        ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
+        : 'Your leave encashment request was rejected.';
+      await notifyUser(employee.id, `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, message);
+    }
+
+    res.json({ success: true, request: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

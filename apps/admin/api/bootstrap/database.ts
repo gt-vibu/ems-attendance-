@@ -71,6 +71,10 @@ export async function verifyAndSyncDatabase() {
     // the tenant.policy.manage privilege), shown on both admin and employee dashboards.
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement_updated_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS documents_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_expiry_days INTEGER DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_minutes INTEGER DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS attendance_retention_months INTEGER DEFAULT 0;`); } catch(e){}
 
     // Departments must exist
     await db.execute(sql`
@@ -182,6 +186,10 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_joining TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_status TEXT DEFAULT 'active';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP DEFAULT NOW();`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_history JSONB;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS data_erased_at TIMESTAMP;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS role_privilege_defaults (
@@ -273,6 +281,9 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS current_assignee_user_id INTEGER REFERENCES users(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS last_assigned_at TIMESTAMP DEFAULT NOW();`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS holidays (
@@ -312,6 +323,32 @@ export async function verifyAndSyncDatabase() {
         requires_approval BOOLEAN NOT NULL DEFAULT true,
         medical_only_no_advance_notice_days REAL DEFAULT 0,
         default_deduction_percent REAL NOT NULL DEFAULT 100,
+        accrual_enabled BOOLEAN NOT NULL DEFAULT false,
+        carry_forward_enabled BOOLEAN NOT NULL DEFAULT false,
+        max_carry_forward_days REAL NOT NULL DEFAULT 0,
+        encashment_enabled BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS accrual_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS carry_forward_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS max_carry_forward_days REAL NOT NULL DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS encashment_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS leave_encashment_requests (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        policy_id INTEGER NOT NULL REFERENCES leave_policies(id),
+        leave_type TEXT NOT NULL,
+        days REAL NOT NULL,
+        rate_per_day REAL,
+        amount REAL,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reviewed_by_user_id INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -364,6 +401,21 @@ export async function verifyAndSyncDatabase() {
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_compliance_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employee_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employer_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_wage_ceiling REAL NOT NULL DEFAULT 15000;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employee_rate_percent REAL NOT NULL DEFAULT 0.75;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employer_rate_percent REAL NOT NULL DEFAULT 3.25;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_wage_ceiling REAL NOT NULL DEFAULT 21000;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_slabs JSONB DEFAULT '[]';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS income_tax_slabs JSONB DEFAULT '[{"upTo":300000,"ratePercent":0},{"upTo":600000,"ratePercent":5},{"upTo":900000,"ratePercent":10},{"upTo":1200000,"ratePercent":15},{"upTo":1500000,"ratePercent":20},{"upTo":null,"ratePercent":30}]';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_standard_deduction REAL NOT NULL DEFAULT 50000;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_basic_percent_of_gross REAL NOT NULL DEFAULT 50;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_compensation_profiles (
@@ -642,6 +694,32 @@ export async function verifyAndSyncDatabase() {
     `);
 
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS webauthn_credentials (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        counter INTEGER NOT NULL DEFAULT 0,
+        device_type TEXT,
+        transports JSONB,
+        device_name TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        last_used_at TIMESTAMP
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        challenge TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS webhook_subscriptions (
         id SERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES tenants(id),
@@ -652,6 +730,129 @@ export async function verifyAndSyncDatabase() {
         created_by_user_id INTEGER REFERENCES users(id),
         last_delivery_at TIMESTAMP,
         last_delivery_status TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS employee_documents (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        uploaded_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        category TEXT NOT NULL DEFAULT 'other',
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS shift_swap_requests (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        requester_id INTEGER NOT NULL REFERENCES users(id),
+        target_user_id INTEGER NOT NULL REFERENCES users(id),
+        swap_date TEXT NOT NULL,
+        requester_shift_id INTEGER REFERENCES shifts(id),
+        target_shift_id INTEGER REFERENCES shifts(id),
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'pending_target',
+        target_responded_at TIMESTAMP,
+        reviewed_by_user_id INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS attendance_logs_archive (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        status TEXT NOT NULL,
+        type TEXT,
+        client_timestamp TIMESTAMP,
+        device TEXT,
+        location_lat REAL,
+        location_lng REAL,
+        reason TEXT,
+        explanation TEXT,
+        attendance_mode TEXT,
+        home_lat REAL,
+        home_lng REAL,
+        distance_from_home_meters REAL,
+        wfh_reason TEXT,
+        checkout_at TIMESTAMP,
+        worked_minutes REAL,
+        branch_id INTEGER REFERENCES branches(id),
+        created_at TIMESTAMP,
+        archived_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS termination_requests (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        employee_id INTEGER NOT NULL REFERENCES users(id),
+        requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reviewed_by_user_id INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS tickets (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        raised_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        category TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'medium',
+        subject TEXT NOT NULL,
+        description TEXT NOT NULL,
+        related_attendance_log_id INTEGER REFERENCES attendance_logs(id),
+        related_leave_request_id INTEGER,
+        related_date TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        escalation_level INTEGER NOT NULL DEFAULT 0,
+        current_assignee_user_id INTEGER REFERENCES users(id),
+        last_assigned_at TIMESTAMP DEFAULT NOW(),
+        resolution_note TEXT,
+        resolved_by_user_id INTEGER REFERENCES users(id),
+        resolved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh_key TEXT NOT NULL,
+        auth_key TEXT NOT NULL,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS ticket_escalations (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+        from_user_id INTEGER REFERENCES users(id),
+        to_user_id INTEGER REFERENCES users(id),
+        from_level INTEGER NOT NULL,
+        to_level INTEGER NOT NULL,
+        reason TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);

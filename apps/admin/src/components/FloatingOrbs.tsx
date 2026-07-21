@@ -1,8 +1,8 @@
 // Pure-CSS floating gradient orbs — the "floating objects" ambience without
-// any WebGL, so it's safe to mount even on the live-camera pages (KYC /
-// attendance) where a Three.js canvas would fight the camera for GPU on
-// low-end phones. Decorative only: fixed, behind everything, non-interactive,
-// and calmed automatically by the prefers-reduced-motion rules in index.css.
+// any WebGL, so it's cheap to mount even on lower-end phones where a
+// Three.js canvas would be overkill. Decorative only: fixed, behind
+// everything, non-interactive, and calmed automatically by the
+// prefers-reduced-motion rules in index.css.
 export default function FloatingOrbs() {
   return (
     <div className="fixed inset-0 -z-0 overflow-hidden pointer-events-none" aria-hidden="true">

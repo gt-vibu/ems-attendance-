@@ -3,17 +3,22 @@ import crypto from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
+import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { WEBHOOK_EVENTS } from '../services/webhooks';
 
 export const router = Router();
 
-function canManageWebhooks(user: any): boolean {
-  return user?.role === 'tenant_admin' || user?.role === 'super_admin';
+// Gated two ways: the platform must allow the 'webhooks' module for this
+// tenant at all (super admin's plan), AND the caller must hold the
+// delegable 'webhooks.manage' privilege within that tenant.
+async function canManageWebhooks(user: any): Promise<boolean> {
+  if (user?.role !== 'super_admin' && (!user?.tenantId || !(await isPlatformFeatureAllowedForTenant(user.tenantId, 'webhooks')))) return false;
+  return hasPrivilege(user, 'webhooks.manage');
 }
 
 router.get('/api/tenant/webhooks', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageWebhooks(req.user)) {
+    if (!await canManageWebhooks(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const rows = await db.select().from(schema.webhookSubscriptions).where(eq(schema.webhookSubscriptions.tenantId, req.user.tenantId));
@@ -37,7 +42,7 @@ router.get('/api/tenant/webhooks', authenticate, async (req: any, res: any) => {
 
 router.post('/api/tenant/webhooks', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageWebhooks(req.user)) {
+    if (!await canManageWebhooks(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const { url, events } = req.body || {};
@@ -79,7 +84,7 @@ router.post('/api/tenant/webhooks', authenticate, async (req: any, res: any) => 
 
 router.delete('/api/tenant/webhooks/:id', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageWebhooks(req.user)) {
+    if (!await canManageWebhooks(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = Number(req.params.id);

@@ -23,6 +23,13 @@ import { router as teamsRouter } from './teams.routes';
 import { router as serviceAccountsRouter } from './serviceAccounts.routes';
 import { router as webhooksRouter } from './webhooks.routes';
 import { router as earningsRouter } from './earnings.routes';
+import { router as webauthnRouter } from './webauthn.routes';
+import { router as terminationsRouter } from './terminations.routes';
+import { router as documentsRouter } from './documents.routes';
+import { router as shiftSwapRouter } from './shiftSwap.routes';
+import { router as gdprRouter } from './gdpr.routes';
+import { router as ticketsRouter } from './tickets.routes';
+import { router as pushRouter } from './push.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -55,4 +62,11 @@ export function registerRoutes(app: Express) {
   app.use(serviceAccountsRouter);
   app.use(webhooksRouter);
   app.use(earningsRouter);
+  app.use(webauthnRouter);
+  app.use(terminationsRouter);
+  app.use(documentsRouter);
+  app.use(shiftSwapRouter);
+  app.use(gdprRouter);
+  app.use(ticketsRouter);
+  app.use(pushRouter);
 }

@@ -3,14 +3,11 @@ name: keep-alive
 # Prevents free-tier cold starts by keeping the services warm:
 #   - Render web service (backend) spins down after ~15 min idle
 #   - Neon Postgres suspends after ~5 min idle
-#   - Cloud Run face-service scales to zero (and reloads the ~1GB model)
 #
-# Hitting /api/health/db warms the backend AND runs a DB query (keeps Neon up);
-# hitting the face-service /health keeps a Cloud Run instance warm.
+# Hitting /api/health/db warms the backend AND runs a DB query (keeps Neon up).
 #
 # Setup: repo Settings -> Secrets and variables -> Actions -> Variables, add:
 #   BACKEND_URL       e.g. https://your-backend.onrender.com
-#   FACE_SERVICE_URL  e.g. https://your-face-service-xxxx.a.run.app
 #
 # NOTE: GitHub's scheduler is best-effort and can be delayed several minutes
 # under load. For tighter, more reliable intervals use an external monitor
@@ -31,11 +28,4 @@ jobs:
             curl -fsS --max-time 90 "${{ vars.BACKEND_URL }}/api/health/db" || echo "backend ping timed out (likely cold-starting)"
           else
             echo "BACKEND_URL variable not set — skipping"
-          fi
-      - name: Warm face-service (Cloud Run)
-        run: |
-          if [ -n "${{ vars.FACE_SERVICE_URL }}" ]; then
-            curl -fsS --max-time 90 "${{ vars.FACE_SERVICE_URL }}/health" || echo "face-service ping timed out (likely cold-starting)"
-          else
-            echo "FACE_SERVICE_URL variable not set — skipping"
           fi

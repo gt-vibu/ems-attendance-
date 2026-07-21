@@ -100,12 +100,12 @@ describe('evaluateWfhEligibility', () => {
     assert.match(result.reason!, /role is not permitted/);
   });
 
-  test('rejects incomplete KYC', () => {
+  test('rejects an unregistered device', () => {
     const result = evaluateWfhEligibility({
       policy: basePolicy, role: 'employee', hasHomeLocation: true, isKycCompleted: false, wfhCheckInsThisMonth: 0,
     });
     assert.equal(result.eligible, false);
-    assert.match(result.reason!, /KYC/);
+    assert.match(result.reason!, /Register your device/);
   });
 
   test('rejects a weekday not in the allowed list', () => {

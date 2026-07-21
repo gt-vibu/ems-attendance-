@@ -1,9 +1,9 @@
 # Smart Teams — Enterprise Attendance Verification Engine
 
 A multi-tenant HRMS attendance module that verifies check-ins via GPS
-geofencing, browser-based face recognition (liveness + identity match), and
-Wi-Fi/network context, backed by a policy-driven Express + PostgreSQL
-backend.
+geofencing, WebAuthn device identity (Windows Hello, Touch ID, Android
+biometric/PIN, or a security key), and Wi-Fi/network context, backed by a
+policy-driven Express + PostgreSQL backend.
 
 > This README replaces an earlier placeholder left over from the project's
 > initial scaffold — it previously referenced an unrelated `GEMINI_API_KEY`
@@ -19,7 +19,6 @@ apps/
   docs/         # Stub — not yet implemented
 packages/
   database/     # Drizzle ORM schema (PostgreSQL)
-  face-recognition/  # Thin wrapper around @vladmandic/face-api
   ...           # Shared UI/types/utils packages
 ```
 
@@ -79,29 +78,17 @@ pnpm --filter @company/admin start
 `build` compiles the frontend and bundles the server to
 `apps/admin/dist/server.cjs`; `start` runs that bundle with plain `node`.
 
-## Face recognition service
+## Device identity verification (WebAuthn)
 
-Face detection, identity matching, and liveness scoring all happen
-server-side in a separate Python microservice — see
-`services/face-service/README.md`. The browser's only job during KYC
-enrollment or attendance check-in is to capture a few plain JPEG frames from
-the camera and upload them; there's no ML model download or WebGL
-requirement client-side at all, which is what makes this work reliably on
-any device.
-
-To run it:
-
-```
-cd services/face-service
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8001
-```
-
-Then set `FACE_SERVICE_URL` in `.env` (defaults to `http://127.0.0.1:8001`).
-If this service isn't running, KYC and face-verified check-in will return a
-clear "face verification service unavailable" error rather than crashing
-the main app — but nobody can complete those steps until it's back up.
+Identity is proven with WebAuthn/passkeys instead of a face-recognition ML
+model. "Register This Device" (`POST /api/webauthn/register/*`) creates a
+public-key credential using the device's own secure hardware — Windows
+Hello, Touch ID, Android biometric/PIN, or a roaming security key. Daily
+check-in (`POST /api/webauthn/authenticate/*`) is a signed challenge-response
+against that credential. The server never receives or stores any biometric
+data — only a public key per device — and there's no ML model, no separate
+microservice, and no camera permission required. See
+`apps/admin/api/services/webauthn.ts` and `apps/admin/api/routes/webauthn.routes.ts`.
 
 ## Security notes
 

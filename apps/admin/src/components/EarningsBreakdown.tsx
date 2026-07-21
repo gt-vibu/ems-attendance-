@@ -267,6 +267,10 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
               ['Overtime Pay', s.totalOvertimePay],
               ['Extra Break Deduction', -s.totalExcessBreakDeduction],
               [`Leave Deduction (${s.chargeableLeaveDays} unpaid day(s) of ${s.leaveDays} taken)`, -s.leaveDeduction],
+              ...(s.statutory?.pfEmployeeDeduction > 0 ? [['Provident Fund (PF)', -s.statutory.pfEmployeeDeduction]] as [string, number][] : []),
+              ...(s.statutory?.esiEmployeeDeduction > 0 ? [['Employee State Insurance (ESI)', -s.statutory.esiEmployeeDeduction]] as [string, number][] : []),
+              ...(s.statutory?.professionalTaxDeduction > 0 ? [['Professional Tax', -s.statutory.professionalTaxDeduction]] as [string, number][] : []),
+              ...(s.statutory?.tdsDeduction > 0 ? [['TDS (estimated)', -s.statutory.tdsDeduction]] as [string, number][] : []),
             ] as [string, number][]).map(([label, value]) => (
               <div key={label} className="flex items-center justify-between text-xs py-1.5 border-b border-[var(--color-nexus-border)] last:border-0">
                 <span className="text-[var(--color-nexus-muted)]">{label as string}</span>

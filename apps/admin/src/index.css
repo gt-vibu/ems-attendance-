@@ -176,15 +176,16 @@
 }
 
 /* Slow-drifting gradient wash used behind the premium auth/portal pages
-   (Login, EmployeeLogin, EmployeeKYC, EmployeeAttendance, EmployeeHome,
+   (Login, EmployeeLogin, RegisterDevice, EmployeeAttendance, EmployeeHome,
    ForgotPassword, ResetPassword) — a cheap CSS alternative layered behind
    the 3D AuroraField canvas for pages/perf-modes where WebGL isn't wanted. */
 .premium-gradient-bg {
   background: var(--color-premium-bg);
 }
 
-/* Vertical scanning line sweeping the face-capture viewfinder (KYC + daily
-   attendance scan) — recolored to the new emerald accent. */
+/* Vertical scanning line — previously swept the face-capture viewfinder,
+   now unused by any page but left defined in case a future scan-style UI
+   wants it. */
 @keyframes scan-line-sweep {
   0% { top: 6%; opacity: 0; }
   10% { opacity: 1; }

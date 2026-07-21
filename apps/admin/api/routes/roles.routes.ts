@@ -2,17 +2,20 @@ import { Router } from 'express';
 import { eq, and, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, getEffectivePrivileges, getScopedBranchIds } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getScopedBranchIds, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
-import { FEATURE_CATALOG, FEATURE_CATALOG_KEYS } from '../auth/featureCatalog';
+import { FEATURE_CATALOG, FEATURE_CATALOG_KEYS, FEATURE_DEPENDENCIES } from '../auth/featureCatalog';
 
 export const router = Router();
 
 // Server-driven feature catalog — the Role Permissions editor and the
 // hire-form's "additional access" grid both render from this one endpoint,
 // so adding a feature later means editing only featureCatalog.ts.
+// 'dependencies' lets the frontend warn before an interrelated toggle is
+// left in a broken state (see FeatureCatalogGrid.tsx) — e.g. resolving
+// break-violation alerts with the ability to even receive them revoked.
 router.get('/api/tenant/feature-catalog', authenticate, async (req: any, res: any) => {
-  res.json({ catalog: FEATURE_CATALOG });
+  res.json({ catalog: FEATURE_CATALOG, dependencies: FEATURE_DEPENDENCIES });
 });
 
 // A caller's own effective privileges — lets the frontend know which
@@ -74,6 +77,9 @@ router.post('/api/tenant/roles', authenticate, async (req: any, res: any) => {
   try {
     if (!await hasPrivilege(req.user, 'roles.manage')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    if (req.user.role !== 'super_admin' && !(await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'custom_rbac'))) {
+      return res.status(403).json({ error: "Custom Roles is not included in your organization's plan. Contact your platform provider to enable it." });
     }
     const { roleName, privileges } = req.body;
     if (!roleName || typeof roleName !== 'string' || !roleName.trim()) {

@@ -14,13 +14,13 @@ const Router = import.meta.env.VITE_CAPACITOR === 'true' ? HashRouter : BrowserR
 // Dashboard, etc.) ships as its own chunk, fetched only when that route is
 // actually visited. Without this, every visitor downloaded all of it
 // upfront in one ~2MB bundle regardless of which single page they landed
-// on — the worst case for exactly the low-end-phone/slow-network KYC flow
-// this app cares about.
+// on — the worst case for exactly the low-end-phone/slow-network device
+// registration flow this app cares about.
 const App = lazy(() => import('./App'));
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const EmployeeLogin = lazy(() => import('./pages/EmployeeLogin'));
-const EmployeeKYC = lazy(() => import('./pages/EmployeeKYC'));
+const RegisterDevice = lazy(() => import('./pages/RegisterDevice'));
 const EmployeeAttendance = lazy(() => import('./pages/EmployeeAttendance'));
 const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'));
 const EmployeeHome = lazy(() => import('./pages/EmployeeHome'));
@@ -39,7 +39,7 @@ const EmployeeDirectory = lazy(() => import('./pages/EmployeeDirectory'));
 const TeamsPage = lazy(() => import('./pages/TeamsPage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
-// and complete biometric KYC — Employee, Manager, HR, GM, Intern, or any
+// and register a device — Employee, Manager, HR, GM, Intern, or any
 // custom role a tenant admin creates. Admins manage the workspace rather
 // than clock in themselves, per the intended flow.
 const canClockIn = (role?: string) => !!role && role !== 'super_admin' && role !== 'tenant_admin';
@@ -77,18 +77,19 @@ const RouteFallback = () => (
 // route above, it has to work for a visitor who isn't logged in yet at
 // all. "Do not lose QR session during login": bounce through
 // /employee/login?next=/qr/:token and EmployeeLogin.tsx's routeAfterLogin
-// honors that param once login (and KYC, if still pending) completes.
-// KYC is a company-wide switch (tenant.kycEnabled) — when a tenant has
-// turned it off, no employee there is ever routed to the KYC wizard.
-// user.kycEnabled is undefined only for stale cached sessions predating this
-// field, treated as enabled (the pre-existing behavior) until next login.
-const kycRequired = (user: User) => user.kycEnabled !== false && !user.isKycCompleted;
+// honors that param once login (and device registration, if still pending)
+// completes. Device registration is a company-wide switch (tenant.kycEnabled)
+// — when a tenant has turned it off, no employee there is ever routed to the
+// registration page. user.kycEnabled is undefined only for stale cached
+// sessions predating this field, treated as enabled (the pre-existing
+// behavior) until next login.
+const deviceRegistrationRequired = (user: User) => user.kycEnabled !== false && !user.isKycCompleted;
 
 function QrDeepLink({ user }: { user: User | null }) {
   const params = useParams<{ token: string }>();
   if (!user) return <Navigate to={`/employee/login?next=/qr/${params.token}`} />;
   if (!canClockIn(user.role)) return <Navigate to="/" />;
-  if (kycRequired(user)) return <Navigate to="/employee/kyc" />;
+  if (deviceRegistrationRequired(user)) return <Navigate to="/employee/register-device" />;
   return <QrScan user={user} />;
 }
 
@@ -131,17 +132,17 @@ export default function AdminApp() {
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/employee/login" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
-          <Route path="/employee/kyc" element={user && canClockIn(user.role) ? <EmployeeKYC user={user} updateSession={updateSession} /> : <Navigate to="/employee/login" />} />
+          <Route path="/employee/register-device" element={user && canClockIn(user.role) ? <RegisterDevice user={user} updateSession={updateSession} /> : <Navigate to="/employee/login" />} />
           <Route path="/employee/dashboard" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : kycRequired(user) ? <Navigate to="/employee/kyc" />
+            : deviceRegistrationRequired(user) ? <Navigate to="/employee/register-device" />
             : <EmployeeDashboard user={user} onLogout={logout} />
           } />
           <Route path="/employee/attendance" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : kycRequired(user) ? <Navigate to="/employee/kyc" />
+            : deviceRegistrationRequired(user) ? <Navigate to="/employee/register-device" />
             : <EmployeeAttendance user={user} onLogout={logout} />
           } />
           {/* Old post-check-in page folded into the new dashboard's Breaks &
@@ -151,7 +152,7 @@ export default function AdminApp() {
           <Route path="/employee/home-legacy" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : kycRequired(user) ? <Navigate to="/employee/kyc" />
+            : deviceRegistrationRequired(user) ? <Navigate to="/employee/register-device" />
             : <EmployeeHome user={user} onLogout={logout} />
           } />
 
@@ -159,7 +160,7 @@ export default function AdminApp() {
           <Route path="/employee/qr-scan" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            : kycRequired(user) ? <Navigate to="/employee/kyc" />
+            : deviceRegistrationRequired(user) ? <Navigate to="/employee/register-device" />
             : <QrScan user={user} />
           } />
           {/* Public deep link — opened by any QR scanner/camera app, not just this one's built-in scanner */}

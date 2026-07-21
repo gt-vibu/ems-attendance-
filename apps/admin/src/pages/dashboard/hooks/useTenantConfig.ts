@@ -44,6 +44,15 @@ export function useTenantConfig(
   const [wfhRequireReason, setWfhRequireReason] = useState(true);
   const [wfhLateLoginGraceMins, setWfhLateLoginGraceMins] = useState('');
 
+  // Document storage, password policy, idle timeout, and attendance-log
+  // retention — independent toggles, all saved via the same config/update
+  // call. 0/false is always "off", matching the rest of this form's
+  // convention.
+  const [documentsEnabled, setDocumentsEnabled] = useState(false);
+  const [passwordExpiryDays, setPasswordExpiryDays] = useState('0');
+  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState('0');
+  const [attendanceRetentionMonths, setAttendanceRetentionMonths] = useState('0');
+
   const toggleWfhRole = (role: string) => {
     setWfhAllowedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
   };
@@ -80,6 +89,11 @@ export function useTenantConfig(
     setWfhApprovalRequired(tenant.wfhApprovalRequired !== false);
     setWfhRequireReason(tenant.wfhRequireReason !== false);
     setWfhLateLoginGraceMins(tenant.wfhLateLoginGraceMins != null ? tenant.wfhLateLoginGraceMins.toString() : '');
+
+    setDocumentsEnabled(!!tenant.documentsEnabled);
+    setPasswordExpiryDays(tenant.passwordExpiryDays != null ? tenant.passwordExpiryDays.toString() : '0');
+    setIdleTimeoutMinutes(tenant.idleTimeoutMinutes != null ? tenant.idleTimeoutMinutes.toString() : '0');
+    setAttendanceRetentionMonths(tenant.attendanceRetentionMonths != null ? tenant.attendanceRetentionMonths.toString() : '0');
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -117,6 +131,10 @@ export function useTenantConfig(
           wfhApprovalRequired,
           wfhRequireReason,
           wfhLateLoginGraceMins: wfhLateLoginGraceMins ? parseInt(wfhLateLoginGraceMins, 10) : null,
+          documentsEnabled,
+          passwordExpiryDays: parseInt(passwordExpiryDays || '0', 10),
+          idleTimeoutMinutes: parseInt(idleTimeoutMinutes || '0', 10),
+          attendanceRetentionMonths: parseInt(attendanceRetentionMonths || '0', 10),
         })
       });
 
@@ -170,6 +188,10 @@ export function useTenantConfig(
     wfhApprovalRequired, setWfhApprovalRequired,
     wfhRequireReason, setWfhRequireReason,
     wfhLateLoginGraceMins, setWfhLateLoginGraceMins,
+    documentsEnabled, setDocumentsEnabled,
+    passwordExpiryDays, setPasswordExpiryDays,
+    idleTimeoutMinutes, setIdleTimeoutMinutes,
+    attendanceRetentionMonths, setAttendanceRetentionMonths,
     toggleWfhRole,
     toggleWfhWeekday,
     toggleWeekendDay,

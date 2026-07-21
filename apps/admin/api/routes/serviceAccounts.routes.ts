@@ -2,25 +2,28 @@ import { Router } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
+import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { generateServiceAccountKey } from '../auth/serviceAccounts';
 import { logToAuditLedger } from '../services/audit';
 
 export const router = Router();
 
-// Only tenant_admin/super_admin manage integration credentials for a
-// tenant — same tier that already manages Roles & Permissions, not
-// delegable via the general privilege system (a service account is a
-// standing, unattended credential; handing out the power to mint one is a
-// materially bigger grant than any single feature privilege).
-function canManageServiceAccounts(user: any): boolean {
-  return user?.role === 'tenant_admin' || user?.role === 'super_admin';
+// Gated two ways: the platform must allow the 'service_accounts' module for
+// this tenant at all (super admin's plan), AND the caller must hold the
+// delegable 'serviceAccounts.manage' privilege within that tenant. A
+// service account can still only ever be granted privileges its creator
+// already holds (see the check below), so delegating this doesn't let a
+// grantee mint a more powerful credential than they themselves have.
+async function canManageServiceAccounts(user: any): Promise<boolean> {
+  if (user?.role !== 'super_admin' && (!user?.tenantId || !(await isPlatformFeatureAllowedForTenant(user.tenantId, 'service_accounts')))) return false;
+  return hasPrivilege(user, 'serviceAccounts.manage');
 }
 
 // List — never returns the key itself (it isn't stored anywhere retrievable
 // after creation), only metadata useful for auditing/rotation decisions.
 router.get('/api/tenant/service-accounts', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageServiceAccounts(req.user)) {
+    if (!await canManageServiceAccounts(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const rows = await db.select().from(schema.serviceAccounts).where(eq(schema.serviceAccounts.tenantId, req.user.tenantId));
@@ -44,7 +47,7 @@ router.get('/api/tenant/service-accounts', authenticate, async (req: any, res: a
 // immediately; there is no way to retrieve it again (only revoke + reissue).
 router.post('/api/tenant/service-accounts', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageServiceAccounts(req.user)) {
+    if (!await canManageServiceAccounts(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const { name, privileges } = req.body || {};
@@ -103,7 +106,7 @@ router.post('/api/tenant/service-accounts', authenticate, async (req: any, res: 
 // history instead of a foreign-key-cascaded row disappearing.
 router.delete('/api/tenant/service-accounts/:id', authenticate, async (req: any, res: any) => {
   try {
-    if (!canManageServiceAccounts(req.user)) {
+    if (!await canManageServiceAccounts(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = Number(req.params.id);

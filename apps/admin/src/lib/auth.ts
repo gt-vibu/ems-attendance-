@@ -8,9 +8,10 @@ export interface User {
   role: string;
   tenantId?: number;
   isKycCompleted?: boolean;
-  // Company-wide switch: when false, this tenant's employees skip KYC
-  // entirely and check in via GPS-within-radius alone. Defaults true
-  // (undefined treated as enabled) for any cached session predating this field.
+  // Company-wide switch: when false, this tenant's employees skip device
+  // registration entirely and check in via GPS-within-radius alone. Defaults
+  // true (undefined treated as enabled) for any cached session predating
+  // this field.
   kycEnabled?: boolean;
   // Whether the tenant_admin has completed (or explicitly skipped) the
   // first-login branch-setup wizard. Irrelevant for non-tenant_admin roles.

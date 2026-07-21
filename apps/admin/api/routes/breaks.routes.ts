@@ -17,9 +17,9 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
+import { raiseAttendanceAlert } from '../services/alerts';
 
 export const router = Router();
 
@@ -185,13 +185,12 @@ router.post('/api/breaks/end', authenticate, async (req: any, res: any) => {
           details: { lat, lng, breakSessionId: active[0].id }
         });
 
-        await db.insert(schema.attendanceAlerts).values({
+        await raiseAttendanceAlert({
           tenantId: req.user.tenantId,
           userId: req.user.userId,
           breakSessionId: active[0].id,
           type: 'break_outside_geofence',
           message: `${req.user.name} tried to end a break from outside the office location. The break remains active.`,
-          status: 'pending'
         });
 
         await sendBreakLocationViolationEmail(req.user.email, req.user.name, req.user.name, true);
@@ -253,12 +252,12 @@ router.post('/api/breaks/end', authenticate, async (req: any, res: any) => {
 
         await sendBreakViolationAlert(req.user.email, req.user.name, endTime.toLocaleDateString(), elapsedMins, budget);
 
-        await db.insert(schema.attendanceAlerts).values({
+        await raiseAttendanceAlert({
           tenantId: req.user.tenantId,
           userId: req.user.userId,
           breakSessionId: active[0].id,
           type: 'break_exceeded',
-          message: `${req.user.name} exceeded the daily break budget. Elapsed: ${elapsedMins} min (allowed: ${budget} min, unpaid: ${unpaidDuration} min).`
+          message: `${req.user.name} exceeded the daily break budget. Elapsed: ${elapsedMins} min (allowed: ${budget} min, unpaid: ${unpaidDuration} min).`,
         });
 
         for (const recipient of alertRecipients) {

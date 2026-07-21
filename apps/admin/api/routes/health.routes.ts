@@ -17,7 +17,6 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { getFaceServiceHealth } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
@@ -38,26 +37,6 @@ router.get('/api/health/db', async (_req, res) => {
       res.json({ status: 'ok', db: 'up' });
     } catch (err: any) {
       res.status(503).json({ status: 'degraded', db: 'down', error: err?.message });
-    }
-  });
-
-  // Readiness probe for the Python face-verification service. This lets the
-  // frontend check whether the separate ML process is reachable and whether
-  // its model finished loading before opening camera-driven biometric flows.
-router.get('/api/health/face', async (_req, res) => {
-    try {
-      const face = await getFaceServiceHealth();
-      if (!face.modelLoaded) {
-        return res.status(503).json({ status: 'degraded', faceService: 'up', modelLoaded: false });
-      }
-      res.json({ status: 'ok', faceService: 'up', modelLoaded: true });
-    } catch (err: any) {
-      res.status(503).json({
-        status: 'degraded',
-        faceService: 'down',
-        modelLoaded: false,
-        error: err?.message || 'Face service unavailable',
-      });
     }
   });
 

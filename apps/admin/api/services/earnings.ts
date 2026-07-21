@@ -1,6 +1,6 @@
 import { and, eq, desc, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
-import { buildPayrollSummary, getOrCreatePayrollSettings, getRoleCompensationDefault, toDateOnly } from '../routes/leavePayrollShared';
+import { buildPayrollSummary, getOrCreatePayrollSettings, getRoleCompensationDefault, toDateOnly, diffDaysInclusive, policyDeductionPercent, NO_LEAVE_DAYS } from '../routes/leavePayrollShared';
 
 // Day-by-day earnings breakdown for the self-service Earnings page — the
 // counterpart to /api/payroll/mine's monthly-only summary. Nothing here is a
@@ -67,7 +67,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   const rangeStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const rangeEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59));
 
-  const [tenantRows, settings, profileRows, components, userRows, logs, breaks, leaveRequests, holidays] = await Promise.all([
+  const [tenantRows, settings, profileRows, components, userRows, logs, breaks, leaveRequests, leavePolicies, holidays] = await Promise.all([
     db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     getOrCreatePayrollSettings(tenantId),
     db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
@@ -76,6 +76,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.userId, userId), gte(schema.attendanceLogs.createdAt, rangeStart), lte(schema.attendanceLogs.createdAt, rangeEnd))),
     db.select().from(schema.breakSessions).where(and(eq(schema.breakSessions.userId, userId), gte(schema.breakSessions.startTime, rangeStart), lte(schema.breakSessions.startTime, rangeEnd))),
     db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
+    db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
     db.select().from(schema.holidays).where(eq(schema.holidays.tenantId, tenantId)),
   ]);
 
@@ -98,7 +99,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // Baseline figures independent of this month's actual leave/overtime —
   // used per-day below, then fed back into a second buildPayrollSummary()
   // call at the end with the real totals for the headline monthly numbers.
-  const baseline = buildPayrollSummary(profile, effectiveComponents, settings, 0, 0);
+  const baseline = buildPayrollSummary(profile, effectiveComponents, settings, NO_LEAVE_DAYS, 0);
   const shiftHours = shiftHoursFor(tenant);
   const hourlyRate = shiftHours > 0 ? baseline.dailyRate / shiftHours : 0;
   const overtimeRate = baseline.overtimeRate || hourlyRate;
@@ -108,18 +109,24 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
   const holidayByDate = new Map<string, string>(holidays.map((h: any) => [String(h.date).slice(0, 10), h.name]));
 
+  const policyById = new Map(leavePolicies.map((p: any) => [p.id, p]));
+
   // Approved-leave ranges expanded to a per-date lookup, in date order —
   // needed so "which leave days are chargeable" can be assigned
-  // chronologically (first `maxPaidLeaveDaysPerMonth` days in the month are
-  // free, the rest chargeable), the same aggregate rule buildPayrollSummary
-  // applies, just resolved per-day here instead of as one bulk count.
-  const leaveByDate = new Map<string, string>();
+  // chronologically (first `maxPaidLeaveDaysPerMonth` days of PAID-type leave
+  // in the month are free, the rest chargeable at excessLeavePenaltyPercent);
+  // unpaid/partial-type leave is always chargeable at its own policy rate
+  // regardless of the quota. dayFraction handles single-day half-day leave
+  // (req.totalDays === 0.5 across a 1-calendar-day range).
+  const leaveByDate = new Map<string, { leaveType: string; policyId: number | null; dayFraction: number }>();
   for (const req of leaveRequests) {
     const start = new Date(`${req.startDate}T00:00:00Z`);
     const end = new Date(`${req.endDate}T00:00:00Z`);
+    const fullDays = diffDaysInclusive(req.startDate, req.endDate);
+    const dayFraction = fullDays > 0 ? Number(req.totalDays) / fullDays : 1;
     for (let d = new Date(start); d.getTime() <= end.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
       const key = toDateOnly(d);
-      if (key >= monthStart && key <= monthEnd) leaveByDate.set(key, req.leaveType);
+      if (key >= monthStart && key <= monthEnd) leaveByDate.set(key, { leaveType: req.leaveType, policyId: req.policyId ?? null, dayFraction });
     }
   }
 
@@ -143,12 +150,14 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
   const todayKey = toDateOnly(new Date());
   const days: DailyEarning[] = [];
-  let leaveDaysSoFar = 0;
+  let paidLeaveDaysSoFar = 0;
   let totalOvertimeHours = 0;
   let totalOvertimePay = 0;
   let totalExcessBreakMinutes = 0;
   let totalExcessBreakDeduction = 0;
   let totalApprovedLeaveDays = 0;
+  let totalPaidLeaveDays = 0;
+  let totalChargeableLeaveDays = 0;
   let totalHoursWorked = 0;
   let presentDays = 0;
   let absentDays = 0;
@@ -163,15 +172,39 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
       continue;
     }
 
-    const leaveType = leaveByDate.get(dateKey) || null;
+    const leaveInfo = leaveByDate.get(dateKey) || null;
     const holidayName = holidayByDate.get(dateKey) || null;
     const isWeekend = weekendDays.includes(weekdayName);
 
-    if (leaveType) {
-      leaveDaysSoFar += 1;
-      totalApprovedLeaveDays += 1;
-      const chargeable = leaveDaysSoFar > maxPaidLeaveDays;
-      const dayDeduction = chargeable ? baseline.dailyRate * excessLeavePenaltyPercent : 0;
+    if (leaveInfo) {
+      const { leaveType, policyId, dayFraction } = leaveInfo;
+      const policy = policyId != null ? policyById.get(policyId) : undefined;
+      const deductionPercent = policyDeductionPercent(policy as any);
+      const isPaidType = deductionPercent <= 0;
+
+      totalApprovedLeaveDays += dayFraction;
+
+      let chargeable: boolean;
+      let dayDeduction: number;
+      if (isPaidType) {
+        // Fully-paid leave type: free up to the tenant's monthly quota,
+        // only the excess beyond quota is penalized.
+        const beforeQuota = paidLeaveDaysSoFar;
+        paidLeaveDaysSoFar += dayFraction;
+        const excessFraction = Math.max(0, Math.min(dayFraction, paidLeaveDaysSoFar - maxPaidLeaveDays) - Math.max(0, beforeQuota - maxPaidLeaveDays));
+        chargeable = excessFraction > 0;
+        dayDeduction = baseline.dailyRate * excessFraction * excessLeavePenaltyPercent;
+        totalPaidLeaveDays += dayFraction;
+        totalChargeableLeaveDays += excessFraction * excessLeavePenaltyPercent;
+      } else {
+        // Unpaid/partial-type leave is always chargeable at its own
+        // configured rate, regardless of the monthly paid-leave quota.
+        const chargeableFraction = dayFraction * (deductionPercent / 100);
+        chargeable = chargeableFraction > 0;
+        dayDeduction = baseline.dailyRate * chargeableFraction;
+        totalChargeableLeaveDays += chargeableFraction;
+      }
+
       days.push({
         date: dateKey, status: 'leave', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0,
         breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: true, leaveType, leaveChargeable: chargeable,
@@ -261,7 +294,8 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
   // Final monthly summary — same buildPayrollSummary() call /api/payroll/mine
   // makes, now fed the real computed totals so the two endpoints agree.
-  const monthlySummary = buildPayrollSummary(profile, effectiveComponents, settings, totalApprovedLeaveDays, totalOvertimeHours);
+  const leaveDaysSplit = { totalDays: totalApprovedLeaveDays, paidDays: totalPaidLeaveDays, chargeableDays: totalChargeableLeaveDays };
+  const monthlySummary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDaysSplit, totalOvertimeHours);
 
   return {
     period: { year, month },

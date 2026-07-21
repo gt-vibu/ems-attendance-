@@ -47,15 +47,15 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
   }, [searchParams]);
 
   const routeAfterLogin = (user: User) => {
-    // KYC is a company-wide switch — skip the wizard entirely for a company
-    // that has turned it off, regardless of isKycCompleted.
+    // Device registration is a company-wide switch — skip it entirely for a
+    // company that has turned it off, regardless of isKycCompleted.
     if (user.kycEnabled !== false && !user.isKycCompleted) {
-      navigate('/employee/kyc');
+      navigate('/employee/register-device');
       return;
     }
     // Preserves a QR Attendance deep link across the login detour ("do not
-    // lose QR session during login") — only honored once KYC is already
-    // done, since every attendance mode requires that regardless.
+    // lose QR session during login") — only honored once device registration
+    // is already done, since every attendance mode requires that regardless.
     const next = searchParams.get('next');
     if (next && next.startsWith('/qr/')) {
       navigate(next);
@@ -67,8 +67,8 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
   const completeLogin = (data: { token: string; user: User }) => {
     localStorage.setItem('auth_token', data.token);
     onLogin(data.user);
-    // Brief animated hand-off before routing to KYC/attendance/QR, rather
-    // than navigating instantly.
+    // Brief animated hand-off before routing to device registration/
+    // attendance/QR, rather than navigating instantly.
     setViewState('transition');
     setTimeout(() => routeAfterLogin(data.user), 1800);
   };

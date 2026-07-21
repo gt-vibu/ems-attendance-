@@ -41,13 +41,13 @@ export default function PolicyBuilderView() {
       }
     },
     {
-      prompt: 'Enforce dual biometrics. Require face verification and office Wi-Fi MAC handshake for checkout. Fallback to manager bypass if camera fails.',
+      prompt: 'Enforce dual-factor checkout. Require device identity verification and office Wi-Fi MAC handshake. Fallback to manager bypass if the device check fails.',
       rule: {
         id: `r-gen-${Date.now() + 2}`,
         category: 'BIOMETRIC' as const,
         name: 'Dual-Factor Checkout Enforcer',
-        description: 'Strict mandatory checkout pipeline requiring facial challenge matching and connected BSSID logs.',
-        condition: '!faceVerified || !wifiSsidMatches',
+        description: 'Strict mandatory checkout pipeline requiring WebAuthn device verification and connected BSSID logs.',
+        condition: '!deviceIdentityVerified || !wifiSsidMatches',
         action: 'blockCheckout() or invokeManagerApproval()',
         active: true
       }

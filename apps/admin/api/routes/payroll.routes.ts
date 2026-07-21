@@ -7,11 +7,12 @@ import { getScopedBranchIds, hasPrivilege } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
 import {
   toDateOnly,
-  overlapDaysInMonth,
   buildPayrollSummary,
   getOrCreatePayrollSettings,
   getRoleCompensationDefault,
   computeCompensationDiff,
+  splitLeaveDaysForPayroll,
+  NO_LEAVE_DAYS,
 } from './leavePayrollShared';
 
 export const router = Router();
@@ -24,10 +25,11 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
     const year = Number(req.query.year || now.getUTCFullYear());
     const month = Number(req.query.month || (now.getUTCMonth() + 1));
 
-    const [settings, profileRows, requests, components, userRows] = await Promise.all([
+    const [settings, profileRows, requests, policies, components, userRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
+      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
     ]);
@@ -51,8 +53,8 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
 
     if (!profile) return res.json({ profile: null, components: [], summary: null, settings, source: 'none' });
 
-    const approvedLeaveDays = requests.reduce((sum: number, request: any) => sum + overlapDaysInMonth(request.startDate, request.endDate, year, month), 0);
-    const summary = buildPayrollSummary(profile, effectiveComponents, settings, approvedLeaveDays, 0);
+    const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
+    const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0);
     res.json({ profile, components: effectiveComponents, summary, settings, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -73,10 +75,11 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     const year = now.getUTCFullYear();
     const month = now.getUTCMonth() + 1;
 
-    const [settings, profileRows, requests, components, userRows] = await Promise.all([
+    const [settings, profileRows, requests, policies, components, userRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
+      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
     ]);
@@ -97,8 +100,8 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     // snapshot — an employee with no CTC configured at all has nothing real
     // to record yet.
     if (profile) {
-      const approvedLeaveDays = requests.reduce((sum: number, request: any) => sum + overlapDaysInMonth(request.startDate, request.endDate, year, month), 0);
-      const summary = buildPayrollSummary(profile, effectiveComponents, settings, approvedLeaveDays, 0);
+      const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
+      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0);
       await db.insert(schema.payrollRuns).values({
         tenantId,
         userId,
@@ -106,7 +109,7 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
         year,
         month,
         workingDays: Number(settings?.workingDaysPerMonth || 26),
-        approvedLeaveDays,
+        approvedLeaveDays: leaveDays.totalDays,
         overtimeHours: 0,
         grossPay: summary.monthlyGross,
         leaveDeduction: summary.leaveDeduction,
@@ -205,6 +208,22 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
       optionalHolidayLimit: Number(req.body?.optionalHolidayLimit ?? current.optionalHolidayLimit),
       holidayCountryCode: req.body?.holidayCountryCode || current.holidayCountryCode,
       holidayRegionCode: req.body?.holidayRegionCode ?? current.holidayRegionCode,
+      // --- Statutory compliance ---
+      statutoryComplianceEnabled: req.body?.statutoryComplianceEnabled !== undefined ? !!req.body.statutoryComplianceEnabled : current.statutoryComplianceEnabled,
+      pfEnabled: req.body?.pfEnabled !== undefined ? !!req.body.pfEnabled : current.pfEnabled,
+      pfEmployeeRatePercent: Number(req.body?.pfEmployeeRatePercent ?? current.pfEmployeeRatePercent),
+      pfEmployerRatePercent: Number(req.body?.pfEmployerRatePercent ?? current.pfEmployerRatePercent),
+      pfWageCeiling: Number(req.body?.pfWageCeiling ?? current.pfWageCeiling),
+      esiEnabled: req.body?.esiEnabled !== undefined ? !!req.body.esiEnabled : current.esiEnabled,
+      esiEmployeeRatePercent: Number(req.body?.esiEmployeeRatePercent ?? current.esiEmployeeRatePercent),
+      esiEmployerRatePercent: Number(req.body?.esiEmployerRatePercent ?? current.esiEmployerRatePercent),
+      esiWageCeiling: Number(req.body?.esiWageCeiling ?? current.esiWageCeiling),
+      professionalTaxEnabled: req.body?.professionalTaxEnabled !== undefined ? !!req.body.professionalTaxEnabled : current.professionalTaxEnabled,
+      professionalTaxSlabs: Array.isArray(req.body?.professionalTaxSlabs) ? req.body.professionalTaxSlabs : current.professionalTaxSlabs,
+      tdsEnabled: req.body?.tdsEnabled !== undefined ? !!req.body.tdsEnabled : current.tdsEnabled,
+      incomeTaxSlabs: Array.isArray(req.body?.incomeTaxSlabs) ? req.body.incomeTaxSlabs : current.incomeTaxSlabs,
+      tdsStandardDeduction: Number(req.body?.tdsStandardDeduction ?? current.tdsStandardDeduction),
+      statutoryBasicPercentOfGross: Number(req.body?.statutoryBasicPercentOfGross ?? current.statutoryBasicPercentOfGross),
       updatedAt: new Date(),
     };
     const [updated] = await db.update(schema.payrollSettings).set(patch).where(eq(schema.payrollSettings.id, current.id)).returning();
@@ -377,11 +396,12 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     // only ever seeing their most recent ~15 days of check-ins/outs.
     const monthStart = new Date(Date.UTC(year, month - 1, 1));
     const monthEnd = new Date(Date.UTC(year, month, 1));
-    const [settings, profileRows, components, leaveRows, attendanceRows] = await Promise.all([
+    const [settings, profileRows, components, leaveRows, policies, attendanceRows] = await Promise.all([
       getOrCreatePayrollSettings(req.user.tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, req.user.tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, req.user.tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, req.user.tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
+      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.user.tenantId)),
       db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.tenantId, req.user.tenantId), eq(schema.attendanceLogs.userId, userId), gte(schema.attendanceLogs.createdAt, monthStart), lte(schema.attendanceLogs.createdAt, monthEnd))).orderBy(schema.attendanceLogs.createdAt),
     ]);
     let profile: any = profileRows[0] || null;
@@ -397,8 +417,8 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
       }
     }
 
-    const approvedLeaveDays = leaveRows.reduce((sum: number, request: any) => sum + overlapDaysInMonth(request.startDate, request.endDate, year, month), 0);
-    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, approvedLeaveDays, 0) : null;
+    const leaveDays = splitLeaveDaysForPayroll(leaveRows, policies, year, month);
+    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0) : null;
     res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -418,11 +438,12 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       ? await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), sql`role != 'tenant_admin'`))
       : await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), sql`role != 'tenant_admin'`, inArray(schema.users.branchId, scopedBranchIds)));
     const userIds = users.map((user: any) => user.id);
-    const [settings, profiles, components, leaveRows] = await Promise.all([
+    const [settings, profiles, components, leaveRows, policies] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
       userIds.length > 0 ? db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), inArray(schema.employeeCompensationProfiles.userId, userIds), eq(schema.employeeCompensationProfiles.status, 'active'))) : [],
       userIds.length > 0 ? db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), inArray(schema.employeeSalaryComponents.userId, userIds))) : [],
       userIds.length > 0 ? db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), inArray(schema.leaveRequests.userId, userIds), eq(schema.leaveRequests.status, 'approved'))) : [],
+      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
     ]);
     const componentsByUser = new Map<number, any[]>();
     components.forEach((component: any) => {
@@ -430,14 +451,17 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       list.push(component);
       componentsByUser.set(component.userId, list);
     });
-    const leaveByUser = new Map<number, number>();
+    const leaveRequestsByUser = new Map<number, any[]>();
     leaveRows.forEach((request: any) => {
-      leaveByUser.set(request.userId, (leaveByUser.get(request.userId) || 0) + overlapDaysInMonth(request.startDate, request.endDate, year, month));
+      const list = leaveRequestsByUser.get(request.userId) || [];
+      list.push(request);
+      leaveRequestsByUser.set(request.userId, list);
     });
+    const leaveDaysByUser = (userId: number) => splitLeaveDaysForPayroll(leaveRequestsByUser.get(userId) || [], policies, year, month);
 
     const individualRows = profiles.map((profile: any) => {
       const user = users.find((row: any) => row.id === profile.userId);
-      const summary = buildPayrollSummary(profile, componentsByUser.get(profile.userId) || [], settings, leaveByUser.get(profile.userId) || 0, 0);
+      const summary = buildPayrollSummary(profile, componentsByUser.get(profile.userId) || [], settings, leaveDaysByUser(profile.userId), 0);
       return {
         userId: profile.userId,
         name: user?.name || 'Unknown',
@@ -478,7 +502,7 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       .map((user: any) => {
         const roleDefault = roleDefaultByRoleName.get(user.role);
         if (!roleDefault) return null;
-        const summary = buildPayrollSummary({ annualCtc: roleDefault.annualCtc }, roleComponentsByDefaultId.get(roleDefault.id) || [], settings, leaveByUser.get(user.id) || 0, 0);
+        const summary = buildPayrollSummary({ annualCtc: roleDefault.annualCtc }, roleComponentsByDefaultId.get(roleDefault.id) || [], settings, leaveDaysByUser(user.id), 0);
         return {
           userId: user.id,
           name: user.name || 'Unknown',
@@ -585,7 +609,7 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
 
     const roleDefaults = defaults.map((d: any) => {
       const comps = componentsByDefaultId.get(d.id) || [];
-      const summary = buildPayrollSummary({ annualCtc: d.annualCtc }, comps, settings, 0, 0);
+      const summary = buildPayrollSummary({ annualCtc: d.annualCtc }, comps, settings, NO_LEAVE_DAYS, 0);
       return {
         ...d,
         components: comps,

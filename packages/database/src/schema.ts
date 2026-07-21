@@ -59,6 +59,20 @@ export const tenants = pgTable('tenants', {
   // means no banner renders anywhere.
   policyAnnouncement: text('policy_announcement'),
   policyAnnouncementUpdatedAt: timestamp('policy_announcement_updated_at'),
+  // Company-wide switch for the employee-document-storage feature (offer
+  // letters, contracts, ID proof, certificates) — off by default so no
+  // tenant gets an unexpected new upload surface; a tenant_admin opts in
+  // from Administration.
+  documentsEnabled: boolean('documents_enabled').default(false),
+  // 0 = disabled (no expiry / no idle logout) for both — matches the
+  // existing "null/0 means off" convention used by wfhMaxDaysPerMonth etc.
+  // above, rather than a separate boolean + number pair.
+  passwordExpiryDays: integer('password_expiry_days').default(0),
+  idleTimeoutMinutes: integer('idle_timeout_minutes').default(0),
+  // Months of attendance_logs history to keep in the hot table before a
+  // row is moved to attendance_logs_archive (same shape, still queryable,
+  // just off the hot path). 0 = keep forever (no archival runs).
+  attendanceRetentionMonths: integer('attendance_retention_months').default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -149,6 +163,26 @@ export const users = pgTable('users', {
   lastHeartbeatLat: real('last_heartbeat_lat'),
   lastHeartbeatLng: real('last_heartbeat_lng'),
   lastHeartbeatAt: timestamp('last_heartbeat_at'),
+  // When the current password was set — checked against the tenant's
+  // passwordExpiryDays (0 = never expires) to force a change via the
+  // existing mustChangePassword flag, same mechanism the seeded super
+  // admin's one-time password already uses.
+  passwordChangedAt: timestamp('password_changed_at').defaultNow(),
+  // Bcrypt hashes of the last few passwords (newest last, capped at 5) —
+  // checked on password change so a reset can't just bounce back to the
+  // same password. Never the plaintext.
+  passwordHistory: jsonb('password_history'),
+  // Updated (throttled) on each authenticated request — compared against
+  // the tenant's idleTimeoutMinutes (0 = disabled) in the authenticate
+  // middleware to force a re-login after inactivity, independent of the
+  // JWT's own 24h expiry.
+  lastActivityAt: timestamp('last_activity_at'),
+  // Set once an admin runs the right-to-erasure flow on a terminated
+  // employee — name/email/phone/department/designation get overwritten
+  // with anonymized placeholders and this timestamp is stamped. Numeric
+  // attendance/payroll history is deliberately NOT deleted (needed for
+  // statutory retention) — only direct-identifier fields are scrubbed.
+  dataErasedAt: timestamp('data_erased_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -203,18 +237,28 @@ export const breakSessions = pgTable('break_sessions', {
 });
 
 // Alerts raised for timing/fraud violations (break overstay, geofence exit,
-// spoofing signals, etc). Whoever the tenant admin has granted
-// 'alerts.receive' to gets these; 'alerts.accept'/'alerts.reject' gate who
-// can actually resolve them. Kept separate from `notifications` (which are
-// simple read/unread messages) because alerts carry a resolvable state.
+// spoofing signals, etc). Routed like tickets (see services/escalation.ts):
+// each alert is assigned to ONE specific resolver at a time — the subject
+// employee's manager first, then the tenant's GM, then tenant_admin as the
+// backstop — rather than broadcast to everyone holding a receive privilege.
+// currentAssigneeUserId/escalationLevel/lastAssignedAt drive both manual
+// escalation and the scheduler's 24h auto-forward job, exactly mirroring
+// `tickets` above. Per-type receive/accept/reject privileges (see
+// featureCatalog.ts) additionally gate WHETHER the assignee is even allowed
+// to act — routing decides WHO, privileges decide IF. Kept separate from
+// `notifications` (simple read/unread messages) because alerts carry a
+// resolvable, assignable, escalating state.
 export const attendanceAlerts = pgTable('attendance_alerts', {
   id: serial('id').primaryKey(),
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   userId: integer('user_id').references(() => users.id).notNull(), // the employee the alert is about
   breakSessionId: integer('break_session_id').references(() => breakSessions.id),
-  type: text('type').notNull(), // 'break_exceeded' | 'break_outside_geofence' | 'late_arrival' | 'spoofing_suspected' | 'auto_checkout_unverified'
+  type: text('type').notNull(), // 'break_exceeded' | 'break_outside_geofence' | 'geofence_exit_working_hours' | 'late_arrival' | 'spoofing_suspected' | 'auto_checkout_unverified' | 'low_attendance'
   message: text('message').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'accepted' | 'rejected'
+  escalationLevel: integer('escalation_level').notNull().default(0), // 0 = manager, 1 = GM, 2 = tenant_admin
+  currentAssigneeUserId: integer('current_assignee_user_id').references(() => users.id),
+  lastAssignedAt: timestamp('last_assigned_at').defaultNow(),
   resolvedByUserId: integer('resolved_by_user_id').references(() => users.id),
   resolvedAt: timestamp('resolved_at'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -579,6 +623,41 @@ export const leavePolicies = pgTable('leave_policies', {
   requiresApproval: boolean('requires_approval').notNull().default(true),
   medicalOnlyNoAdvanceNoticeDays: real('medical_only_no_advance_notice_days').default(0),
   defaultDeductionPercent: real('default_deduction_percent').notNull().default(100),
+  // When on, the balance available so far this year is prorated by month
+  // elapsed (maxDaysPerYear/12 per completed month) instead of the full
+  // annual allotment being available from Jan 1 — see computeAccruedDays()
+  // in leave.routes.ts.
+  accrualEnabled: boolean('accrual_enabled').notNull().default(false),
+  // When on, up to maxCarryForwardDays of last year's unused balance for
+  // this policy is added into the current year's available days — one
+  // year back only (no unbounded chaining), computed lazily alongside the
+  // normal balance calculation rather than needing its own cron.
+  carryForwardEnabled: boolean('carry_forward_enabled').notNull().default(false),
+  maxCarryForwardDays: real('max_carry_forward_days').notNull().default(0),
+  // When on, an employee can request to convert unused days of this leave
+  // type into pay — see leaveEncashmentRequests below.
+  encashmentEnabled: boolean('encashment_enabled').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// An employee's request to convert unused leave into pay. ratePerDay/amount
+// are null until approved, at which point they're snapshotted from that
+// month's payroll daily rate (buildPayrollSummary's dailyRate) — so a later
+// CTC change never silently rewrites an already-approved encashment, same
+// non-retroactive principle as payrollRuns.
+export const leaveEncashmentRequests = pgTable('leave_encashment_requests', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  policyId: integer('policy_id').references(() => leavePolicies.id).notNull(),
+  leaveType: text('leave_type').notNull(),
+  days: real('days').notNull(),
+  ratePerDay: real('rate_per_day'),
+  amount: real('amount'),
+  reason: text('reason'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id),
+  reviewedAt: timestamp('reviewed_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -610,6 +689,50 @@ export const payrollSettings = pgTable('payroll_settings', {
   optionalHolidayLimit: integer('optional_holiday_limit').notNull().default(2),
   holidayCountryCode: text('holiday_country_code').default('IN'),
   holidayRegionCode: text('holiday_region_code'),
+  // --- Statutory compliance (India defaults; every rate/ceiling is
+  // tenant-editable so this can be adapted to another jurisdiction's
+  // numbers without a code change). Each of PF/ESI/Professional Tax/TDS is
+  // independently toggleable — a tenant outside India can leave the master
+  // switch off entirely, same "opt-in, never forced on" convention as WFH/
+  // QR/Documents elsewhere in this schema. TDS here is a SIMPLIFIED
+  // slab-based estimate (annualized gross, standard deduction, no HRA/80C/
+  // regime election) — a real payroll-compliance product needs a tax
+  // professional's sign-off before being trusted for statutory filing;
+  // this exists to show a realistic estimate on the payslip, not to BE the
+  // statutory computation of record. ---
+  statutoryComplianceEnabled: boolean('statutory_compliance_enabled').default(false),
+  // Provident Fund — employee + employer both contribute this % of "basic
+  // wage" (see statutoryBasicPercentOfGross below), capped at the wage
+  // ceiling. Only the employee share reduces take-home pay; the employer
+  // share is informational (shown on the payslip, not deducted).
+  pfEnabled: boolean('pf_enabled').default(false),
+  pfEmployeeRatePercent: real('pf_employee_rate_percent').notNull().default(12),
+  pfEmployerRatePercent: real('pf_employer_rate_percent').notNull().default(12),
+  pfWageCeiling: real('pf_wage_ceiling').notNull().default(15000),
+  // Employee State Insurance — applies only when monthly gross is at or
+  // below the wage ceiling (standard ESI rule: once you cross it, you're
+  // out of the scheme entirely for that period, not just capped).
+  esiEnabled: boolean('esi_enabled').default(false),
+  esiEmployeeRatePercent: real('esi_employee_rate_percent').notNull().default(0.75),
+  esiEmployerRatePercent: real('esi_employer_rate_percent').notNull().default(3.25),
+  esiWageCeiling: real('esi_wage_ceiling').notNull().default(21000),
+  // Professional Tax — small state-specific flat/slab deduction. Stored as
+  // an ordered array of {minGross, maxGross, amount}; maxGross: null means
+  // "and above." Left empty (default) means no deduction even when enabled,
+  // until the tenant admin fills in their state's slabs.
+  professionalTaxEnabled: boolean('professional_tax_enabled').default(false),
+  professionalTaxSlabs: jsonb('professional_tax_slabs').default('[]'),
+  // TDS — see the simplified-estimate caveat above. incomeTaxSlabs is an
+  // ordered array of {upTo, ratePercent} on annual taxable income (annual
+  // gross minus the standard deduction below); upTo: null means "and above."
+  // Defaults to India's FY2024-25 new-regime slabs.
+  tdsEnabled: boolean('tds_enabled').default(false),
+  incomeTaxSlabs: jsonb('income_tax_slabs').default('[{"upTo":300000,"ratePercent":0},{"upTo":600000,"ratePercent":5},{"upTo":900000,"ratePercent":10},{"upTo":1200000,"ratePercent":15},{"upTo":1500000,"ratePercent":20},{"upTo":null,"ratePercent":30}]'),
+  tdsStandardDeduction: real('tds_standard_deduction').notNull().default(50000),
+  // What fraction of monthly gross counts as "basic wage" for PF/ESI when
+  // no salary component is explicitly named "Basic" — the common Indian
+  // payroll convention when CTC isn't broken into named components.
+  statutoryBasicPercentOfGross: real('statutory_basic_percent_of_gross').notNull().default(50),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -862,5 +985,237 @@ export const compensationHistory = pgTable('compensation_history', {
   previousComponents: jsonb('previous_components'), // snapshot of employeeSalaryComponents rows before this save
   newComponents: jsonb('new_components').notNull(), // snapshot after this save
   fieldChanges: jsonb('field_changes').notNull().default('[]'), // [{ field, oldValue, newValue }]
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Replaces face-embedding-based identity verification. One row per
+// registered device credential (WebAuthn/passkey — Windows Hello, Touch ID,
+// Android biometric, or a security key). The server never sees a
+// fingerprint/face/PIN at any point — only this public key, generated
+// locally by the device's own secure hardware at registration time. Identity
+// proof at check-in is a challenge-response signature verified against this
+// public key, not a similarity score against stored biometric data — there
+// is no threshold to tune and no false-accept-between-two-different-people
+// failure mode the way embedding comparison had.
+export const webauthnCredentials = pgTable('webauthn_credentials', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  // Base64url-encoded credential ID, as returned by the authenticator —
+  // unique per device+account, used to look this row up at authentication time.
+  credentialId: text('credential_id').notNull().unique(),
+  publicKey: text('public_key').notNull(), // base64url-encoded COSE public key
+  counter: integer('counter').notNull().default(0), // signature counter, replay-attack detection
+  deviceType: text('device_type'), // 'singleDevice' | 'multiDevice' (per WebAuthn credentialDeviceType)
+  transports: jsonb('transports'), // e.g. ['internal'] for a platform authenticator, ['usb','nfc'] for a security key
+  // Human-readable label shown in "Manage Devices" (e.g. "Rahul's ThinkPad —
+  // Windows Hello"), captured from the browser's UA at registration time —
+  // best-effort, not authoritative for anything security-relevant.
+  deviceName: text('device_name'),
+  createdAt: timestamp('created_at').defaultNow(),
+  lastUsedAt: timestamp('last_used_at'),
+});
+
+// Short-lived, single-use challenges issued by /register/options and
+// /authenticate/options — the server must remember exactly what challenge it
+// asked for so it can verify the signed response actually answers that
+// specific challenge and not a replayed old one. Deleted on successful
+// verification (or left to expire — checked by createdAt + a fixed TTL in
+// the route handlers, no separate cron needed since these are tiny rows).
+export const webauthnChallenges = pgTable('webauthn_challenges', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  challenge: text('challenge').notNull(),
+  purpose: text('purpose').notNull(), // 'register' | 'authenticate'
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Termination approval queue — same request->approve/reject shape as
+// attendanceCorrections/wfhLocationChangeRequests. Only ever written by
+// someone who holds 'employee.terminate' but is NOT the tenant_admin (the
+// tenant_admin terminates immediately, no row here); the actual
+// employeeStatus flip only happens when the tenant_admin approves the row
+// below, via POST /api/tenant/termination-requests/action.
+export const terminationRequests = pgTable('termination_requests', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  employeeId: integer('employee_id').references(() => users.id).notNull(),
+  requestedByUserId: integer('requested_by_user_id').references(() => users.id).notNull(),
+  reason: text('reason').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id),
+  reviewedAt: timestamp('reviewed_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const terminationRequestsRelations = relations(terminationRequests, ({ one }) => ({
+  employee: one(users, {
+    fields: [terminationRequests.employeeId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [terminationRequests.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+// Employee document storage (offer letters, contracts, ID proof,
+// certificates) — only reachable at all when the owning tenant has
+// tenants.documentsEnabled on (see api/routes/documents.routes.ts). Files
+// live on local disk under DOCUMENTS_STORAGE_DIR (default ./uploads/documents),
+// named by a random key, not the original filename — storagePath is that
+// key, fileName is only ever used for the Content-Disposition header on
+// download, never for the on-disk path (avoids path-traversal from a
+// crafted filename).
+export const employeeDocuments = pgTable('employee_documents', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  uploadedByUserId: integer('uploaded_by_user_id').references(() => users.id).notNull(),
+  category: text('category').notNull().default('other'), // 'offer_letter' | 'contract' | 'id_proof' | 'certificate' | 'other'
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type').notNull(),
+  fileSize: integer('file_size').notNull(),
+  storagePath: text('storage_path').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Two-party shift swap: requester proposes swapping their shift on a
+// specific date with a colleague; the colleague must accept before it goes
+// to whoever holds 'shift.manage' for final approval (shift assignment is
+// an org policy, same "can't be delegated below shift.manage" rule the rest
+// of this schema already follows for branch/shift changes). requesterShiftId/
+// targetShiftId are snapshotted at request time (via getEffectiveShiftId)
+// so approval doesn't have to re-derive what's being swapped.
+export const shiftSwapRequests = pgTable('shift_swap_requests', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  requesterId: integer('requester_id').references(() => users.id).notNull(),
+  targetUserId: integer('target_user_id').references(() => users.id).notNull(),
+  swapDate: text('swap_date').notNull(), // 'YYYY-MM-DD'
+  requesterShiftId: integer('requester_shift_id').references(() => shifts.id),
+  targetShiftId: integer('target_shift_id').references(() => shifts.id),
+  reason: text('reason'),
+  // 'pending_target' -> 'pending_approval' -> 'approved' | 'rejected'
+  // 'pending_target' -> 'declined' (target said no, never reaches an approver)
+  status: text('status').notNull().default('pending_target'),
+  targetRespondedAt: timestamp('target_responded_at'),
+  reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id),
+  reviewedAt: timestamp('reviewed_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Cold storage for attendance_logs rows older than the tenant's
+// attendanceRetentionMonths (see the monthly archival job in scheduler.ts)
+// — identical shape plus archivedAt, so a CSV export of "old" data is just
+// a query against this table instead of a data-loss event.
+export const attendanceLogsArchive = pgTable('attendance_logs_archive', {
+  id: integer('id').primaryKey(), // preserves the original attendance_logs.id, not a new identity
+  userId: integer('user_id').references(() => users.id).notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  status: text('status').notNull(),
+  type: text('type'),
+  clientTimestamp: timestamp('client_timestamp'),
+  device: text('device'),
+  locationLat: real('location_lat'),
+  locationLng: real('location_lng'),
+  reason: text('reason'),
+  explanation: text('explanation'),
+  attendanceMode: text('attendance_mode'),
+  homeLat: real('home_lat'),
+  homeLng: real('home_lng'),
+  distanceFromHomeMeters: real('distance_from_home_meters'),
+  wfhReason: text('wfh_reason'),
+  checkoutAt: timestamp('checkout_at'),
+  workedMinutes: real('worked_minutes'),
+  branchId: integer('branch_id').references(() => branches.id),
+  createdAt: timestamp('created_at'),
+  archivedAt: timestamp('archived_at').defaultNow(),
+});
+
+// Browser/PWA push subscriptions (Web Push, not a native FCM/APNs token —
+// this app is web + Capacitor-wrapped, not published to an app store with
+// its own push credentials). One row per device/browser a user has opted
+// into push on; a user can have several (phone + laptop). notifyUser/
+// notifyUsers (see services/notifications.ts) push to every row here for
+// that user, best-effort — a dead/expired subscription is deleted on a
+// failed send rather than retried, since the endpoint itself is gone.
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dhKey: text('p256dh_key').notNull(),
+  authKey: text('auth_key').notNull(),
+  userAgent: text('user_agent'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// General-purpose employee ticket/dispute system — broader than
+// attendanceCorrections above (which only covers "I missed a punch"): a
+// ticket carries a priority the raiser sets, can be about attendance, leave,
+// payroll, or anything else, and auto-routes through a real escalation
+// chain (see services/escalation.ts): the raiser's direct manager first,
+// then the tenant's GM (if one exists), then tenant_admin as the final
+// backstop. currentAssigneeUserId/escalationLevel/lastAssignedAt together
+// drive both manual escalation and the scheduler's 24h auto-forward job
+// (see bootstrap/scheduler.ts) — a ticket nobody actions within 24h moves
+// itself to the next level automatically. Resolving an attendance_dispute
+// or leave_dispute ticket can directly patch the linked record (see
+// tickets.routes.ts), which is what makes "I was marked absent but was
+// actually present" flow all the way through to attendance/leave
+// history/payroll without a separate manual edit step.
+export const tickets = pgTable('tickets', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  raisedByUserId: integer('raised_by_user_id').references(() => users.id).notNull(),
+  category: text('category').notNull(), // 'attendance_dispute' | 'leave_dispute' | 'payroll_dispute' | 'other'
+  priority: text('priority').notNull().default('medium'), // 'low' | 'medium' | 'high' | 'urgent' — set by the raiser
+  subject: text('subject').notNull(),
+  description: text('description').notNull(),
+  // Optional links so a resolver can act directly on the disputed record
+  // instead of just reading free text about it.
+  relatedAttendanceLogId: integer('related_attendance_log_id').references(() => attendanceLogs.id),
+  relatedLeaveRequestId: integer('related_leave_request_id'), // FK to leaveRequests.id, declared below this table in file order
+  relatedDate: text('related_date'), // 'YYYY-MM-DD' — the day in question when no specific log/request row applies yet
+  status: text('status').notNull().default('open'), // 'open' | 'resolved' | 'rejected'
+  escalationLevel: integer('escalation_level').notNull().default(0), // 0 = manager, 1 = GM, 2 = tenant_admin
+  currentAssigneeUserId: integer('current_assignee_user_id').references(() => users.id),
+  lastAssignedAt: timestamp('last_assigned_at').defaultNow(),
+  resolutionNote: text('resolution_note'),
+  resolvedByUserId: integer('resolved_by_user_id').references(() => users.id),
+  resolvedAt: timestamp('resolved_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const ticketsRelations = relations(tickets, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [tickets.tenantId],
+    references: [tenants.id],
+  }),
+  raisedBy: one(users, {
+    fields: [tickets.raisedByUserId],
+    references: [users.id],
+  }),
+  currentAssignee: one(users, {
+    fields: [tickets.currentAssigneeUserId],
+    references: [users.id],
+  }),
+}));
+
+// One row per escalation hop — the audit trail for how a ticket moved
+// through the chain (manual escalate, or the 24h auto-forward job), kept
+// separate from the auditLedger hash chain since this is ticket-specific
+// structured data a resolver's UI needs to render as a timeline, not a
+// generic audit entry.
+export const ticketEscalations = pgTable('ticket_escalations', {
+  id: serial('id').primaryKey(),
+  ticketId: integer('ticket_id').references(() => tickets.id).notNull(),
+  fromUserId: integer('from_user_id').references(() => users.id),
+  toUserId: integer('to_user_id').references(() => users.id),
+  fromLevel: integer('from_level').notNull(),
+  toLevel: integer('to_level').notNull(),
+  reason: text('reason').notNull(), // 'manual' | 'auto_24h_timeout' | 'no_manager_found' | 'no_gm_found'
   createdAt: timestamp('created_at').defaultNow(),
 });

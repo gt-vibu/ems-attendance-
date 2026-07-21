@@ -7,7 +7,7 @@ import { db, schema } from '../../db';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
-import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
+import { hashPassword, verifyPassword, isPasswordHashed, validatePasswordStrength, isPasswordReused, pushPasswordHistory } from '../../password.js';
 import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail } from '../../mail.js';
 import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineMeters, evaluateWfhEligibility, evaluateWfhLocation, todayWeekdayName, WFH_PERMISSIONS } from '../../wfh.js';
 import { reverseGeocode } from '../../geocoding.js';
@@ -17,7 +17,6 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { callFaceService, cosineSimilarity, KYC_ACTIONS, DAILY_CHALLENGE_ACTIONS, pendingChallenges, CHALLENGE_TTL_MS, FACE_TOKEN_TTL } from '../services/face';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
@@ -64,6 +63,21 @@ router.post('/api/auth/login', authLimiter, async (req: any, res: any) => {
         return res.json({ requirePasswordChange: true, tempToken });
       }
 
+      // Tenant-configurable password expiry (0 = disabled) — reuses the
+      // exact same forced-change flow as mustChangePassword above, just
+      // triggered by age instead of an explicit admin/system flag.
+      if (user.tenantId) {
+        const tenantRows = await db.select({ passwordExpiryDays: schema.tenants.passwordExpiryDays }).from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
+        const expiryDays = tenantRows[0]?.passwordExpiryDays || 0;
+        if (expiryDays > 0 && user.passwordChangedAt) {
+          const ageDays = (Date.now() - new Date(user.passwordChangedAt).getTime()) / (24 * 60 * 60 * 1000);
+          if (ageDays > expiryDays) {
+            const tempToken = signToken({ userId: user.id, email: user.email, tempReset: true });
+            return res.json({ requirePasswordChange: true, tempToken, reason: 'expired' });
+          }
+        }
+      }
+
       const result = await finalizeLogin(user, deviceId);
       if (result.ok === false) return res.status(result.status).json(result.body);
       res.json({ token: result.token, user: result.user });
@@ -86,15 +100,26 @@ router.post('/api/auth/reset-password', authLimiter, async (req: any, res: any) 
         return res.status(401).json({ error: 'Invalid or expired reset token' });
       }
 
-      if (!newPassword || String(newPassword).length < 8) {
-        return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+      const strengthError = validatePasswordStrength(newPassword);
+      if (strengthError) {
+        return res.status(400).json({ error: strengthError });
       }
 
+      const beforeRows = await db.select().from(schema.users).where(eq(schema.users.id, decoded.userId));
+      if (beforeRows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const before = beforeRows[0];
+      if (await isPasswordReused(newPassword, before.password, before.passwordHistory as any)) {
+        return res.status(400).json({ error: 'You cannot reuse a recent password.' });
+      }
+
+      const newHash = await hashPassword(newPassword);
       await db.update(schema.users)
         .set({
-          password: await hashPassword(newPassword),
+          password: newHash,
           tempPassword: null,
-          mustChangePassword: false
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          passwordHistory: pushPasswordHistory(before.passwordHistory as any, newHash),
         })
         .where(eq(schema.users.id, decoded.userId));
 
@@ -170,15 +195,26 @@ router.post('/api/auth/forgot-password/confirm', authLimiter, async (req: any, r
         return res.status(401).json({ error: 'Invalid or expired reset link. Please request a new one.' });
       }
 
-      if (!newPassword || String(newPassword).length < 8) {
-        return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+      const strengthError = validatePasswordStrength(newPassword);
+      if (strengthError) {
+        return res.status(400).json({ error: strengthError });
       }
 
+      const beforeRows = await db.select().from(schema.users).where(eq(schema.users.id, decoded.userId));
+      if (beforeRows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const before = beforeRows[0];
+      if (await isPasswordReused(newPassword, before.password, before.passwordHistory as any)) {
+        return res.status(400).json({ error: 'You cannot reuse a recent password.' });
+      }
+
+      const newHash = await hashPassword(newPassword);
       await db.update(schema.users)
         .set({
-          password: await hashPassword(newPassword),
+          password: newHash,
           tempPassword: null,
-          mustChangePassword: false
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          passwordHistory: pushPasswordHistory(before.passwordHistory as any, newHash),
         })
         .where(eq(schema.users.id, decoded.userId));
 

@@ -61,6 +61,45 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Web Push — the payload is whatever services/push.ts's sendPushToUser sent
+// (JSON: { title, body, url }), same content as the in-app notification it
+// always accompanies. `url` (defaults to the app root) is where a click on
+// the notification navigates, reusing an already-open tab if there is one
+// instead of always opening a new one.
+self.addEventListener('push', (event) => {
+  let data = { title: 'Smart Teams', body: 'You have a new notification.', url: '/' };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {
+    if (event.data) data.body = event.data.text();
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsList) => {
+      for (const client of clientsList) {
+        if (client.url.includes(targetUrl) && 'focus' in client) return client.focus();
+      }
+      if (clientsList.length > 0 && 'focus' in clientsList[0]) {
+        clientsList[0].navigate(targetUrl);
+        return clientsList[0].focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return; // never touch POST/PUT/DELETE (attendance, breaks, auth, etc.)

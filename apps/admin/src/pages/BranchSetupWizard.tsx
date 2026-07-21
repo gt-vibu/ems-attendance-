@@ -112,7 +112,7 @@ export default function BranchSetupWizard({ user, updateSession }: { user: User;
       if (!res.ok) throw new Error(data.error || 'Failed to create branches');
       const updatedUser = { ...user, branchSetupCompleted: true };
       updateSession(updatedUser);
-      navigate(user.isKycCompleted === false && user.kycEnabled !== false ? '/employee/kyc' : '/dashboard');
+      navigate(user.isKycCompleted === false && user.kycEnabled !== false ? '/employee/register-device' : '/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to complete branch setup');
       setLoading(false);

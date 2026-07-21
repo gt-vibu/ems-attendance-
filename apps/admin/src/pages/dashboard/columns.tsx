@@ -26,9 +26,9 @@ export function createDirectoryColumns(openAccessEditor: (emp: any) => void): Co
       cell: ({ getValue }) => <span className="font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider text-[10px]">{getValue() as string}</span>,
     },
     {
-      id: 'kyc',
+      id: 'deviceRegistration',
       accessorFn: (emp: any) => (emp.isKycCompleted ? 'Completed' : 'Pending'),
-      header: 'KYC State',
+      header: 'Device Registration',
       cell: ({ row }) => (
         <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${row.original.isKycCompleted ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
           {row.original.isKycCompleted ? 'Completed' : 'Pending'}

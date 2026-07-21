@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
 
@@ -64,6 +64,45 @@ router.get('/api/tenant/employees', authenticate, async (req: any, res: any) => 
     });
 
     res.json({ employees });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lightweight node list for the org chart — the frontend builds the actual
+// tree from managerId (see OrgChartPage.tsx), this just supplies scoped,
+// active-employee nodes. Deliberately separate from GET /api/tenant/employees
+// (which returns the full profile shape needed for the directory table) so
+// the org-chart page's payload stays small even for a large tenant.
+router.get('/api/tenant/org-chart', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasAnyPrivilege(req.user, ['employee.read', 'reports.view'])) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+
+    const tenantId = req.user.tenantId;
+    const scopedBranchIds = await getScopedBranchIds(req.user);
+    const userFilter = scopedBranchIds !== null
+      ? and(eq(schema.users.tenantId, tenantId), inArray(schema.users.branchId, scopedBranchIds), ne(schema.users.employeeStatus, 'terminated'))
+      : and(eq(schema.users.tenantId, tenantId), ne(schema.users.employeeStatus, 'terminated'));
+
+    const usersList = await db.select().from(schema.users).where(userFilter);
+    const validIds = new Set(usersList.map((u) => u.id));
+
+    const nodes = usersList.map((u) => ({
+      id: u.id,
+      name: u.name,
+      role: u.role,
+      designation: u.designation || '',
+      department: u.department || '',
+      // A managerId pointing outside this scoped set (e.g. branch-scoped
+      // viewer whose employees report to someone outside their branches) or
+      // at a terminated/missing user renders as a root node instead of a
+      // dangling reference.
+      managerId: u.managerId && validIds.has(u.managerId) ? u.managerId : null,
+    }));
+
+    res.json({ nodes });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -132,7 +171,7 @@ router.get('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
 // UPDATE employee profile
 router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any) => {
   try {
-    if (!await hasPrivilege(req.user, 'employee.create')) {
+    if (!await hasAnyPrivilege(req.user, ['employee.edit', 'employee.create'])) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
 

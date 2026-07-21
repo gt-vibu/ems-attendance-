@@ -7,6 +7,11 @@ import StatCard from '../components/StatCard';
 import type { ColumnDef } from '@tanstack/react-table';
 import QrAttendanceDisplay from '../components/dashboard/QrAttendanceDisplay';
 import EmployeeDetailPanel from '../components/EmployeeDetailPanel';
+import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
+import TicketsPanel from '../components/TicketsPanel';
+import OrgChart from '../components/OrgChart';
+import BulkHireImport from '../components/BulkHireImport';
+import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
 import EmployeeDirectory from './EmployeeDirectory';
@@ -17,7 +22,7 @@ import { useSelfService } from './dashboard/hooks/useSelfService';
 import { useQrAttendance, QR_ROTATION_CHOICES } from './dashboard/hooks/useQrAttendance';
 import { usePolicyAnnouncement } from './dashboard/hooks/usePolicyAnnouncement';
 import { useHolidays } from './dashboard/hooks/useHolidays';
-import { useCorrections, usePendingAttendance, useWfhLocationRequests, useAlerts } from './dashboard/hooks/useApprovalQueues';
+import { useCorrections, usePendingAttendance, useWfhLocationRequests, useAlerts, useTerminationRequests, useShiftSwapRequests } from './dashboard/hooks/useApprovalQueues';
 import { useWfhLedger, useWfhStats } from './dashboard/hooks/useWfhLedger';
 import { useRecruitment } from './dashboard/hooks/useRecruitment';
 import { useHomeWidgets } from './dashboard/hooks/useHomeWidgets';
@@ -32,7 +37,7 @@ import {
   LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell,
   ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine, Activity, Power, Play, ExternalLink, TrendingUp, CalendarDays, Banknote,
-  CheckCircle2, UserX, AlarmClock, CalendarClock,
+  CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -83,6 +88,17 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   }, []);
   const hasAnyPrivilege = (...keys: string[]) => myPrivileges === 'ALL' || keys.some((k) => myPrivileges.includes(k));
 
+  // Full delegable-feature catalog for the hire form's "additional access"
+  // grid — same server-driven list Role Permissions uses, filtered down to
+  // exactly what THIS user holds (myPrivileges above) so a manager only ever
+  // sees, and can only ever grant, a subset of their own features.
+  const [featureCatalog, setFeatureCatalog] = useState<FeatureCatalogCategory[]>([]);
+  const [featureDependencies, setFeatureDependencies] = useState<FeatureDependencies>({});
+  useEffect(() => {
+    fetchFeatureCatalog().then(setFeatureCatalog).catch(() => {});
+    fetchFeatureDependencies().then(setFeatureDependencies).catch(() => {});
+  }, []);
+
   // Which user's EmployeeDetailPanel (attendance calendar + leave + payroll)
   // is currently open, if any — set from any clickable name across this
   // page (drill-down tables, Pending Approvals, Your Team roster).
@@ -114,8 +130,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // ==========================================
   const {
     tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
-    selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics,
+    selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures,
     fetchSuperAdminData, handleToggleTenantStatus, handleOpenApproveModal, handleApproveRequest, toggleFeature,
+    manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
+    editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
+    openEditFeatures, toggleEditFeature, handleSaveEditFeatures,
   } = useSuperAdminData(token, setLoading, setError, setSuccess, setNotifications);
 
   // ==========================================
@@ -136,6 +155,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     wfhMaxDaysPerMonth, setWfhMaxDaysPerMonth, wfhAllowedWeekdays, setWfhAllowedWeekdays,
     wfhRadiusMeters, setWfhRadiusMeters, wfhApprovalRequired, setWfhApprovalRequired,
     wfhRequireReason, setWfhRequireReason, wfhLateLoginGraceMins, setWfhLateLoginGraceMins,
+    documentsEnabled, setDocumentsEnabled, passwordExpiryDays, setPasswordExpiryDays,
+    idleTimeoutMinutes, setIdleTimeoutMinutes, attendanceRetentionMonths, setAttendanceRetentionMonths,
     toggleWfhRole, toggleWfhWeekday, toggleWeekendDay, hydrateFromConfig,
     handleSaveConfig, handleGetCurrentLocation,
   } = useTenantConfig(token, setLoading, setError, setSuccess);
@@ -227,6 +248,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const {
     wfhLocationRequests, hasWfhLocationAccess, fetchWfhLocationRequests, handleResolveWfhLocationRequest,
   } = useWfhLocationRequests(token, approvalQueueSetters);
+  const {
+    terminationRequests, hasTerminationAccess, fetchTerminationRequests, handleResolveTermination,
+  } = useTerminationRequests(token, approvalQueueSetters);
+  const {
+    shiftSwapRequests, hasShiftSwapAccess, fetchShiftSwapRequests, handleResolveShiftSwap,
+  } = useShiftSwapRequests(token, approvalQueueSetters);
   const {
     attendanceAlerts, hasAlertsAccess, fetchAlerts, handleResolveAlert,
   } = useAlerts(token, approvalQueueSetters);
@@ -321,6 +348,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
       // Fetch WFH home-location change requests (same privilege gate)
       await fetchWfhLocationRequests();
+
+      // Fetch termination requests (tenant_admin-only; fails quietly otherwise)
+      await fetchTerminationRequests();
+
+      // Fetch shift-swap requests awaiting approval (shift.manage; fails quietly otherwise)
+      await fetchShiftSwapRequests();
 
       // Fetch WFH ledger (per-employee/per-day, gated by wfh.view_logs)
       await fetchWfhLedger();
@@ -1826,12 +1859,26 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                               </span>
                             </td>
                             <td className="py-4 px-4 text-right">
-                              <button
-                                onClick={() => handleToggleTenantStatus(t.id, t.status || 'active')}
-                                className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-[var(--color-nexus-error)] hover:brightness-110 text-white' : 'bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white'}`}
-                              >
-                                {(t.status || 'active') === 'active' ? 'Suspend' : 'Reactivate'}
-                              </button>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => openManageAdmins(t)}
+                                  className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
+                                >
+                                  Manage Admins
+                                </button>
+                                <button
+                                  onClick={() => openEditFeatures(t)}
+                                  className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
+                                >
+                                  Edit Features
+                                </button>
+                                <button
+                                  onClick={() => handleToggleTenantStatus(t.id, t.status || 'active')}
+                                  className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-[var(--color-nexus-error)] hover:brightness-110 text-white' : 'bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white'}`}
+                                >
+                                  {(t.status || 'active') === 'active' ? 'Suspend' : 'Reactivate'}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1942,47 +1989,23 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Requested: <strong>{selectedRequest.plan}</strong> — you can change it before onboarding.</p>
               </div>
 
-              <div className="space-y-4 mb-8">
+              <div className="space-y-3 mb-8 max-h-80 overflow-y-auto">
                 <span className="block text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider">Features Package</span>
-                
-                <label className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedFeatures.includes('kyc')} 
-                    onChange={() => toggleFeature('kyc')}
-                    className="w-4 h-4 accent-[var(--color-nexus-primary)]"
-                  />
-                  <div>
-                    <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">KYC Biometrics Check</span>
-                    <span className="text-[10px] text-[var(--color-nexus-muted)]">Requires camera face embeddings matching</span>
-                  </div>
-                </label>
 
-                <label className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedFeatures.includes('gps_geofence')} 
-                    onChange={() => toggleFeature('gps_geofence')}
-                    className="w-4 h-4 accent-[var(--color-nexus-primary)]"
-                  />
-                  <div>
-                    <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">GPS Geofencing Bounds</span>
-                    <span className="text-[10px] text-[var(--color-nexus-muted)]">Limits checking in to office coordinate radius</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedFeatures.includes('wifi_lock')} 
-                    onChange={() => toggleFeature('wifi_lock')}
-                    className="w-4 h-4 accent-[var(--color-nexus-primary)]"
-                  />
-                  <div>
-                    <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Corporate Wi-Fi IP Security</span>
-                    <span className="text-[10px] text-[var(--color-nexus-muted)]">Validates corporate public network IP addresses</span>
-                  </div>
-                </label>
+                {platformFeatures.map((f) => (
+                  <label key={f.key} className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedFeatures.includes(f.key)}
+                      onChange={() => toggleFeature(f.key)}
+                      className="w-4 h-4 accent-[var(--color-nexus-primary)]"
+                    />
+                    <div>
+                      <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
+                      <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+                    </div>
+                  </label>
+                ))}
               </div>
 
               <div className="flex gap-3">
@@ -1998,6 +2021,101 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all disabled:opacity-50"
                 >
                   {loading ? 'Onboarding...' : 'Confirm Approval'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manage Admins modal — lists the tenant_admin account(s) for one
+            tenant and lets the super admin permanently delete one. Doesn't
+            touch the tenant or its employees/data, only that one login. */}
+        {manageAdminsTenant && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setManageAdminsTenant(null)}>
+            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Manage Admins — {manageAdminsTenant.name}</h3>
+              <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Deleting an admin account revokes their access immediately and cannot be undone. It does not affect the tenant, its employees, or its data.</p>
+
+              {tenantAdminsLoading ? (
+                <p className="text-sm text-[var(--color-nexus-muted)] text-center py-8">Loading…</p>
+              ) : tenantAdmins.length === 0 ? (
+                <p className="text-sm text-[var(--color-nexus-muted)] text-center py-8">No admin accounts found for this tenant.</p>
+              ) : (
+                <div className="space-y-3 mb-6">
+                  {tenantAdmins.map((a: any) => (
+                    <div key={a.id} className="flex items-center justify-between p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl">
+                      <div>
+                        <p className="text-sm font-bold text-[var(--color-nexus-ink)]">{a.name}</p>
+                        <p className="text-xs text-[var(--color-nexus-muted)]">{a.email}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteTenantAdmin(a.id, a.name)}
+                        disabled={loading}
+                        className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => setManageAdminsTenant(null)}
+                className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Features modal — the platform layer, above everything else
+            in the app: whatever module isn't checked here, no tenant admin
+            at this company can ever turn on or delegate, regardless of
+            their own privileges. An unchecked box that was already on
+            before this edit disables the module immediately for everyone
+            at that tenant; runtime enforcement stays in the tenant-side
+            routes (config.routes.ts etc.), this only edits the whitelist. */}
+        {editFeaturesTenant && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setEditFeaturesTenant(null)}>
+            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Plan Features — {editFeaturesTenant.name}</h3>
+              <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Only modules checked here can ever be turned on or delegated by this tenant's admin. Unchecking a module the tenant is already using disables it immediately.</p>
+
+              <div className="space-y-2 mb-6 max-h-96 overflow-y-auto">
+                {platformFeatures.map((f) => (
+                  <label
+                    key={f.key}
+                    className="flex items-start gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editFeaturesSelected.includes(f.key)}
+                      onChange={() => toggleEditFeature(f.key)}
+                      className="mt-0.5 w-4 h-4 accent-[var(--color-nexus-primary)]"
+                    />
+                    <div>
+                      <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
+                      <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setEditFeaturesTenant(null)}
+                  className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEditFeatures}
+                  disabled={editFeaturesSaving}
+                  className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all disabled:opacity-50"
+                >
+                  {editFeaturesSaving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>
@@ -2539,6 +2657,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length },
                     { id: 'notifications', label: 'Notifications', icon: Bell, count: notifications.filter((n: any) => !n.isRead).length },
                     { id: 'ledger', label: 'Audit Ledger', icon: ScrollText },
+                    ...(hasTerminationAccess ? [{ id: 'terminations', label: 'Termination Requests', icon: UserX, count: terminationRequests.length }] : []),
+                    ...(hasShiftSwapAccess ? [{ id: 'shift-swaps', label: 'Shift Swap Requests', icon: Clock, count: shiftSwapRequests.length }] : []),
+                    { id: 'tickets', label: 'Tickets', icon: Ticket },
+                    { id: 'org-chart', label: 'Org Chart', icon: Users2 },
                   ].map((opt) => {
                     const Icon = opt.icon;
                     const isActive = adminSubTab === opt.id;
@@ -2865,6 +2987,44 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     )}
                   </div>
 
+                  {/* Advanced / Security — independent toggles, each 0/off
+                      by default so no existing tenant is affected until the
+                      admin opts in. */}
+                  <div className="border-t border-[var(--color-nexus-border)] pt-6">
+                    <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-4">Advanced &amp; Security</h3>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none md:col-span-2">
+                        <input type="checkbox" checked={documentsEnabled} onChange={e => setDocumentsEnabled(e.target.checked)} className="w-4 h-4 rounded border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] focus:ring-[var(--color-nexus-primary)]/30" />
+                        <span className="text-xs font-semibold text-[var(--color-nexus-ink)]">Enable employee document storage (offer letters, contracts, ID proof, certificates)</span>
+                      </label>
+                      <div>
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Password Expiry (Days)</label>
+                        <input
+                          type="number" min="0" value={passwordExpiryDays} onChange={e => setPasswordExpiryDays(e.target.value)}
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                          placeholder="0 = never expires"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Idle Session Timeout (Minutes)</label>
+                        <input
+                          type="number" min="0" value={idleTimeoutMinutes} onChange={e => setIdleTimeoutMinutes(e.target.value)}
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                          placeholder="0 = disabled"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Attendance Log Retention (Months)</label>
+                        <input
+                          type="number" min="0" value={attendanceRetentionMonths} onChange={e => setAttendanceRetentionMonths(e.target.value)}
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                          placeholder="0 = keep forever"
+                        />
+                        <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Older logs move to an archive table monthly — never deleted, just off the hot path.</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex justify-end">
                     <button
                       type="submit"
@@ -2919,7 +3079,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-nexus-ink)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg px-3 py-1.5">
                           <input type="checkbox" checked={qrRequireFace} onChange={e => setQrRequireFace(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
-                          Require Face Verification
+                          Require Device Identity Verification
                         </label>
                         <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--color-nexus-ink)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg px-3 py-1.5">
                           <input type="checkbox" checked={qrRequireWifi} onChange={e => setQrRequireWifi(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
@@ -3043,6 +3203,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
                 )}
 
+                <BulkHireImport hireBranches={hireBranches} onDone={fetchTenantAdminData} />
+
                 {/* Recruit User Form */}
                 <div className="nexus-card rounded-3xl p-6">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">Recruit Team Member</h2>
@@ -3145,116 +3307,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     </div>
 
                     <div className="p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
-                      <span className="block text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Additional RBAC Privileges</span>
-                      <p className="text-[10px] text-[var(--color-nexus-muted)] mb-3">On top of whatever this role gets by default. Every role — including custom ones — can always clock in, take breaks, and complete KYC regardless of these toggles. You can only grant a privilege you hold yourself — power can only pass downward, never up. Organization policies (shift times, geofence, break budget, network rules) can never be delegated; only the tenant admin account can change those.</p>
-                      <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={newUserPrivileges.includes('employee.create') && newUserPrivileges.includes('employee.read')} 
-                            onChange={() => { togglePrivilege('employee.create'); togglePrivilege('employee.read'); }}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Manage Employees (hire, view roster)</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={newUserPrivileges.includes('settings.edit')} 
-                            onChange={() => togglePrivilege('settings.edit')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Approve Device Change Requests</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={newUserPrivileges.includes('reports.view')} 
-                            onChange={() => togglePrivilege('reports.view')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">View Reports &amp; Audit Ledger</span>
-                        </label>
-                      </div>
-                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-[var(--color-nexus-border)]">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={newUserPrivileges.includes('alerts.receive')} 
-                            onChange={() => togglePrivilege('alerts.receive')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Receive Timing/Break Violation Alerts</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={newUserPrivileges.includes('alerts.accept')} 
-                            onChange={() => togglePrivilege('alerts.accept')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Accept Alerts</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('alerts.reject')}
-                            onChange={() => togglePrivilege('alerts.reject')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Reject Alerts</span>
-                        </label>
-                      </div>
-                      {/* Dynamic QR Attendance — permissions alone decide who can
-                          generate/display/close a QR session; no role name is
-                          ever hardcoded here, matching every other toggle above. */}
-                      <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-[var(--color-nexus-border)]">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('attendance.qr.generate')}
-                            onChange={() => togglePrivilege('attendance.qr.generate')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Generate QR Attendance Sessions</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('attendance.qr.display')}
-                            onChange={() => togglePrivilege('attendance.qr.display')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Display QR Attendance Screen</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('attendance.qr.close')}
-                            onChange={() => togglePrivilege('attendance.qr.close')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Close QR Attendance Sessions</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('attendance.qr.override')}
-                            onChange={() => togglePrivilege('attendance.qr.override')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">Override Failed QR Scans</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newUserPrivileges.includes('attendance.qr.view_logs')}
-                            onChange={() => togglePrivilege('attendance.qr.view_logs')}
-                            className="accent-[var(--color-nexus-primary)]"
-                          />
-                          <span className="text-xs text-[var(--color-nexus-ink)]">View QR Attendance Logs</span>
-                        </label>
-                      </div>
+                      <span className="block text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Additional Access</span>
+                      <p className="text-[10px] text-[var(--color-nexus-muted)] mb-3">On top of whatever this role gets by default. Every role — including custom ones — can always clock in, take breaks, and register a device regardless of these toggles. You only see, and can only grant, features you hold yourself — power can only pass downward, never up. Organization policies (shift times, geofence, break budget, network rules) can never be delegated; only the tenant admin account can change those.</p>
+                      <FeatureCatalogGrid
+                        catalog={featureCatalog}
+                        selected={newUserPrivileges}
+                        onChange={setNewUserPrivileges}
+                        allowedKeys={myPrivileges}
+                        dependencies={featureDependencies}
+                      />
                       <p className="text-[10px] text-[var(--color-nexus-muted)] mt-2">Scanning a code to mark one's own attendance needs no special toggle — every clock-in-capable role can already do that, the same as the existing camera check-in.</p>
                     </div>
 
@@ -3331,6 +3392,100 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Tab: Termination request approvals — tenant_admin only.
+                Approving here immediately terminates the employee (session
+                revoked); rejecting leaves them untouched. */}
+            {activeTab === 'administration' && adminSubTab === 'terminations' && (
+              <div className="nexus-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Termination Requests</h2>
+                <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Submitted by someone other than you who holds the Terminate Employees permission. The employee is not removed until you approve.</p>
+                {terminationRequests.length === 0 ? (
+                  <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No termination requests pending.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {terminationRequests.map((r: any) => (
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.employeeName}</span>
+                            <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold">requested by {r.requestedByName}</span>
+                          </div>
+                          <p className="text-xs text-[var(--color-nexus-muted)]">{r.reason}</p>
+                          <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Submitted {new Date(r.createdAt).toLocaleString()}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0 ml-4">
+                          <button
+                            onClick={() => handleResolveTermination(r.id, 'approve')}
+                            disabled={loading}
+                            className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleResolveTermination(r.id, 'reject')}
+                            disabled={loading}
+                            className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab: Shift swap approvals — shift.manage only. The two
+                colleagues already agreed (ShiftSwapWidget.tsx); approving
+                here applies a one-day shiftOverride to each of them. */}
+            {activeTab === 'administration' && adminSubTab === 'shift-swaps' && (
+              <div className="nexus-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Shift Swap Requests</h2>
+                <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Both employees already agreed — this is the final policy sign-off.</p>
+                {shiftSwapRequests.length === 0 ? (
+                  <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No shift swap requests pending.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {shiftSwapRequests.map((r: any) => (
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.requesterName} ({r.requesterShiftName || 'no shift'}) ↔ {r.targetName} ({r.targetShiftName || 'no shift'})</span>
+                          </div>
+                          <p className="text-xs text-[var(--color-nexus-muted)]">On {r.swapDate}{r.reason ? ` — ${r.reason}` : ''}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0 ml-4">
+                          <button
+                            onClick={() => handleResolveShiftSwap(r.id, 'approve')}
+                            disabled={loading}
+                            className="bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleResolveShiftSwap(r.id, 'reject')}
+                            disabled={loading}
+                            className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'administration' && adminSubTab === 'tickets' && (
+              <TicketsPanel user={user} />
+            )}
+
+            {activeTab === 'administration' && adminSubTab === 'org-chart' && (
+              <OrgChart canEdit={hasAnyPrivilege('employee.edit', 'employee.create')} />
             )}
           </div>
         )}

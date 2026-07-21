@@ -3,15 +3,23 @@ import { Resend } from 'resend';
 import fs from 'fs';
 import path from 'path';
 import * as dotenv from 'dotenv';
+import { buildLeaveIcs } from './api/services/ics.js';
 
 // Load .env from monorepo root (relative to apps/admin cwd)
 dotenv.config({ path: path.join(process.cwd(), '../../.env') });
+
+interface EmailAttachment {
+  filename: string;
+  content: string; // plain text content (e.g. an .ics file body)
+  contentType: string;
+}
 
 interface EmailOptions {
   to: string;
   subject: string;
   text: string;
   html: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface EmailResult {
@@ -25,7 +33,7 @@ export interface EmailResult {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
-  const { to, subject, text, html } = options;
+  const { to, subject, text, html, attachments } = options;
 
   console.log(`\n==================================================`);
   console.log(`[EMAIL] To: ${to}`);
@@ -66,7 +74,8 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
           to,
           subject,
           html,
-          text
+          text,
+          attachments: attachments?.map((a) => ({ filename: a.filename, content: Buffer.from(a.content).toString('base64') })),
         });
         if (result?.error) {
           throw new Error(result.error.message || JSON.stringify(result.error));
@@ -99,7 +108,8 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       });
       await transporter.sendMail({
         from: `"Smart Teams" <${smtpFrom}>`,
-        to, subject, text, html
+        to, subject, text, html,
+        attachments: attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
       });
       console.log(`[SMTP SUCCESS] Email sent to ${to}`);
       return { delivered: true, provider: 'smtp' };
@@ -486,6 +496,22 @@ export async function sendLeaveApprovalRequestEmail(to: string, approverName: st
 
 export async function sendLeaveDecisionEmail(to: string, employeeName: string, leaveType: string, startDate: string, endDate: string, status: 'approved' | 'rejected', comment?: string) {
   const subject = `Leave Request ${status.toUpperCase()}: ${leaveType}`;
+  // Calendar attachment only on approval — a rejected request has nothing
+  // to put on a calendar. See services/ics.ts for why this is a plain
+  // .ics attachment rather than live Google/Outlook sync.
+  const attachments = status === 'approved'
+    ? [{
+        filename: 'leave.ics',
+        contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+        content: buildLeaveIcs({
+          uid: `leave-${employeeName.replace(/\s+/g, '')}-${startDate}-${endDate}@smartteams`,
+          summary: `${leaveType} — ${employeeName}`,
+          description: `Approved ${leaveType} leave for ${employeeName}.`,
+          startDate,
+          endDate,
+        }),
+      }]
+    : undefined;
   const accentColor = status === 'approved' ? '#10B981' : '#EF4444';
   const html = `
     <div style="${emailStyles}">
@@ -506,5 +532,58 @@ export async function sendLeaveDecisionEmail(to: string, employeeName: string, l
     </div>
   `;
   const text = `Hello ${employeeName},\n\nYour ${leaveType} leave request for ${startDate} to ${endDate} has been ${status.toUpperCase()}.${comment ? `\n\nReviewer comment: ${comment}` : ''}`;
+  await sendEmail({ to, subject, text, html, attachments });
+}
+
+// --- Employee termination email templates ---
+// Same request/decision pair pattern as WFH and late-arrival above. Sent
+// only for the DELEGATED-privilege path (someone other than the tenant
+// admin submitted a termination request) — the tenant admin's own
+// immediate terminations don't go through this queue at all.
+
+export async function sendTerminationRequestEmail(to: string, adminName: string, employeeName: string, requestedByName: string, reason: string) {
+  const subject = `⚠️ Approval Needed: Termination Request — ${employeeName}`;
+  const html = `
+    <div style="${emailStyles}">
+      <div style="${containerStyles}">
+        <h2 style="${headerStyles}; color: #EF4444;">Termination Request Awaiting Approval</h2>
+        <p>Hello ${adminName},</p>
+        <p><strong>${requestedByName}</strong> has requested to terminate <strong>${employeeName}</strong>.</p>
+        <div style="${cardStyles}">
+          <p style="margin: 0; font-size: 13px; color: #475569;"><strong>Reason:</strong> ${reason}</p>
+        </div>
+        <p style="font-size: 13px; color: #475569;">This employee will not be removed until you Approve or Reject this request from your dashboard.</p>
+        <div style="${footerStyles}">
+          <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  const text = `Hello ${adminName},\n\n${requestedByName} has requested to terminate ${employeeName}.\n\nReason: ${reason}\n\nThis employee will not be removed until you Approve or Reject this request from your dashboard.`;
+  await sendEmail({ to, subject, text, html });
+}
+
+export async function sendTerminationDecisionEmail(to: string, requestedByName: string, employeeName: string, status: 'approved' | 'rejected') {
+  const subject = `Termination Request ${status.toUpperCase()}: ${employeeName}`;
+  const accentColor = status === 'approved' ? '#10B981' : '#EF4444';
+  const html = `
+    <div style="${emailStyles}">
+      <div style="${containerStyles}">
+        <h2 style="${headerStyles}">Termination Request Reviewed</h2>
+        <p>Hello ${requestedByName},</p>
+        <p>Your request to terminate <strong>${employeeName}</strong> has been reviewed.</p>
+        <div style="${cardStyles}">
+          <p style="margin: 0; font-size: 14px; font-weight: bold; color: ${accentColor}; uppercase tracking-wider;">
+            Status: ${status.toUpperCase()}
+          </p>
+          ${status === 'approved' ? `<p style="margin: 12px 0 0 0; font-size: 13px; color: #475569;">${employeeName} has been removed from the organization.</p>` : `<p style="margin: 12px 0 0 0; font-size: 13px; color: #475569;">${employeeName} remains active — no changes were made.</p>`}
+        </div>
+        <div style="${footerStyles}">
+          <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+        </div>
+      </div>
+    </div>
+  `;
+  const text = `Hello ${requestedByName},\n\nYour request to terminate ${employeeName} has been ${status.toUpperCase()}.`;
   await sendEmail({ to, subject, text, html });
 }

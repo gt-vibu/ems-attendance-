@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Users, Search, Grid3x3, List, Phone, Network, Plus, Trash2, X, Sun, HeartPulse, Baby, Briefcase, Info, PartyPopper, ArrowLeft } from 'lucide-react';
 import type { User } from '../lib/auth';
 import PortalShell from '../components/PortalShell';
 import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
 import LeaveBalanceCards from '../components/LeaveBalanceCards';
 import StatusPill from '../components/StatusPill';
+import { downloadCsv } from '../lib/csv';
 
 const STATUS_TONE = {
   pending: 'warning',
@@ -47,11 +48,15 @@ type TopTab = typeof TOP_TABS[number]['id'];
 export default function LeaveManagementPage({ user, onLogout, embedded = false }: { user: User; onLogout: () => void; embedded?: boolean }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [activeTopTab, setActiveTopTab] = useState<TopTab>('overview');
+  // Deep-link support: EmployeeDetailPanel's "View Leave History" link
+  // arrives as /tenant/leave?tab=approval-queue&employee=<name> — land
+  // directly on that employee's requests instead of the general catalog.
+  const [activeTopTab, setActiveTopTab] = useState<TopTab>(() => (searchParams.get('tab') === 'approval-queue' ? 'approval-queue' : 'overview'));
   // Overview has three focused, single-purpose screens instead of cramming
   // the catalog + a form + everything else side by side: the default
   // catalog grid, a full-width "who applied for this leave type" drill-down
@@ -69,8 +74,13 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const [newLeavePolicyAllowHalfDay, setNewLeavePolicyAllowHalfDay] = useState(true);
   const [newLeavePolicyRequiresApproval, setNewLeavePolicyRequiresApproval] = useState(true);
   const [newLeavePolicyMedicalNoticeDays, setNewLeavePolicyMedicalNoticeDays] = useState('0');
-  const [requestSearch, setRequestSearch] = useState('');
+  const [newLeavePolicyAccrualEnabled, setNewLeavePolicyAccrualEnabled] = useState(false);
+  const [newLeavePolicyCarryForwardEnabled, setNewLeavePolicyCarryForwardEnabled] = useState(false);
+  const [newLeavePolicyMaxCarryForwardDays, setNewLeavePolicyMaxCarryForwardDays] = useState('0');
+  const [newLeavePolicyEncashmentEnabled, setNewLeavePolicyEncashmentEnabled] = useState(false);
+  const [requestSearch, setRequestSearch] = useState(() => searchParams.get('employee') || '');
   const [requestStatusFilter, setRequestStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<number>>(new Set());
 
   // Leave adjustments state variables
   const [users, setUsers] = useState<any[]>([]);
@@ -96,17 +106,20 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
   const canManageHolidays = user.role === 'tenant_admin' || user.role === 'super_admin';
+  const [encashmentRequests, setEncashmentRequests] = useState<any[]>([]);
+  const [encashmentActioning, setEncashmentActioning] = useState<number | null>(null);
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const [requestsRes, policiesRes, usersRes, adjustmentsRes, employeesRes, analyticsRes] = await Promise.all([
+      const [requestsRes, policiesRes, usersRes, adjustmentsRes, employeesRes, analyticsRes, encashmentRes] = await Promise.all([
         fetch('/api/tenant/leave/requests', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/tenant/leave/policies', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/tenant/users', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/tenant/leave/adjustments', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/tenant/employees', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/tenant/analytics', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/tenant/leave/encashment-requests', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const requestsData = await requestsRes.json().catch(() => ({}));
       const policiesData = await policiesRes.json().catch(() => ({}));
@@ -114,6 +127,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       const adjustmentsData = await adjustmentsRes.json().catch(() => ({}));
       const employeesData = await employeesRes.json().catch(() => ({}));
       const analyticsData = await analyticsRes.json().catch(() => ({}));
+      const encashmentData = await encashmentRes.json().catch(() => ({}));
 
       if (!requestsRes.ok && !policiesRes.ok) {
         throw new Error(requestsData.error || policiesData.error || 'Could not load leave management data.');
@@ -124,10 +138,31 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       setAdjustments(Array.isArray(adjustmentsData.adjustments) ? adjustmentsData.adjustments : []);
       setEmployees(Array.isArray(employeesData.employees) ? employeesData.employees : []);
       if (analyticsRes.ok) setAnalytics(analyticsData);
+      if (encashmentRes.ok) setEncashmentRequests(Array.isArray(encashmentData.requests) ? encashmentData.requests : []);
     } catch (err: any) {
       setError(err.message || 'Could not load leave management data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleEncashmentAction = async (requestId: number, action: 'approve' | 'reject') => {
+    setEncashmentActioning(requestId);
+    try {
+      const res = await fetch('/api/tenant/leave/encashment-requests/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestId, action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to resolve request.');
+      setSuccess(`Encashment request ${action === 'approve' ? 'approved' : 'rejected'}.`);
+      await refresh();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to resolve request.');
+    } finally {
+      setEncashmentActioning(null);
     }
   };
 
@@ -239,6 +274,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
           requiresApproval: newLeavePolicyRequiresApproval,
           medicalOnlyNoAdvanceNoticeDays: parseFloat(newLeavePolicyMedicalNoticeDays) || 0,
           defaultDeductionPercent: parseFloat(newLeavePolicyDeductionPercent) || 100,
+          accrualEnabled: newLeavePolicyAccrualEnabled,
+          carryForwardEnabled: newLeavePolicyCarryForwardEnabled,
+          maxCarryForwardDays: parseFloat(newLeavePolicyMaxCarryForwardDays) || 0,
+          encashmentEnabled: newLeavePolicyEncashmentEnabled,
         }),
       });
       const data = await res.json();
@@ -250,6 +289,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       setNewLeavePolicyAllowHalfDay(true);
       setNewLeavePolicyRequiresApproval(true);
       setNewLeavePolicyMedicalNoticeDays('0');
+      setNewLeavePolicyAccrualEnabled(false);
+      setNewLeavePolicyCarryForwardEnabled(false);
+      setNewLeavePolicyMaxCarryForwardDays('0');
+      setNewLeavePolicyEncashmentEnabled(false);
       setSuccess('Leave policy created.');
       await refresh();
       setOverviewView('catalog');
@@ -280,6 +323,30 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       setTimeout(() => setSuccess(''), 2500);
     } catch (err: any) {
       setError(err.message || 'Failed to update leave request.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkResolveLeaveRequests = async (action: 'approve' | 'reject') => {
+    const requestIds = Array.from(selectedRequestIds);
+    if (requestIds.length === 0) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/leave/requests/bulk-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestIds, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update leave requests.');
+      setSuccess(`${data.updated} request(s) ${action === 'approve' ? 'approved' : 'rejected'}${data.failed ? `, ${data.failed} skipped` : ''}.`);
+      setSelectedRequestIds(new Set());
+      await refresh();
+      setTimeout(() => setSuccess(''), 3500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update leave requests.');
     } finally {
       setSaving(false);
     }
@@ -697,6 +764,33 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                       </span>
                       <input type="checkbox" checked={newLeavePolicyRequiresApproval} onChange={(e) => setNewLeavePolicyRequiresApproval(e.target.checked)} className="h-4 w-4" />
                     </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                      <span>
+                        <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Accrue monthly instead of granting the full year upfront</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)]">1/12th of the annual entitlement becomes available at the start of each month.</span>
+                      </span>
+                      <input type="checkbox" checked={newLeavePolicyAccrualEnabled} onChange={(e) => setNewLeavePolicyAccrualEnabled(e.target.checked)} className="h-4 w-4" />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                      <span>
+                        <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Allow carry-forward into next year</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)]">Unused days roll into next year (one year only), up to the cap below.</span>
+                      </span>
+                      <input type="checkbox" checked={newLeavePolicyCarryForwardEnabled} onChange={(e) => setNewLeavePolicyCarryForwardEnabled(e.target.checked)} className="h-4 w-4" />
+                    </label>
+                    {newLeavePolicyCarryForwardEnabled && (
+                      <div>
+                        <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Max Carry-Forward Days</label>
+                        <input type="number" min="0" step="0.5" value={newLeavePolicyMaxCarryForwardDays} onChange={(e) => setNewLeavePolicyMaxCarryForwardDays(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                      </div>
+                    )}
+                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                      <span>
+                        <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Allow encashment</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)]">Employees can request to convert unused days of this type into pay.</span>
+                      </span>
+                      <input type="checkbox" checked={newLeavePolicyEncashmentEnabled} onChange={(e) => setNewLeavePolicyEncashmentEnabled(e.target.checked)} className="h-4 w-4" />
+                    </label>
                   </div>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => setOverviewView('catalog')} className="flex-1 rounded-2xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)]">
@@ -1021,12 +1115,49 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
             </div>
           </section>
 
+          {encashmentRequests.filter((r) => r.status === 'pending').length > 0 && (
+            <section className="nexus-card rounded-3xl p-6">
+              <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)] mb-1">Encashment Requests</h3>
+              <p className="mb-4 text-xs text-[var(--color-nexus-muted)]">Approving deducts the days and records the payout amount at the current daily rate; it doesn't disburse funds automatically.</p>
+              <div className="space-y-3">
+                {encashmentRequests.filter((r) => r.status === 'pending').map((r) => (
+                  <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.employeeName}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]">{r.days} day(s) · {r.leaveType}</span>
+                      </div>
+                      {r.reason && <p className="text-xs text-[var(--color-nexus-muted)]">{r.reason}</p>}
+                    </div>
+                    <div className="flex gap-2 shrink-0 ml-4">
+                      <button onClick={() => handleEncashmentAction(r.id, 'approve')} disabled={encashmentActioning === r.id} className="bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50">Approve</button>
+                      <button onClick={() => handleEncashmentAction(r.id, 'reject')} disabled={encashmentActioning === r.id} className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50">Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="nexus-card rounded-3xl p-6">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Leave Approval Queue</h3>
                 <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Review requests in a clean operations queue, not buried below unrelated payroll widgets.</p>
               </div>
+              <button
+                type="button"
+                onClick={() => downloadCsv(
+                  `leave-requests-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [
+                    ['Employee', 'Email', 'Department', 'Leave Type', 'Start Date', 'End Date', 'Total Days', 'Status', 'Reason', 'Submitted'],
+                    ...filteredRequests.map((r: any) => [r.employeeName || '', r.employeeEmail || '', r.department || '', r.leaveType || '', r.startDate || '', r.endDate || '', r.totalDays ?? '', r.status || '', r.reason || '', r.createdAt ? new Date(r.createdAt).toLocaleString() : '']),
+                  ]
+                )}
+                className="shrink-0 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)]"
+              >
+                Export CSV
+              </button>
             </div>
 
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1058,6 +1189,32 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               </div>
             </div>
 
+            {(() => {
+              const pendingIds = filteredRequests.filter((r: any) => r.status === 'pending').map((r: any) => r.id);
+              const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id: number) => selectedRequestIds.has(id));
+              if (pendingIds.length === 0) return null;
+              return (
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                  <label className="flex items-center gap-2 text-xs font-bold text-[var(--color-nexus-ink)] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allPendingSelected}
+                      onChange={(e) => setSelectedRequestIds(e.target.checked ? new Set(pendingIds) : new Set())}
+                      className="accent-[var(--color-nexus-primary)]"
+                    />
+                    Select all pending ({pendingIds.length})
+                  </label>
+                  {selectedRequestIds.size > 0 && (
+                    <>
+                      <span className="text-xs text-[var(--color-nexus-muted)]">{selectedRequestIds.size} selected</span>
+                      <button onClick={() => handleBulkResolveLeaveRequests('approve')} disabled={saving} className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">Approve Selected</button>
+                      <button onClick={() => handleBulkResolveLeaveRequests('reject')} disabled={saving} className="rounded-xl border border-[var(--color-nexus-error)] bg-[var(--color-nexus-surface)] px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] disabled:opacity-50">Reject Selected</button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
             {loading ? (
               <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading leave requests…</div>
             ) : filteredRequests.length === 0 ? (
@@ -1070,6 +1227,18 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     <div key={request.id} className="nexus-card px-5 py-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex items-start gap-3">
+                          {request.status === 'pending' && (
+                            <input
+                              type="checkbox"
+                              checked={selectedRequestIds.has(request.id)}
+                              onChange={(e) => setSelectedRequestIds((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(request.id); else next.delete(request.id);
+                                return next;
+                              })}
+                              className="mt-1.5 accent-[var(--color-nexus-primary)]"
+                            />
+                          )}
                           <div className={`w-11 h-11 shrink-0 rounded-full ${AVATAR_PALETTE[i % AVATAR_PALETTE.length]} text-white flex items-center justify-center text-sm font-bold`}>
                             {initials}
                           </div>

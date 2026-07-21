@@ -4,7 +4,7 @@ import { ArrowLeft, ShieldCheck, Plus, Check } from 'lucide-react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
-import { fetchFeatureCatalog, type FeatureCatalogCategory } from '../lib/featureCatalog';
+import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 
 interface RoleRow {
   id: number;
@@ -18,6 +18,7 @@ export default function RolePermissions({ user }: { user: User }) {
   const token = localStorage.getItem('auth_token');
 
   const [catalog, setCatalog] = useState<FeatureCatalogCategory[]>([]);
+  const [dependencies, setDependencies] = useState<FeatureDependencies>({});
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
@@ -32,12 +33,14 @@ export default function RolePermissions({ user }: { user: User }) {
 
   const fetchAll = async () => {
     try {
-      const [catalogData, rolesRes, privRes] = await Promise.all([
+      const [catalogData, depsData, rolesRes, privRes] = await Promise.all([
         fetchFeatureCatalog(),
+        fetchFeatureDependencies(),
         fetch('/api/tenant/roles', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/tenant/my-privileges', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       ]);
       setCatalog(catalogData);
+      setDependencies(depsData);
       const roleList: RoleRow[] = Array.isArray(rolesRes.roles)
         ? rolesRes.roles.map((r: any) => ({ id: r.id, roleName: r.roleName, privileges: Array.isArray(r.privileges) ? r.privileges : [] }))
         : [];
@@ -215,6 +218,7 @@ export default function RolePermissions({ user }: { user: User }) {
                     selected={draftPrivileges}
                     onChange={handleToggleChange}
                     allowedKeys={myPrivileges}
+                    dependencies={dependencies}
                   />
                 </>
               ) : (
