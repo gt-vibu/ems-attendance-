@@ -31,6 +31,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'employee.edit', label: 'Edit Employee Details', description: 'Update an existing employee\'s name, role, department, designation, branch, or shift. Separate from Hire — a role can be trusted to keep records current without being able to onboard new headcount.' },
       { key: 'employee.read', label: 'View Employee Roster', description: 'See the full list of employees and their details.' },
       { key: 'employee.terminate', label: 'Terminate Employees', description: 'Remove an employee from the organization. The tenant admin does this immediately; anyone else with this permission must submit a reason for the tenant admin to approve first.' },
+      { key: 'employee.resetDevice', label: 'Reset Device Registration', description: 'Clear an employee\'s registered passkey/device so they can re-register — needed when their device, browser, or the app\'s domain changes and their old passkey no longer works.' },
     ],
   },
   {

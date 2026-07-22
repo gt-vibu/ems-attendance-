@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
-import { verifyThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
+import { verifyThisDevice, registerThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
 import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
@@ -37,6 +37,16 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const [wifiCheckEnabled, setWifiCheckEnabled] = useState(false);
   const [identityVerified, setIdentityVerified] = useState(false);
   const [identityBusy, setIdentityBusy] = useState(false);
+  // Surfaced once a verify attempt fails — WebAuthn credentials are scoped to
+  // the exact device/browser they were created on, so a lost phone, a new
+  // phone, or a browser reinstall all look identical to the server (the
+  // account still has a credential on file) but this device simply doesn't
+  // have it. Rather than leaving the employee stuck on a dead-end error,
+  // offer to register this device as an *additional* one — this reuses the
+  // same registration endpoint the very first device used, which never
+  // requires clearing the existing registration.
+  const [showNewDeviceOption, setShowNewDeviceOption] = useState(false);
+  const [newDeviceBusy, setNewDeviceBusy] = useState(false);
 
   // Wi-Fi simulation context input — DEV ONLY, never rendered in production
   // builds. Lives on its own Wi-Fi step now, not inline with the camera.
@@ -319,6 +329,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     setError('');
     identityTokenRef.current = null;
     setIdentityVerified(false);
+    setShowNewDeviceOption(false);
     setStatus('Ready to verify');
     setLoading(false);
   };
@@ -326,6 +337,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   const handleVerifyIdentity = async () => {
     if (identityBusy) return;
     setError('');
+    setShowNewDeviceOption(false);
     setIdentityBusy(true);
     setStatus('Waiting for your device...');
     try {
@@ -336,8 +348,37 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     } catch (err) {
       setError(describeWebAuthnError(err));
       setStatus('Ready to verify');
+      // Any failed verify attempt could mean this device simply never had a
+      // passkey to begin with (new phone, reinstalled browser, cleared site
+      // data) — offer the escape hatch rather than making the employee find
+      // an admin. Harmless to show even when the real cause was a plain
+      // cancel/timeout: registering a device the user already controls the
+      // credential for is a no-op risk-wise.
+      setShowNewDeviceOption(true);
     } finally {
       setIdentityBusy(false);
+    }
+  };
+
+  const handleRegisterNewDevice = async () => {
+    if (newDeviceBusy) return;
+    setError('');
+    setNewDeviceBusy(true);
+    setStatus('Registering this device...');
+    try {
+      await registerThisDevice();
+      setShowNewDeviceOption(false);
+      setStatus('Device registered — verifying...');
+      const identityToken = await verifyThisDevice();
+      identityTokenRef.current = identityToken;
+      setIdentityVerified(true);
+      enterGpsStep();
+    } catch (err) {
+      setError(describeWebAuthnError(err));
+      setStatus('Ready to verify');
+      setShowNewDeviceOption(true);
+    } finally {
+      setNewDeviceBusy(false);
     }
   };
 
@@ -642,11 +683,14 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       <FloatingOrbs />
       <PageChrome fallbackHref="/employee/dashboard" />
 
-      {/* Sign Out Button */}
-      <div className="absolute top-6 right-6 z-40">
+      {/* Sign Out Button — positioned independently of PageChrome's
+          top-left Back/Landing Page pair, so it shrinks its own padding on
+          narrow screens (matching PageChrome's icon-only collapse) rather
+          than relying on exact width math between two unrelated elements. */}
+      <div className="absolute top-4 sm:top-6 right-4 sm:right-6 z-40">
         <button
           onClick={onLogout}
-          className="text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-5 py-2.5 rounded-full shadow-sm"
+          className="text-[10px] sm:text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-3 sm:px-5 py-2 sm:py-2.5 rounded-full shadow-sm whitespace-nowrap"
         >
           Sign Out
         </button>
@@ -876,11 +920,27 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 <div className="space-y-4">
                   <button
                     onClick={handleVerifyIdentity}
-                    disabled={identityBusy}
+                    disabled={identityBusy || newDeviceBusy}
                     className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {identityBusy ? 'Verifying...' : 'Verify With This Device'}
                   </button>
+
+                  {/* Escape hatch for "this device doesn't have my passkey" —
+                      a lost/new phone or a reinstalled browser looks exactly
+                      like that to the user, with no way to tell it apart from
+                      a plain cancel. Registering here adds this device as an
+                      additional credential without touching the old one. */}
+                  {showNewDeviceOption && (
+                    <button
+                      type="button"
+                      onClick={handleRegisterNewDevice}
+                      disabled={identityBusy || newDeviceBusy}
+                      className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] border border-[var(--color-nexus-border)] rounded-xl py-3 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {newDeviceBusy ? 'Registering...' : 'Using a New Device? Register It'}
+                    </button>
+                  )}
 
                   {/* Dynamic QR Attendance — alternative entry point; a
                       receptionist/security desk displaying a QR code is a

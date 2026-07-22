@@ -48,6 +48,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   const [terminateSubmitting, setTerminateSubmitting] = useState(false);
   const [terminateError, setTerminateError] = useState('');
   const [terminateResultMsg, setTerminateResultMsg] = useState('');
+  const [resettingDeviceId, setResettingDeviceId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch('/api/tenant/my-privileges', { headers: { Authorization: `Bearer ${token}` } })
@@ -58,6 +59,26 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   }, []);
 
   const canTerminate = myPrivileges === 'ALL' || myPrivileges.includes('employee.terminate');
+  const canResetDevice = myPrivileges === 'ALL' || myPrivileges.includes('employee.resetDevice');
+
+  const resetDevice = async (emp: Employee) => {
+    if (!window.confirm(`Clear ${emp.name}'s registered device? They will need to register a new one before they can clock in again.`)) return;
+    setResettingDeviceId(emp.id);
+    try {
+      const res = await fetch(`/api/tenant/employees/${emp.id}/reset-device`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to reset device registration.');
+      alert(`${emp.name}'s device registration has been cleared. They'll be prompted to register a new device next time they sign in.`);
+      setSelected(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to reset device registration.');
+    } finally {
+      setResettingDeviceId(null);
+    }
+  };
 
   const openTerminate = (emp: Employee) => {
     setTerminateTarget(emp);
@@ -342,6 +363,15 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
             >
               View Full Calendar
             </button>
+            {canResetDevice && selected.employeeStatus !== 'terminated' && (
+              <button
+                onClick={() => resetDevice(selected)}
+                disabled={resettingDeviceId === selected.id}
+                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-primary-fixed)] disabled:opacity-50"
+              >
+                {resettingDeviceId === selected.id ? 'Resetting…' : 'Reset Device Registration'}
+              </button>
+            )}
             {canTerminate && selected.role !== 'tenant_admin' && selected.role !== 'super_admin' && selected.employeeStatus !== 'terminated' && (
               <button
                 onClick={() => { const emp = selected; setSelected(null); openTerminate(emp); }}

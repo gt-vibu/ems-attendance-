@@ -306,10 +306,10 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
       <AuroraField />
       <PageChrome fallbackHref="/employee/dashboard" />
 
-      <div className="absolute top-6 right-6 z-40">
+      <div className="absolute top-4 sm:top-6 right-4 sm:right-6 z-40">
         <button
           onClick={onLogout}
-          className="text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-5 py-2.5 rounded-full shadow-sm"
+          className="text-[10px] sm:text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors uppercase tracking-widest bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] px-3 sm:px-5 py-2 sm:py-2.5 rounded-full shadow-sm whitespace-nowrap"
         >
           Sign Out
         </button>

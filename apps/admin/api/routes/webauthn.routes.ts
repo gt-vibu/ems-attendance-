@@ -9,6 +9,7 @@ import {
   verifyRegistration,
   getAuthenticationOptions,
   verifyAuthentication,
+  resolveRpFromOrigin,
   IDENTITY_PASS_PURPOSE,
   IDENTITY_PASS_TTL,
 } from '../services/webauthn';
@@ -24,7 +25,7 @@ router.post('/api/webauthn/register/options', authenticate, async (req: any, res
     if (usersList.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = usersList[0];
 
-    const options = await getRegistrationOptions({ id: user.id, uid: user.uid, name: user.name });
+    const options = await getRegistrationOptions({ id: user.id, uid: user.uid, name: user.name }, resolveRpFromOrigin(req.headers.origin));
     res.json(options);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -45,7 +46,7 @@ router.post('/api/webauthn/register/verify', authenticate, async (req: any, res:
     if (usersList.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = usersList[0];
 
-    const result = await verifyRegistration({ id: user.id, tenantId: user.tenantId || 1 }, response, deviceName);
+    const result = await verifyRegistration({ id: user.id, tenantId: user.tenantId || 1 }, response, deviceName, resolveRpFromOrigin(req.headers.origin));
     if (!result.verified) {
       return res.status(422).json({ error: result.error || 'Device registration failed.' });
     }
@@ -96,7 +97,7 @@ router.post('/api/webauthn/authenticate/options', authenticate, async (req: any,
       return res.status(400).json({ error: 'Device registration not completed yet.' });
     }
 
-    const result = await getAuthenticationOptions(user.id);
+    const result = await getAuthenticationOptions(user.id, resolveRpFromOrigin(req.headers.origin));
     if (result.error) return res.status(400).json({ error: result.error });
     res.json(result.options);
   } catch (err: any) {
@@ -123,7 +124,7 @@ router.post('/api/webauthn/authenticate/verify', authenticate, async (req: any, 
       return res.status(400).json({ error: 'Device registration not completed yet.' });
     }
 
-    const result = await verifyAuthentication(user.id, response);
+    const result = await verifyAuthentication(user.id, response, resolveRpFromOrigin(req.headers.origin));
     if (!result.verified) {
       return res.status(403).json({ passed: false, error: result.error || 'Device verification failed.' });
     }

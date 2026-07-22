@@ -314,6 +314,55 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
   }
 });
 
+// Clears an employee's registered passkey and KYC-complete flag so they can
+// go through /employee/register-device again — needed when a passkey stops
+// working because the device was lost/reset, or the app's own domain changed
+// (e.g. moving between ngrok tunnel URLs or hostnames during testing), since
+// WebAuthn credentials are strictly scoped to the domain they were created on.
+router.post('/api/tenant/employees/:id/reset-device', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'employee.resetDevice')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+
+    const employeeId = parseInt(req.params.id, 10);
+    const tenantId = req.user.tenantId;
+
+    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
+    if (userRows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found.' });
+    }
+    const employee = userRows[0];
+    if (employee.tenantId !== tenantId) {
+      return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
+    }
+
+    const scopedBranchIds = await getScopedBranchIds(req.user);
+    if (scopedBranchIds !== null && employee.branchId && !scopedBranchIds.includes(employee.branchId)) {
+      return res.status(403).json({ error: 'Access denied: You are not scoped to this employee\'s branch.' });
+    }
+
+    await db.delete(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, employeeId));
+    await db.update(schema.users)
+      .set({ isKycCompleted: false, registeredDeviceId: null, deviceApprovalPending: false })
+      .where(eq(schema.users.id, employeeId));
+
+    await logToAuditLedger({
+      tenantId,
+      actorId: req.user.userId,
+      actorName: req.user.name,
+      action: 'EMPLOYEE_DEVICE_RESET',
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      deviceInfo: req.headers['user-agent'] || '',
+      details: { employeeId }
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET all departments
 router.get('/api/tenant/departments', authenticate, async (req: any, res: any) => {
   try {

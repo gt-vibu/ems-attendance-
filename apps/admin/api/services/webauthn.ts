@@ -17,8 +17,37 @@ import { db, schema } from '../../db';
 
 const rpName = process.env.WEBAUTHN_RP_NAME || 'Attendance & HR Suite';
 const appBaseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+// Fallback only — used when the caller doesn't supply a per-request origin
+// (see resolveRpFromOrigin below). A fixed env-derived rpID/origin breaks
+// the moment the app is reached via any hostname other than the one
+// APP_BASE_URL was set to at server start (a custom domain, a staging
+// subdomain, an ngrok tunnel during testing, etc.), since WebAuthn requires
+// the RP ID to match the browser's actual top-level origin exactly.
 const rpID = process.env.WEBAUTHN_RP_ID || new URL(appBaseUrl).hostname;
 const origin = process.env.WEBAUTHN_ORIGIN || appBaseUrl;
+
+// Explicit env overrides always win (for a deployment that wants to pin
+// this deliberately, e.g. behind a CDN that rewrites Origin). Otherwise,
+// derive the expected RP ID/origin from the browser's own Origin header on
+// this request — exactly what the browser will put in clientDataJSON, so
+// the ceremony matches regardless of which hostname/tunnel was used to
+// reach the server. This is safe: WebAuthn verification checks the SIGNED
+// clientDataJSON from the browser against these values, so a forged
+// request can't spoof a legitimate browser session's ceremony by sending a
+// different Origin header — it would just fail verification instead.
+export function resolveRpFromOrigin(requestOrigin?: string | null): { rpID: string; origin: string } {
+  if (process.env.WEBAUTHN_RP_ID || process.env.WEBAUTHN_ORIGIN) {
+    return { rpID, origin };
+  }
+  if (requestOrigin) {
+    try {
+      return { rpID: new URL(requestOrigin).hostname, origin: requestOrigin };
+    } catch {
+      // Malformed Origin header — fall through to the static default.
+    }
+  }
+  return { rpID, origin };
+}
 
 // Single-use challenges expire quickly — long enough for a real
 // register/authenticate round trip, short enough that a stale one is
@@ -51,12 +80,12 @@ async function consumeChallenge(userId: number, purpose: 'register' | 'authentic
   return rows[0].challenge;
 }
 
-export async function getRegistrationOptions(user: { id: number; uid?: string; name: string }) {
+export async function getRegistrationOptions(user: { id: number; uid?: string; name: string }, rp: { rpID: string; origin: string } = { rpID, origin }) {
   const existing = await db.select().from(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, user.id));
 
   const options = await generateRegistrationOptions({
     rpName,
-    rpID,
+    rpID: rp.rpID,
     userID: new TextEncoder().encode(String(user.id)),
     userName: user.uid || user.name,
     userDisplayName: user.name,
@@ -77,7 +106,7 @@ export async function getRegistrationOptions(user: { id: number; uid?: string; n
   return options;
 }
 
-export async function verifyRegistration(user: { id: number; tenantId: number }, response: any, deviceName?: string) {
+export async function verifyRegistration(user: { id: number; tenantId: number }, response: any, deviceName?: string, rp: { rpID: string; origin: string } = { rpID, origin }) {
   const expectedChallenge = await consumeChallenge(user.id, 'register');
   if (!expectedChallenge) {
     return { verified: false, error: 'Registration challenge expired or missing. Please try again.' };
@@ -88,8 +117,8 @@ export async function verifyRegistration(user: { id: number; tenantId: number },
     verification = await verifyRegistrationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
-      expectedRPID: rpID,
+      expectedOrigin: rp.origin,
+      expectedRPID: rp.rpID,
     });
   } catch (err: any) {
     return { verified: false, error: err.message || 'Registration verification failed.' };
@@ -114,14 +143,14 @@ export async function verifyRegistration(user: { id: number; tenantId: number },
   return { verified: true };
 }
 
-export async function getAuthenticationOptions(userId: number) {
+export async function getAuthenticationOptions(userId: number, rp: { rpID: string; origin: string } = { rpID, origin }) {
   const credentials = await db.select().from(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, userId));
   if (credentials.length === 0) {
     return { error: 'No registered device credential on file. Please register this device first.' };
   }
 
   const options = await generateAuthenticationOptions({
-    rpID,
+    rpID: rp.rpID,
     allowCredentials: credentials.map(c => ({ id: c.credentialId, transports: (c.transports as any) || undefined })),
     userVerification: 'required',
   });
@@ -130,7 +159,7 @@ export async function getAuthenticationOptions(userId: number) {
   return { options };
 }
 
-export async function verifyAuthentication(userId: number, response: any) {
+export async function verifyAuthentication(userId: number, response: any, rp: { rpID: string; origin: string } = { rpID, origin }) {
   const expectedChallenge = await consumeChallenge(userId, 'authenticate');
   if (!expectedChallenge) {
     return { verified: false, error: 'Verification challenge expired or missing. Please try again.' };
@@ -149,8 +178,8 @@ export async function verifyAuthentication(userId: number, response: any) {
     verification = await verifyAuthenticationResponse({
       response,
       expectedChallenge,
-      expectedOrigin: origin,
-      expectedRPID: rpID,
+      expectedOrigin: rp.origin,
+      expectedRPID: rp.rpID,
       credential: {
         id: cred.credentialId,
         publicKey: isoBase64URL.toBuffer(cred.publicKey),
