@@ -1,23 +1,22 @@
-# Render Blueprint — one-click(ish) deploy of the whole stack on Render.
+# Render Blueprint — free-tier deploy of the API on Render.
 # Docs: https://render.com/docs/blueprint-spec
 #
 # Deploy: push this repo to GitHub, then in Render -> "New" -> "Blueprint" and
-# point it at the repo. Render provisions the managed Postgres and the public
-# admin web service from this file.
+# point it at the repo. This provisions ONLY the web service — no Render
+# managed Postgres, because Render's free Postgres plan auto-deletes the
+# database after 30 days (not just suspends it), which isn't a real option
+# for anything you want to keep. Use a permanently-free external Postgres
+# instead — Neon (neon.tech) and Supabase both have a free tier with no
+# expiry — and point SQL_HOST/etc at it below. Set SQL_SSL=true for either.
 #
-# AFTER first deploy, set the secrets marked `sync: false` in each service's
+# AFTER first deploy, set the secrets marked `sync: false` in the service's
 # Environment tab (they are intentionally NOT in this file):
-#   - APP_BASE_URL         -> the admin service's public URL (e.g. https://smartteams-admin.onrender.com)
+#   - SQL_HOST / SQL_PORT / SQL_ADMIN_USER / SQL_ADMIN_PASSWORD / SQL_DB_NAME -> your Neon/Supabase connection details
+#   - SQL_SSL              -> "true" for Neon/Supabase
+#   - APP_BASE_URL         -> this service's public URL (e.g. https://smartteams-admin.onrender.com)
 #   - SMTP_* or RESEND_*   -> email delivery credentials
 #   - SEED_SUPER_ADMIN_*   -> optional; otherwise a random password is printed in logs on first boot
 #   - GOOGLE_CLIENT_ID / VITE_GOOGLE_CLIENT_ID -> optional Google Sign-In
-
-databases:
-  - name: smartteams-postgres
-    databaseName: smartteams
-    user: smartteams
-    postgresMajorVersion: "16"
-    plan: basic-256mb # bump for real workloads; free tier expires after 90 days
 
 services:
   # --- Admin app: Express API + bundled React SPA (public) ------------------
@@ -26,7 +25,7 @@ services:
     runtime: docker
     dockerfilePath: ./apps/admin/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free # spins down after 15min idle, cold start on next request — fine for a demo/low-traffic deploy
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -34,17 +33,19 @@ services:
       # JWT secret: generated once by Render and kept stable across deploys.
       - key: JWT_SECRET
         generateValue: true
-      # Database wiring, pulled from the managed Postgres above.
+      # External Postgres (Neon/Supabase free tier) — set after first deploy.
       - key: SQL_HOST
-        fromDatabase: { name: smartteams-postgres, property: host }
+        sync: false
       - key: SQL_PORT
-        fromDatabase: { name: smartteams-postgres, property: port }
+        sync: false
       - key: SQL_ADMIN_USER
-        fromDatabase: { name: smartteams-postgres, property: user }
+        sync: false
       - key: SQL_ADMIN_PASSWORD
-        fromDatabase: { name: smartteams-postgres, property: password }
+        sync: false
       - key: SQL_DB_NAME
-        fromDatabase: { name: smartteams-postgres, property: database }
+        sync: false
+      - key: SQL_SSL
+        sync: false
       # Set these in the dashboard after first deploy (not stored in the repo).
       - key: APP_BASE_URL
         sync: false
