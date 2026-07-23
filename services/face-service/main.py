@@ -143,11 +143,6 @@ PITCH_LOOK_THRESHOLD_DEG = 9.0
 YAW_SIGN = 1
 PITCH_SIGN = 1
 
-# For the "look_center" baseline pose captured during enrollment — just
-# needs a face detected with a roughly neutral pose, not a hard requirement.
-CENTER_YAW_MAX_DEG = 20.0
-CENTER_PITCH_MAX_DEG = 20.0
-
 NON_BASELINE_ACTIONS = [
     "turn_left", "turn_right", "look_up", "look_down",
     "smile", "open_mouth", "blink",
@@ -493,6 +488,7 @@ def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
             pitch, yaw, _roll = pose
             yaw *= YAW_SIGN
             pitch *= PITCH_SIGN
+            logger.info(f"[pose] pitch={pitch:.1f} yaw={yaw:.1f} roll={_roll:.1f}")
             if yaw < -YAW_TURN_THRESHOLD_DEG:
                 results["turn_left"] = True
             if yaw > YAW_TURN_THRESHOLD_DEG:
@@ -512,14 +508,6 @@ def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
             results["blink"] = True
 
     return results
-
-
-def is_neutral_pose(face) -> bool:
-    pose = estimate_pose(face)
-    if pose is None:
-        return True  # can't tell — don't block enrollment on a pose-estimation miss
-    pitch, yaw, _roll = pose
-    return abs(yaw) <= CENTER_YAW_MAX_DEG and abs(pitch) <= CENTER_PITCH_MAX_DEG
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +613,16 @@ def enroll(req: EnrollRequest):
                 embeddings.append(face.normed_embedding.tolist())
 
         if action == "look_center":
-            verified = any(is_neutral_pose(f) for f in detected_faces)
+            # Baseline/neutral capture — just needs a detected face. NOT
+            # gated on estimate_pose()'s yaw/pitch thresholds: those rely on
+            # solvePnP against a generic 3D reference whose sign convention
+            # and thresholds are unverified against a real camera (see the
+            # note above YAW_TURN_THRESHOLD_DEG), and in practice this was
+            # rejecting ordinary, correctly-centered captures outright. The
+            # directional actions below (turn_left/right, look_up/down) still
+            # use it — a face has to be detected at all here, that's the
+            # only real signal this step needs.
+            verified = bool(detected_faces)
         elif action in NON_BASELINE_ACTIONS:
             verified = actions_detected_in_burst(detected_faces).get(action, False)
         else:
