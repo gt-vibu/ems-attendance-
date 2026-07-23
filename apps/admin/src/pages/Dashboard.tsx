@@ -131,6 +131,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const {
     tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
     selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures,
+    undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData, handleToggleTenantStatus, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
     editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
@@ -1964,6 +1965,43 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Undelivered activation-email fallback — manually dismissed (no
+            auto-clear timer) since this holds the new tenant admin's ONLY
+            way to log in when the confirmation email genuinely failed to
+            send. See handleApproveRequest in useSuperAdminData.ts. */}
+        {undeliveredActivation && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+            <div className="nexus-card rounded-3xl p-8 max-w-lg w-full shadow-2xl">
+              <h3 className="text-lg font-bold text-[var(--color-nexus-error)] mb-2 font-sans">Approved — but the email could not be sent</h3>
+              <p className="text-xs text-[var(--color-nexus-muted)] mb-4">
+                <strong>{undeliveredActivation.companyName}</strong> was onboarded successfully, but the confirmation
+                email with their login credentials failed to deliver. Copy the activation link below and send it to
+                them yourself through another channel — it's their only way to log in for the first time.
+              </p>
+              <div className="mb-6 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl">
+                <p className="text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Activation Link</p>
+                <code className="block text-xs text-[var(--color-nexus-ink)] break-all select-all">{undeliveredActivation.activationLink}</code>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(undeliveredActivation.activationLink).catch(() => {});
+                  }}
+                  className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+                >
+                  Copy Link
+                </button>
+                <button
+                  onClick={() => setUndeliveredActivation(null)}
+                  className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

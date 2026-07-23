@@ -162,14 +162,24 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
       const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
       const activationLink = `${baseUrl}/login?email=${encodeURIComponent(request.email)}&temp=${tempPassword}`;
       
-      await sendEmail({
+      const emailResult = await sendEmail({
         to: request.email,
         subject: 'Welcome to Smart Teams - Access Granted',
         text: `Hello ${request.companyName} Admin,\n\nYour tenancy has been approved by the Super Admin under the ${tenant[0].plan} plan.\n\nYour credentials:\nUsername: ${request.email}\nTemporary Password: ${userCredentialsTemplate(tempPassword)}\n\nLogin and set your permanent password here: ${activationLink}\n\nBest Regards,\nSmart Teams Onboarding`,
         html: `<h3>Hello ${request.companyName} Admin,</h3><p>Your tenancy has been approved by the Super Admin under the <strong>${tenant[0].plan} plan</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${request.email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#7B5CFA;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Activate Your Account</a></p><br/><p>Best Regards,<br/>Smart Teams Onboarding</p>`
       });
 
-      res.json({ success: true });
+      // Email is the ONLY channel this credential ever went out through
+      // before this change — if delivery fails (unconfigured provider, a
+      // blocked/unreachable SMTP host, etc.) the new tenant admin had
+      // literally no way to ever receive their temp password, and the
+      // super admin approving them had no way to know or work around it
+      // either (the response was just `{ success: true }`). Surfacing the
+      // activation link + delivery outcome here lets the super admin
+      // manually forward it through another channel when email doesn't
+      // arrive — this is authenticated, super-admin-only data, same trust
+      // level as everything else on this endpoint.
+      res.json({ success: true, activationLink, emailDelivered: emailResult.delivered });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

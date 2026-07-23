@@ -21,6 +21,14 @@ export function useSuperAdminData(
   const [allTenants, setAllTenants] = useState<any[]>([]);
   const [superAnalytics, setSuperAnalytics] = useState<any>(null);
   const [platformFeatures, setPlatformFeatures] = useState<{ key: string; label: string; description: string }[]>([]);
+  // Set only when an approval's confirmation email did NOT actually get
+  // delivered (unconfigured/misconfigured/blocked mail provider) — the
+  // activation link (which embeds the temp password) is the new tenant
+  // admin's ONLY way to log in, and email was previously the ONLY channel
+  // it ever went out through. Shown as a persistent, manually-dismissed
+  // banner (not the auto-clearing `success` toast) so the super admin has
+  // time to actually copy and forward it through another channel.
+  const [undeliveredActivation, setUndeliveredActivation] = useState<{ companyName: string; activationLink: string } | null>(null);
 
   const fetchSuperAdminData = async () => {
     try {
@@ -112,11 +120,18 @@ export function useSuperAdminData(
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to approve onboarding');
 
-      setSuccess(`Tenant "${selectedRequest.companyName}" approved successfully! Temporary credentials mailed.`);
+      if (data.emailDelivered) {
+        setSuccess(`Tenant "${selectedRequest.companyName}" approved successfully! Temporary credentials mailed.`);
+        setTimeout(() => setSuccess(''), 4000);
+      } else {
+        // Email genuinely failed to send (or no provider is configured) —
+        // the new tenant admin has no other way to get their temp password,
+        // so surface the activation link here instead of only in a toast
+        // that disappears in 4 seconds.
+        setUndeliveredActivation({ companyName: selectedRequest.companyName, activationLink: data.activationLink });
+      }
       setShowApprovalModal(false);
       fetchSuperAdminData();
-
-      setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
       setError(err.message || 'Approval failed');
     } finally {
@@ -226,6 +241,7 @@ export function useSuperAdminData(
     allTenants,
     superAnalytics,
     platformFeatures,
+    undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData,
     handleToggleTenantStatus,
     handleOpenApproveModal,
