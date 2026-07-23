@@ -120,12 +120,36 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok) {
-            caches.open(STATIC_CACHE).then((cache) => cache.put(request, response.clone()));
+          // clone() MUST happen here, synchronously, before this function
+          // returns — once `response` is handed back to the browser (either
+          // by returning it below or via event.respondWith resolving), the
+          // browser starts consuming its body to render the page, which
+          // "disturbs" the stream. Calling clone() later, inside the async
+          // caches.open().then() that used to be here, would sometimes lose
+          // that race and throw "Response body is already used" — silently,
+          // as an unhandled promise rejection, since nothing awaited it.
+          const responseToCache = response.ok ? response.clone() : null;
+          if (responseToCache) {
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, responseToCache));
           }
           return response;
         })
-        .catch(() => caches.open(STATIC_CACHE).then((cache) => cache.match(request)))
+        .catch(() =>
+          caches.open(STATIC_CACHE).then((cache) => cache.match(request)).then((cached) => {
+            // cache.match() resolves to undefined when nothing was ever
+            // cached for this URL (e.g. genuinely offline on a first visit,
+            // or any other request this app doesn't proactively cache) —
+            // event.respondWith() requires an actual Response, so returning
+            // undefined here throws "Failed to convert value to 'Response'".
+            // A real Response (even a synthesized error one) is the only
+            // valid way to say "this navigation truly has nothing to serve".
+            return cached || new Response('Offline and nothing cached for this page.', {
+              status: 503,
+              statusText: 'Offline',
+              headers: { 'Content-Type': 'text/plain' },
+            });
+          })
+        )
     );
     return;
   }
