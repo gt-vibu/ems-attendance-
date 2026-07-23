@@ -575,6 +575,15 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
     if (!await hasPrivilege(req.user, 'payroll.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
+    // hasPrivilege() returns true unconditionally for super_admin (they can
+    // do anything, everywhere) — but super_admin has no tenantId, and every
+    // query below is scoped to one. Without this guard, tenantId is
+    // undefined, Drizzle throws trying to bind it as a query parameter, and
+    // the generic catch below turns that into an opaque 500 instead of a
+    // clear "this is a tenant-scoped endpoint" error.
+    if (!req.user.tenantId) {
+      return res.status(400).json({ error: 'This endpoint is scoped to a single tenant — no tenant context for this account.' });
+    }
     const tenantId = req.user.tenantId;
     const [settings, defaults, tenantUsers, roleDefaultNameRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),

@@ -10,6 +10,7 @@ export function useRecruitment(
   setError: (v: string) => void,
   setSuccess: (v: string) => void,
   onHired: () => void,
+  isSuperAdmin: boolean = false,
 ) {
   // Recruitment Form fields
   const [recruitedUsers, setRecruitedUsers] = useState<any[]>([]);
@@ -35,8 +36,12 @@ export function useRecruitment(
 
   // Branch options for the Recruit Team Member form above — fetched once;
   // not gated behind any tab check since it's cheap and the form needs it
-  // ready the moment Administration > Recruitment is opened.
+  // ready the moment Administration > Recruitment is opened. Skipped
+  // entirely for super_admin: recruitment/branches/payroll are all
+  // tenant-scoped concepts a platform-level super admin has no tenantId
+  // for — calling these always 400/500'd for that role before this guard.
   useEffect(() => {
+    if (isSuperAdmin) return;
     fetch('/api/tenant/my-branches', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => {
@@ -72,6 +77,7 @@ export function useRecruitment(
   const [allRoleNames, setAllRoleNames] = useState<string[]>([]);
   const [payrollConfiguredRoleNames, setPayrollConfiguredRoleNames] = useState<string[]>([]);
   const refreshRoleSetupStatus = () => {
+    if (isSuperAdmin) return;
     fetch('/api/tenant/roles', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setAllRoleNames(Array.isArray(d.roles) ? d.roles.map((r: any) => r.roleName) : []))

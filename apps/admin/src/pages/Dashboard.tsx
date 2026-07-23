@@ -270,7 +270,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     hireBranches, hireShifts, newUserBranchId, setNewUserBranchId, newUserShiftId, setNewUserShiftId,
     newRolePrompt, setNewRolePrompt, allRoleNames, rolesNeedingPayrollSetup, refreshRoleSetupStatus,
     handleHireUser, togglePrivilege,
-  } = useRecruitment(token, setLoading, setError, setSuccess, () => fetchTenantAdminData());
+  } = useRecruitment(token, setLoading, setError, setSuccess, () => fetchTenantAdminData(), user.role === 'super_admin');
 
   // Home tab (organization overview) — extra widgets: pending leave, payroll
   // this month, department breakdown, pending approvals, and manager "your
