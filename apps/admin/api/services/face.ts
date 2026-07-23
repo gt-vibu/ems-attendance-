@@ -18,6 +18,15 @@ export async function callFaceService(endpoint: string, payload: any): Promise<a
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    // On a free-tier host, 502/503/504 almost always means the face service
+    // had spun down from inactivity and hasn't finished cold-booting (it has
+    // ML models to load, not just a process to start) — not a real failure.
+    // Surfacing that distinction here means the frontend can show "try again
+    // in a bit" instead of a bare "HTTP 502", which otherwise reads as a
+    // broken feature every time it's been idle for a while.
+    if ([502, 503, 504].includes(response.status)) {
+      throw new Error('The face verification service is still starting up (it was idle and had to reload its models) — please wait about a minute and try again.');
+    }
     throw new Error(body.detail || `Face service returned HTTP ${response.status}`);
   }
   return body;
