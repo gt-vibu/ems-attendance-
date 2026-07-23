@@ -42,11 +42,21 @@ export async function authenticate(req: any, res: any, next: any) {
     // mustChangePassword tempReset token) never had one and are unaffected.
     if (decoded.sid) {
       try {
+        // Single join instead of two sequential round-trips (users, then a
+        // separate tenants lookup for idleTimeoutMinutes) — this runs on
+        // EVERY authenticated request, so each extra round-trip here is a
+        // tax paid by literally every API call the app makes. On a Postgres
+        // host that isn't co-located with the app server, two round-trips
+        // back-to-back was measured adding several hundred ms per request,
+        // which compounds badly on a page that fires off many calls on load.
         const rows = await db.select({
           activeSessionId: schema.users.activeSessionId,
           tenantId: schema.users.tenantId,
           lastActivityAt: schema.users.lastActivityAt,
-        }).from(schema.users).where(eq(schema.users.id, decoded.userId));
+          idleTimeoutMinutes: schema.tenants.idleTimeoutMinutes,
+        }).from(schema.users)
+          .leftJoin(schema.tenants, eq(schema.users.tenantId, schema.tenants.id))
+          .where(eq(schema.users.id, decoded.userId));
         if (rows.length === 0 || rows[0].activeSessionId !== decoded.sid) {
           return res.status(401).json({ error: 'session_expired', message: 'Your session has ended. Please log in again.' });
         }
@@ -55,9 +65,7 @@ export async function authenticate(req: any, res: any, next: any) {
         // Independent of the JWT's own 24h expiry: this can log someone out
         // much sooner if they've simply been inactive.
         if (rows[0].tenantId) {
-          const tenantRows = await db.select({ idleTimeoutMinutes: schema.tenants.idleTimeoutMinutes })
-            .from(schema.tenants).where(eq(schema.tenants.id, rows[0].tenantId)).limit(1);
-          const idleTimeoutMinutes = tenantRows[0]?.idleTimeoutMinutes || 0;
+          const idleTimeoutMinutes = rows[0].idleTimeoutMinutes || 0;
           if (idleTimeoutMinutes > 0 && rows[0].lastActivityAt) {
             const idleMs = Date.now() - new Date(rows[0].lastActivityAt).getTime();
             if (idleMs > idleTimeoutMinutes * 60 * 1000) {

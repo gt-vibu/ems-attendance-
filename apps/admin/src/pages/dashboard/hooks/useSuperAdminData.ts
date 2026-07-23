@@ -31,35 +31,26 @@ export function useSuperAdminData(
   const [undeliveredActivation, setUndeliveredActivation] = useState<{ companyName: string; activationLink: string } | null>(null);
 
   const fetchSuperAdminData = async () => {
+    // These 5 endpoints are independent of each other — firing them with
+    // Promise.all instead of one sequential await after another cuts this
+    // function's total wait from ~5x a single request's latency down to
+    // ~1x, since they now overlap on the wire instead of queuing.
     try {
-      const reqsRes = await fetch('/api/super/requests', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const reqsData = await reqsRes.json();
+      const authHeaders = { 'Authorization': `Bearer ${token}` };
+      const [reqsRes, notifyRes, tenantsRes, analyticsRes, featuresRes] = await Promise.all([
+        fetch('/api/super/requests', { headers: authHeaders }),
+        fetch('/api/super/notifications', { headers: authHeaders }),
+        fetch('/api/super/tenants', { headers: authHeaders }),
+        fetch('/api/super/analytics', { headers: authHeaders }),
+        fetch('/api/super/platform-features', { headers: authHeaders }),
+      ]);
+      const [reqsData, notifyData, tenantsData, analyticsData, featuresData] = await Promise.all([
+        reqsRes.json(), notifyRes.json(), tenantsRes.json(), analyticsRes.json(), featuresRes.json(),
+      ]);
       if (reqsData.requests) setTenancyRequests(reqsData.requests);
-
-      const notifyRes = await fetch('/api/super/notifications', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const notifyData = await notifyRes.json();
       if (notifyData.notifications) setNotifications(notifyData.notifications);
-
-      const tenantsRes = await fetch('/api/super/tenants', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const tenantsData = await tenantsRes.json();
       if (tenantsData.tenants) setAllTenants(tenantsData.tenants);
-
-      const analyticsRes = await fetch('/api/super/analytics', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const analyticsData = await analyticsRes.json();
       setSuperAnalytics(analyticsData);
-
-      const featuresRes = await fetch('/api/super/platform-features', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const featuresData = await featuresRes.json();
       if (Array.isArray(featuresData.features)) setPlatformFeatures(featuresData.features);
     } catch (err) {
       console.error(err);
