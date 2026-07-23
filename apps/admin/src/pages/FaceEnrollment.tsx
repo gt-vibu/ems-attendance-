@@ -11,15 +11,25 @@ import { describeCameraError } from '../lib/cameraError';
 // (blink EAR dip, mouth MAR, yaw/pitch turn detection — see
 // services/face-service/main.py) were calibrated against, so this only
 // changes how the recording feels, not what's actually captured per action.
+// Frame counts kept deliberately low: the whole 8-action burst is sent as
+// ONE request to the face-service, which runs 3 model inferences (detect +
+// recognize + landmarks) per frame — on the free-tier's 0.1 shared vCPU,
+// the original 4-5 frames/action (36 total) routinely took long enough for
+// Render's gateway to time the request out (502) before it finished, on
+// every attempt, regardless of lighting/angle. Each action's own detection
+// only needs ANY one frame in its burst to cross the pose/action threshold
+// (see actions_detected_in_burst() in services/face-service/main.py), so
+// fewer frames doesn't weaken what's actually being checked — blink is the
+// only one that needs at least 2 to compare against.
 const KYC_STEPS: { key: string; title: string; instruction: string; frameCount: number }[] = [
-  { key: 'look_center', title: 'Look straight ahead', instruction: 'Center your face in the frame and look directly at the camera.', frameCount: 5 },
-  { key: 'turn_left', title: 'Turn left', instruction: 'Slowly turn your head to your left.', frameCount: 5 },
-  { key: 'turn_right', title: 'Turn right', instruction: 'Slowly turn your head to your right.', frameCount: 5 },
-  { key: 'look_up', title: 'Look up', instruction: 'Tilt your head up slightly.', frameCount: 4 },
-  { key: 'look_down', title: 'Look down', instruction: 'Tilt your head down slightly.', frameCount: 4 },
-  { key: 'smile', title: 'Smile', instruction: 'Give a natural smile.', frameCount: 4 },
-  { key: 'open_mouth', title: 'Open your mouth', instruction: 'Open your mouth like you are about to say "ah".', frameCount: 4 },
-  { key: 'blink', title: 'Blink', instruction: 'Blink naturally a couple of times.', frameCount: 5 },
+  { key: 'look_center', title: 'Look straight ahead', instruction: 'Center your face in the frame and look directly at the camera.', frameCount: 3 },
+  { key: 'turn_left', title: 'Turn left', instruction: 'Slowly turn your head to your left.', frameCount: 3 },
+  { key: 'turn_right', title: 'Turn right', instruction: 'Slowly turn your head to your right.', frameCount: 3 },
+  { key: 'look_up', title: 'Look up', instruction: 'Tilt your head up slightly.', frameCount: 2 },
+  { key: 'look_down', title: 'Look down', instruction: 'Tilt your head down slightly.', frameCount: 2 },
+  { key: 'smile', title: 'Smile', instruction: 'Give a natural smile.', frameCount: 2 },
+  { key: 'open_mouth', title: 'Open your mouth', instruction: 'Open your mouth like you are about to say "ah".', frameCount: 2 },
+  { key: 'blink', title: 'Blink', instruction: 'Blink naturally a couple of times.', frameCount: 3 },
 ];
 
 type KycStep = (typeof KYC_STEPS)[number];
