@@ -26,6 +26,7 @@
     "@react-oauth/google": "^0.13.5",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
+    "@sendgrid/mail": "^8.1.6",
     "@sentry/node": "^10.66.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",

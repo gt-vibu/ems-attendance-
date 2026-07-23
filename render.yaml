@@ -60,6 +60,18 @@ services:
         sync: false
       - key: RESEND_FROM
         sync: false
+      # SendGrid: the recommended email path on Render's free tier — outbound
+      # SMTP (below) was confirmed fully blocked here (tested against Gmail
+      # AND an unrelated test SMTP host, and across two different regions;
+      # same "Connection timeout" every time), and Resend (above) requires a
+      # verified domain this deployment didn't have. SendGrid's free tier
+      # allows verifying a single sender EMAIL ADDRESS instead of a domain
+      # (Settings > Sender Authentication > Single Sender Verification) —
+      # SENDGRID_FROM must exactly match whatever address you verified there.
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM
+        sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
