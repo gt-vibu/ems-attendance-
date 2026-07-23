@@ -104,7 +104,18 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         host: smtpHost,
         port,
         secure: port === 465,
-        auth: { user: smtpUser, pass: cleanedPass }
+        auth: { user: smtpUser, pass: cleanedPass },
+        // Nodemailer's defaults (connectionTimeout up to 2 minutes) assume a
+        // network that can actually reach the SMTP host. Cloud platforms
+        // (Render included) commonly block or heavily throttle outbound SMTP
+        // as a standard anti-spam measure — without a short timeout here,
+        // that shows up as the ENTIRE request (tenancy signup, onboarding
+        // approval, etc.) hanging for up to 2 minutes before ever falling
+        // through to the simulation fallback below, which callers/users
+        // read as "stuck forever", not as an email problem.
+        connectionTimeout: 8000,
+        greetingTimeout: 8000,
+        socketTimeout: 8000,
       });
       await transporter.sendMail({
         from: `"Smart Teams" <${smtpFrom}>`,
