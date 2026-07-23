@@ -2,11 +2,28 @@ import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns';
 import * as dotenv from 'dotenv';
 import { buildLeaveIcs } from './api/services/ics.js';
 
 // Load .env from monorepo root (relative to apps/admin cwd)
 dotenv.config({ path: path.join(process.cwd(), '../../.env') });
+
+// Confirmed (not just suspected) on this deployment: outbound SMTP to Gmail
+// was failing with `connect ENETUNREACH <ipv6 address>` — Render's network
+// has no outbound IPv6 route at all, but DNS still hands back an IPv6
+// address for smtp.gmail.com as the preferred result, so every connection
+// attempt hit that dead route first. Passing `family: 4` directly to
+// nodemailer's transport options did NOT fix this — nodemailer/Node still
+// tried IPv6, meaning that option isn't actually forwarded to the
+// underlying socket the way a generic "pass everything through" assumption
+// would suggest. This is the actual fix: dns.setDefaultResultOrder changes
+// Node's global DNS resolution order for the whole process, which every
+// dns.lookup()-based connection (nodemailer's SMTP transport included)
+// respects regardless of what options each individual caller does or
+// doesn't pass through. Available since Node 17; safe no-op on hosts that
+// already have working IPv6.
+dns.setDefaultResultOrder('ipv4first');
 
 interface EmailAttachment {
   filename: string;
