@@ -25,9 +25,15 @@ COPY main.py .
 # first request, so the container's first real request isn't slow and so
 # deployment fails fast (at build time) if there's no internet access for
 # the download rather than failing at first use in production. One pack
-# only — buffalo_s ships detection, recognition, AND landmark_3d_68 (see
-# load_model() in main.py), so nothing else needs downloading.
-RUN python -c "from insightface.app import FaceAnalysis; f = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'], allowed_modules=['detection', 'recognition', 'landmark_3d_68']); f.prepare(ctx_id=-1, det_size=(320,320))"
+# only — buffalo_s ships detection, recognition, AND landmark_2d_106 (see
+# load_model() in main.py), so nothing else needs downloading. Loading via
+# allowed_modules=['detection','recognition','landmark_2d_106'] here (rather
+# than the full FaceAnalysis default) keeps this build-time sanity check
+# consistent with what actually loads at runtime — the zip still extracts
+# every file in the pack regardless (including the unused 1k3d68.onnx and
+# genderage.onnx), but this avoids loading the 143MB landmark_3d_68 model
+# into memory for a check that doesn't need it.
+RUN python -c "from insightface.app import FaceAnalysis; f = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'], allowed_modules=['detection', 'recognition', 'landmark_2d_106']); f.prepare(ctx_id=-1, det_size=(320,320))"
 
 EXPOSE 8001
 

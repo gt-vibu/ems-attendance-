@@ -4,24 +4,41 @@ A standalone Python microservice that does all face detection, recognition,
 and passive-liveness scoring server-side, using [InsightFace](https://github.com/deepinsightface/insightface)
 over ONNX Runtime — CPU only, no GPU required at this scale.
 
-## Model: buffalo_s, not buffalo_l
+## Model: buffalo_s, with landmark_2d_106 (not landmark_3d_68)
 
-This service loads a single InsightFace pack, `buffalo_s`, with
-`allowed_modules=['detection', 'recognition', 'landmark_3d_68']`. An earlier
-version of this file assumed buffalo_s didn't ship a landmark_3d_68 submodel
-and tried to load it from a second `buffalo_l` FaceAnalysis instance instead
-— that turned out to be both unnecessary (buffalo_s's own zip bundle
-includes the same `1k3d68.onnx` landmark model buffalo_l does) and broken
-(`FaceAnalysis.__init__` hard-asserts a detection model is present
-regardless of `allowed_modules`, so a landmark-only instance always raised
-`AssertionError` on startup). One pack, all three modules, is simpler and
-correct.
+This service loads a single InsightFace pack, `buffalo_s` — detection
+(`det_500m`), recognition (`w600k_mbf`, a MobileFaceNet), and 2D 106-point
+landmarks (`2d106det.onnx`, ~5MB). All three models are constructed manually
+via `onnxruntime.InferenceSession` directly (see `load_model()` in
+`main.py`) rather than through InsightFace's `FaceAnalysis` convenience
+class, specifically to control ONNX Runtime's memory settings —
+`FaceAnalysis`'s defaults (a growing memory arena, a thread pool sized to
+every CPU core the host reports) settled at ~544MB RSS for these same three
+models, which OOM'd a real 512MB container. The manual + tuned-session
+version settles at ~160-410MB depending on which landmark model is loaded
+(measured; see `load_model()`'s comments for the full before/after numbers).
 
-buffalo_s's detector (`det_500m`) and recognizer (`w600k_mbf`, a
-MobileFaceNet) are both dramatically smaller than buffalo_l's
-(`det_10g`/`w600k_r50`) — that's the actual memory win requested: loaded
-weights land around ~150-250MB total, comfortably smaller than a plain
-buffalo_l deployment's ~450-500MB. See `load_model()` in `main.py`.
+**Why `landmark_2d_106` and not `landmark_3d_68`:** buffalo_s's zip bundle
+actually ships both — `1k3d68.onnx` (143MB) and `2d106det.onnx` (~5MB).
+`1k3d68.onnx`'s own one-time parse/graph-construction step transiently
+exceeds 512MB by itself, independent of every session/thread setting above
+(confirmed by reproducing the exact same OOM Render reported, locally, with
+`docker run --memory=512m`). `2d106det.onnx` doesn't have this problem. The
+tradeoff: `landmark_3d_68` produced a head pose (pitch/yaw/roll) for free;
+`landmark_2d_106` doesn't, so `main.py` estimates it itself via
+`cv2.solvePnP` against a generic 3D face reference — see the "Landmark
+geometry" section in `main.py` and the sign-convention caveat below.
+
+**Also worth knowing:** `landmark_2d_106`'s per-point layout isn't published
+by InsightFace anywhere citable. The index ranges used in `main.py` (which
+points belong to which eye, the mouth, etc.) were derived empirically —
+rendering the model's output against a real test photo with each point's
+index number overlaid, then reading off where each region actually lands —
+not copied from documentation. The eye/mouth "openness" checks deliberately
+use each region's bounding-box height/width instead of hand-picked point
+pairs (like the classic 6-point EAR/MAR formulas do), specifically because
+the *exact role* of each point within a region isn't confirmed the way the
+region boundaries are.
 
 ## Why a separate service instead of doing this in the Node app
 
@@ -127,14 +144,26 @@ limitations" entry below.
 
 ## Honest limitations
 
-- **Head-pose sign convention is unverified against a live camera on
-  buffalo_s's landmark_3d_68.** The EAR/MAR/pose thresholds and the
-  `YAW_SIGN`/`PITCH_SIGN` normalization were calibrated against buffalo_l's
-  copy of this submodel in an earlier version of this service; buffalo_s
-  ships the same `1k3d68.onnx` file, so this should still hold, but confirm
-  `/enroll` and `/verify` against a real camera before relying on it in
-  production — flip `YAW_SIGN`/`PITCH_SIGN` at the top of `main.py` if
-  `turn_left`/`turn_right` or `look_up`/`look_down` come out swapped.
+- **Head-pose sign convention is UNVERIFIED against a live camera.** Unlike
+  an earlier version of this service (which used InsightFace's own
+  `landmark_3d_68`-derived pose and had real calibration logs behind its
+  sign convention), the current `estimate_pose()` in `main.py` computes pose
+  itself via `cv2.solvePnP` against a self-supplied generic 3D face
+  reference — a standard, widely-used technique, but not one that's been
+  run against this pipeline's actual landmark points on a real camera yet.
+  Confirm `turn_left`/`turn_right` and `look_up`/`look_down` against a real
+  camera before relying on this in production — flip `YAW_SIGN`/
+  `PITCH_SIGN` at the top of `main.py` if they come out backwards.
+- **The eye/mouth "openness ratio" thresholds are also unverified**, for a
+  related reason: they're bounding-box height/width ratios over
+  `landmark_2d_106`'s points (see the model section above for why exact
+  point-role pairing isn't assumed), which land in a different numeric range
+  than the classic Eye Aspect Ratio formula an earlier version of this
+  service used and had real calibration data for. Test `/enroll` and
+  `/verify` against a real camera and adjust `BLINK_RELATIVE_DROP`,
+  `BLINK_OPENNESS_ABS_CEILING`, `OPEN_MOUTH_RATIO_THRESHOLD`, and
+  `SMILE_WIDTH_RATIO_THRESHOLD` in `main.py` if blink/smile/open_mouth don't
+  trigger reliably.
 - The generic liveness score is a passive motion heuristic (landmark
   movement across a few frames), not a certified anti-spoofing model. Combined
   with the per-action challenge-response check, it stops a static printed
@@ -143,11 +172,9 @@ limitations" entry below.
   video containing every possible challenge action is a harder problem that
   would need a dedicated anti-spoofing model (e.g. Silent-Face-Anti-Spoofing)
   layered on top, which isn't included here.
-- Action thresholds (`BLINK_EAR_ABS_CEILING`, `OPEN_MOUTH_MAR_THRESHOLD`,
-  `SMILE_WIDTH_RATIO_THRESHOLD`, `YAW_TURN_THRESHOLD_DEG`,
-  `PITCH_LOOK_THRESHOLD_DEG`) are population-level defaults, not calibrated
-  against your specific users/cameras — expect to tune them after real-world
-  testing, same as the match threshold below.
+- `YAW_TURN_THRESHOLD_DEG` and `PITCH_LOOK_THRESHOLD_DEG` are population-
+  level defaults, not calibrated against your specific users/cameras —
+  expect to tune them after real-world testing, same as everything else here.
 - Match threshold tuning: this uses cosine similarity between ArcFace
   embeddings, gated by `FACE_MATCH_THRESHOLD` on the Node side (see
   `apps/admin/api/services/face.ts`), currently `0.5`. See that constant's

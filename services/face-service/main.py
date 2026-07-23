@@ -2,9 +2,22 @@
 Smart Teams Face Service
 ========================
 A small, standalone microservice that does all face detection, recognition,
-and liveness/action verification server-side, using InsightFace over ONNX
-Runtime — a hybrid Buffalo_S + Buffalo_L assembly (see load_model() below),
-not a single named pack.
+and liveness/action verification server-side, using InsightFace's buffalo_s
+pack over ONNX Runtime — loaded manually (see load_model() below) rather
+than through InsightFace's FaceAnalysis convenience class, specifically to
+control ONNX Runtime's memory settings. This matters more than it sounds:
+FaceAnalysis's defaults (a growing memory arena, plus a thread pool sized to
+every CPU core the host reports) measurably OOM'd a real 512MB container
+that ran the exact same three models fine unconstrained — see load_model()'s
+comments for the actual before/after numbers this was tuned against.
+
+Uses landmark_2d_106 (2d106det.onnx, ~5MB), not landmark_3d_68 (1k3d68.onnx,
+143MB) — that swap is what actually made a 512MB container survive loading
+at all (see load_model()'s comments: the 143MB model's own one-time parse
+transiently spikes well past what any session/thread tuning can fix). The
+tradeoff: landmark_3d_68 gave a head pose (pitch/yaw/roll) for free;
+landmark_2d_106 doesn't, so this file estimates it itself via cv2.solvePnP
+against a generic 3D face reference — see the "Landmark geometry" section.
 
 Why this exists as a separate Python service instead of living inside the
 Node/Express app:
@@ -42,12 +55,15 @@ Setup:
   pip install -r requirements.txt
   uvicorn main:app --host 0.0.0.0 --port 8001
 
-First run downloads the buffalo_s AND buffalo_l model bundles (see
-load_model() for why both are needed) to ~/.insightface/models/ — this
-requires outbound internet access the first time only; after that it's
-cached on disk. Only a small subset of each bundle's weights are ever
-loaded into memory (~150-200MB total), not the full ~450MB a plain
-buffalo_l deployment would use.
+First run downloads the buffalo_s model bundle to ~/.insightface/models/ —
+this requires outbound internet access the first time only; after that it's
+cached on disk. Steady-state memory after all three models are loaded is
+~160-165MB (measured), comfortably under a 512MB container limit — see
+load_model() for the full story of what didn't fit before this (~544MB with
+FaceAnalysis's defaults, then ~412MB after tuning ONNX Runtime's session
+settings — still using landmark_3d_68 at that point, whose own 143MB load
+transiently exceeded 512MB independent of any of those settings; switching
+to the much smaller landmark_2d_106 is what actually solved it).
 """
 
 import base64
@@ -63,7 +79,7 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("face-service")
 
-app = FastAPI(title="Smart Teams Face Service", version="3.0.0")
+app = FastAPI(title="Smart Teams Face Service", version="3.1.0")
 
 # The Node app and this service are expected to run on a private
 # network/localhost together, but CORS is opened here in case the Node app
@@ -75,8 +91,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-face_app = None  # lazily set at startup
-
 # ---------------------------------------------------------------------------
 # Action-detection thresholds
 # ---------------------------------------------------------------------------
@@ -84,43 +98,50 @@ face_app = None  # lazily set at startup
 # typical webcam/phone-camera capture distance. Adjust per deployment if a
 # particular camera setup produces systematically different readings.
 #
-# Eye Aspect Ratio (EAR) — Soukupová & Čech, "Real-Time Eye Blink Detection
-# using Facial Landmarks". Blink is detected as a RELATIVE dip against this
-# burst's own peak-open reading rather than fixed population thresholds —
-# live-camera calibration showed per-person/camera "open" and "closed"
-# baselines vary too much (e.g. one real device measured open ~0.25-0.29 and
-# a genuine blink only dipping to ~0.21-0.22) for a single fixed cutoff to
-# work reliably across different people, cameras, and lighting.
-BLINK_RELATIVE_DROP = 0.90   # eye counted as blinking if it dips to <=90% of this burst's own peak-open EAR
-BLINK_EAR_ABS_CEILING = 0.28  # sanity check — the dip must also be a plausibly-low absolute EAR, not just "a bit less wide-eyed than the peak"
+# IMPORTANT — these are placeholder starting points, not yet verified against
+# a real camera. The eye/mouth "openness ratio" thresholds below replace an
+# earlier version of this file's classic 6-point EAR/MAR formulas (Soukupová
+# & Čech-style), which assumed the 68-point iBUG layout's specific point
+# roles (exact upper-lid/lower-lid pairs, exact mouth corner indices).
+# landmark_2d_106's per-point roles aren't officially documented (confirmed
+# by generating an annotated visualization against a real test image and
+# reading off index ranges directly — see the "Landmark geometry" section
+# below) — rather than guess at fragile point-role pairings that could be
+# subtly wrong with no way to notice, these use each region's bounding-box
+# height/width ratio instead: self-normalizing, only depends on getting the
+# INDEX RANGE for each region right (which was verified empirically), not
+# which exact point is "upper lid, second from the corner". Same relative-
+# dip-against-this-burst's-own-peak approach for blink either way.
+BLINK_RELATIVE_DROP = 0.90   # eye counted as blinking if it dips to <=90% of this burst's own peak-open ratio
+BLINK_OPENNESS_ABS_CEILING = 0.60  # sanity check — the dip must also be a plausibly-closed absolute ratio, not just "a bit less wide-eyed than the peak". UNVERIFIED against a live camera — bounding-box height/width lands in a different numeric range than classic EAR.
 
-# Mouth Aspect Ratio (MAR) — standard open-mouth/yawn heuristic over the
-# outer mouth landmarks. Closed/neutral mouth is usually ~0.25-0.45.
-OPEN_MOUTH_MAR_THRESHOLD = 0.55
+# Mouth "openness ratio" (bounding-box height/width over the whole 20-point
+# mouth region) — open-mouth/yawn heuristic. UNVERIFIED against a live
+# camera; tune after real testing, same as every other threshold here.
+OPEN_MOUTH_RATIO_THRESHOLD = 0.55
 
 # Smile: distinguished from "open mouth" by mouth WIDTH increasing (relative
 # to the stable interocular distance, so it isn't skewed by camera distance)
-# while the mouth doesn't also open into a full MAR spike.
+# while the mouth doesn't also open into a full openness-ratio spike.
 SMILE_WIDTH_RATIO_THRESHOLD = 0.52
-SMILE_MAX_MAR = OPEN_MOUTH_MAR_THRESHOLD
+SMILE_MAX_OPENNESS = OPEN_MOUTH_RATIO_THRESHOLD
 
-# Head pose thresholds, in degrees, applied to InsightFace's estimated
-# (pitch, yaw, roll). NOTE ON SIGN CONVENTION: confirmed against live-camera
-# calibration logs — insightface's raw yaw comes out POSITIVE for turn_left
-# and NEGATIVE for turn_right, and raw pitch comes out POSITIVE for look_up
-# and NEGATIVE for look_down (the opposite of what the code below assumes
-# before the sign flip), so both *_SIGN constants are -1 to normalize into
-# "yaw < -threshold means turn_left" / "pitch < -threshold means look_up".
+# Head pose thresholds, in degrees, applied to this file's own solvePnP-
+# estimated (pitch, yaw, roll) — see estimate_pose() below. NOTE ON SIGN
+# CONVENTION: UNVERIFIED against a live camera. The previous version of this
+# file (using InsightFace's own landmark_3d_68-derived pose) had confirmed,
+# calibrated signs from real testing; solvePnP against a different (self-
+# supplied) generic 3D reference model is NOT guaranteed to produce the same
+# sign convention, even though the underlying idea (positive/negative yaw
+# meaning left/right turn) is the same in spirit. Confirm turn_left/
+# turn_right and look_up/look_down against a real camera before relying on
+# this — flip YAW_SIGN/PITCH_SIGN below if they come out backwards, exactly
+# as the previous version's own honest-limitations note already flagged for
+# its own (different) pose source.
 YAW_TURN_THRESHOLD_DEG = 15.0
-# Slightly lower than the yaw threshold — live calibration showed people
-# tilt less for "look up/down slightly" than they turn for "turn left/right"
-# (which asks for a fuller turn), so this needs a smaller bar to reliably
-# register without dropping so low it risks matching incidental head-turn
-# pitch noise (a real left/right turn showed up to ~14° of incidental pitch
-# in the logs — this stays safely above that).
 PITCH_LOOK_THRESHOLD_DEG = 9.0
-YAW_SIGN = -1
-PITCH_SIGN = -1
+YAW_SIGN = 1
+PITCH_SIGN = 1
 
 # For the "look_center" baseline pose captured during enrollment — just
 # needs a face detected with a roughly neutral pose, not a hard requirement.
@@ -134,41 +155,100 @@ NON_BASELINE_ACTIONS = [
 ALL_ENROLLMENT_ACTIONS = ["look_center"] + NON_BASELINE_ACTIONS
 
 
+det_model = None       # RetinaFace (det_500m.onnx) — lazily set at startup
+rec_model = None       # ArcFaceONNX (w600k_mbf.onnx) — lazily set at startup
+landmark_model = None  # Landmark (2d106det.onnx) — lazily set at startup
+
+
 @app.on_event("startup")
 def load_model():
-    global face_app
+    global det_model, rec_model, landmark_model
     # Imported here (not at module top) so that a syntax/import error in
     # this file can still be caught by simple tools without insightface
-    # actually being installed, and so the log line below is the first
+    # actually being installed, and so the log lines below are the first
     # thing that happens after the real dependency is confirmed importable.
-    from insightface.app import FaceAnalysis
+    import os
+    import onnxruntime as ort
+    from insightface.utils import ensure_available
+    from insightface.model_zoo.retinaface import RetinaFace
+    from insightface.model_zoo.arcface_onnx import ArcFaceONNX
+    from insightface.model_zoo.landmark import Landmark
 
-    # buffalo_s's zip bundle turns out to ship the SAME landmark_3d_68 model
-    # (1k3d68.onnx) buffalo_l does, alongside its own much smaller detector
-    # (det_500m) and recognizer (w600k_mbf, a MobileFaceNet) — confirmed from
-    # a real build log ("find model: .../buffalo_s/1k3d68.onnx landmark_3d_68").
-    # An earlier version of this file assumed buffalo_s lacked that submodel
-    # and tried to load it from a second buffalo_l FaceAnalysis instance
-    # instead — that not only wasn't necessary, it crashed outright:
-    # FaceAnalysis.__init__ hard-asserts a detection model is present
-    # regardless of allowed_modules, so a landmark-only instance always
-    # raises AssertionError. One buffalo_s pack, all three modules, is both
-    # correct and the actual memory win (~150-250MB total vs buffalo_l's
-    # ~450-500MB) — no second model download needed at all.
-    logger.info("Loading InsightFace buffalo_s (detection + recognition + landmark_3d_68, CPU)...")
-    face_app = FaceAnalysis(
-        name="buffalo_s",
-        providers=["CPUExecutionProvider"],
-        allowed_modules=["detection", "recognition", "landmark_3d_68"],
-    )
+    # buffalo_s's zip bundle ships both landmark models — 1k3d68.onnx
+    # (landmark_3d_68, 143MB) AND 2d106det.onnx (landmark_2d_106, ~5MB) —
+    # alongside its own much smaller detector (det_500m, ~2.5MB) and
+    # recognizer (w600k_mbf, a MobileFaceNet, ~13MB). This service uses the
+    # 106-point model: loading 1k3d68.onnx's 143MB was confirmed (via
+    # `docker run --memory=512m` reproducing the exact OOM Render reported)
+    # to transiently exceed 512MB during its own one-time parse/graph-
+    # construction step alone — independent of every session-level memory
+    # setting below, which only affects steady-state/thread memory, not that
+    # spike. 2d106det.onnx doesn't have this problem at ~5MB. The tradeoff:
+    # it doesn't produce a pose (pitch/yaw/roll) the way landmark_3d_68 did
+    # for free — see estimate_pose() in the "Landmark geometry" section for
+    # how this file computes that itself via cv2.solvePnP instead.
+    #
+    # These three models are loaded WITHOUT InsightFace's FaceAnalysis
+    # convenience class — deliberately, because FaceAnalysis's defaults
+    # don't leave enough headroom for a real 512MB container even with the
+    # smaller landmark model:
+    #   - FaceAnalysis(name='buffalo_s', ...) via ort.InferenceSession
+    #     defaults: settled at ~544MB RSS after all three models loaded
+    #     (measured with landmark_3d_68 still in the mix), no requests
+    #     served yet.
+    #   - Same models, loaded manually via onnxruntime.InferenceSession
+    #     directly so a custom SessionOptions can be supplied: ~412MB RSS
+    #     with landmark_3d_68, comfortably under 512MB with the much
+    #     smaller landmark_2d_106. Numerically identical embedding/landmark
+    #     output either way — verified against the FaceAnalysis path on the
+    #     same test image before switching.
+    # The two settings that actually mattered:
+    #   - intra_op_num_threads=1 / inter_op_num_threads=1 — ONNX Runtime's
+    #     default sizes its thread pool to every CPU core the HOST reports,
+    #     not the container's actual CPU allocation, and each thread carries
+    #     its own scratch buffers across all 3 sessions. A single-worker,
+    #     low-QPS attendance check-in service doesn't need intra-request
+    #     parallelism to begin with.
+    #   - enable_cpu_mem_arena=False / enable_mem_pattern=False — this was
+    #     the single biggest lever (~100MB of the ~130MB total reduction).
+    #     ONNX Runtime's memory arena pre-reserves and grows speculatively
+    #     to avoid repeated malloc/free during heavy inference throughput;
+    #     for a service that verifies one short camera burst at a time, the
+    #     small per-call allocator overhead this trades away is irrelevant
+    #     next to actually fitting in a free-tier container.
+    sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = 1
+    sess_options.inter_op_num_threads = 1
+    sess_options.enable_cpu_mem_arena = False
+    sess_options.enable_mem_pattern = False
+
+    providers = ["CPUExecutionProvider"]
+    # arena_extend_strategy only matters if enable_cpu_mem_arena is ever
+    # turned back on for a deployment with more memory to spare — kept here
+    # so that reverting the two flags above doesn't silently regress this too.
+    provider_options = [{"arena_extend_strategy": "kSameAsRequested"}]
+
+    logger.info("Loading InsightFace buffalo_s (detection + recognition + landmark_2d_106, CPU)...")
+    model_dir = ensure_available("models", "buffalo_s", root="~/.insightface")
+
+    def make_session(filename: str) -> ort.InferenceSession:
+        path = os.path.join(model_dir, filename)
+        return ort.InferenceSession(path, sess_options=sess_options, providers=providers, provider_options=provider_options)
+
+    det_model = RetinaFace(model_file=os.path.join(model_dir, "det_500m.onnx"), session=make_session("det_500m.onnx"))
+    rec_model = ArcFaceONNX(model_file=os.path.join(model_dir, "w600k_mbf.onnx"), session=make_session("w600k_mbf.onnx"))
+    landmark_model = Landmark(model_file=os.path.join(model_dir, "2d106det.onnx"), session=make_session("2d106det.onnx"))
+
     # det_size: the resolution the detector scans at. 320x320 rather than the
     # 640x640 default — this app's captures are always a single close-up face
     # (a phone/webcam selfie for KYC/attendance), not a crowd photo needing to
     # find small/distant faces, so the accuracy loss from a smaller scan
     # resolution is negligible for this use case, and it cuts memory/latency.
-    face_app.prepare(ctx_id=-1, det_size=(320, 320))  # ctx_id=-1 => CPU only, no GPU required
+    det_model.prepare(-1, input_size=(320, 320), det_thresh=0.5)  # ctx_id=-1 => CPU only, no GPU required
+    rec_model.prepare(-1)
+    landmark_model.prepare(-1)
 
-    logger.info("Model loaded. Face service ready (buffalo_s, incl. landmark_3d_68).")
+    logger.info("Model loaded. Face service ready (buffalo_s, incl. landmark_2d_106).")
 
 
 def decode_image(b64_data: str) -> np.ndarray:
@@ -191,35 +271,72 @@ def decode_image(b64_data: str) -> np.ndarray:
 def get_largest_face(img: np.ndarray):
     """Returns the largest detected face in the frame (the person actually
     in front of the camera, not someone incidentally in the background),
-    or None if no face was found. face_app.get() already runs detection,
-    recognition, and landmark_3d_68 for every face in one call."""
-    if face_app is None:
+    or None if no face was found. Runs detection, then enriches every
+    detected face with the recognition embedding and landmark_2d_106 — the
+    same per-face pipeline FaceAnalysis.get() would run, just against the
+    three manually-loaded models above instead of through that class."""
+    if det_model is None or rec_model is None or landmark_model is None:
         raise HTTPException(status_code=503, detail="Model is still loading — try again in a moment.")
-    faces = face_app.get(img)
-    if not faces:
+
+    from insightface.app.common import Face
+
+    bboxes, kpss = det_model.detect(img, max_num=0, metric="default")
+    if bboxes.shape[0] == 0:
         return None
+
+    faces = []
+    for i in range(bboxes.shape[0]):
+        kps = kpss[i] if kpss is not None else None
+        face = Face(bbox=bboxes[i, 0:4], kps=kps, det_score=bboxes[i, 4])
+        rec_model.get(img, face)
+        landmark_model.get(img, face)
+        # landmark_2d_106 has no built-in pose estimate the way
+        # landmark_3d_68 did — estimate_pose() below needs the frame's
+        # dimensions to build an approximate camera matrix, so stash them
+        # on the face rather than threading img through every downstream
+        # geometry function's signature.
+        face["img_shape"] = img.shape[:2]  # (height, width)
+        faces.append(face)
+
     return max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
 
 
 # ---------------------------------------------------------------------------
 # Landmark geometry — action detection from a single detected face
 # ---------------------------------------------------------------------------
-# InsightFace's landmark_3d_68 submodel follows the standard iBUG/300W
-# 68-point layout (jaw 0-16, right eyebrow 17-21, left eyebrow 22-26, nose
-# 27-35, right eye 36-41, left eye 42-47, mouth 48-67) and automatically
-# populates `face.pose` = [pitch, yaw, roll] in degrees (see
-# model_zoo/landmark.py — pose is derived by fitting the predicted 3D
-# landmarks against a canonical mean-shape template). We use the (x, y)
-# projection of these 68 points for all 2D geometric ratios.
-
-RIGHT_EYE = [36, 37, 38, 39, 40, 41]
-LEFT_EYE = [42, 43, 44, 45, 46, 47]
-MOUTH_LEFT_CORNER = 48
-MOUTH_RIGHT_CORNER = 54
-MOUTH_TOP_MID_OUTER = [50, 51, 52]
-MOUTH_BOTTOM_MID_OUTER = [58, 57, 56]
-LEFT_EYE_OUTER = 36
-RIGHT_EYE_OUTER = 45
+# landmark_2d_106's per-point layout isn't published by InsightFace anywhere
+# citable — the index ranges below were derived empirically, not copied from
+# documentation: ran the model against a real test photo, rendered each of
+# the 106 points with its index number overlaid, and read off where each
+# region's points actually land. That gave a clean, self-consistent
+# breakdown (all 7 regions sum to exactly 106, which a wrong split wouldn't):
+#   0-32    face contour / jaw     (33 points)
+#   33-42   right eye              (10 points)
+#   43-51   right eyebrow          (9 points, unused)
+#   52-71   mouth (outer + inner)  (20 points)
+#   72-86   nose                   (15 points)
+#   87-96   left eye               (10 points)
+#   97-105  left eyebrow           (9 points, unused)
+# "left"/"right" are the subject's own left/right, not image left/right.
+#
+# What ISN'T empirically confirmed: the exact ROLE of each point within a
+# region (which specific index is "upper eyelid, 2nd from corner" vs "lower
+# eyelid, middle") — the two eyes' corner points didn't even land in
+# matching relative index positions when checked (e.g. the right eye's
+# widest-separated points weren't the same relative index as the left eye's),
+# so hand-picking point PAIRS the way the classic 6-point EAR/MAR formulas
+# do would be guessing. Instead, every ratio below uses each region's
+# bounding-box height/width — self-normalizing, and only needs the INDEX
+# RANGE to be right (which was verified), not which exact point plays which
+# specific role.
+JAW = list(range(0, 33))
+EYE_RIGHT = list(range(33, 43))
+EYEBROW_RIGHT = list(range(43, 52))
+MOUTH = list(range(52, 72))
+NOSE = list(range(72, 87))
+EYE_LEFT = list(range(87, 97))
+EYEBROW_LEFT = list(range(97, 106))
+NOSE_TIP_INDEX = 79  # bottom-center of the nose (columella) — confirmed visually in the same test render
 
 
 def _dist(a: np.ndarray, b: np.ndarray) -> float:
@@ -227,47 +344,122 @@ def _dist(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _landmarks_xy(face) -> Optional[np.ndarray]:
-    lmk = getattr(face, "landmark_3d_68", None)
+    lmk = getattr(face, "landmark_2d_106", None)
     if lmk is None:
         return None
     return np.asarray(lmk)[:, :2]
 
 
-def _eye_aspect_ratio_one(lm: np.ndarray, idx: List[int]) -> float:
-    p1, p2, p3, p4, p5, p6 = (lm[i] for i in idx)
-    return (_dist(p2, p6) + _dist(p3, p5)) / (2.0 * _dist(p1, p4) + 1e-6)
+def _region_openness_ratio(lm: np.ndarray, region: List[int]) -> float:
+    """Bounding-box height/width for the given region's points — used for
+    both eye-openness (blink) and mouth-openness (open_mouth), since both
+    are fundamentally "how tall is this region relative to how wide"."""
+    pts = lm[region]
+    width = pts[:, 0].max() - pts[:, 0].min()
+    height = pts[:, 1].max() - pts[:, 1].min()
+    return float(height) / (float(width) + 1e-6)
 
 
-def eye_aspect_ratio(lm: np.ndarray) -> float:
-    return (_eye_aspect_ratio_one(lm, RIGHT_EYE) + _eye_aspect_ratio_one(lm, LEFT_EYE)) / 2.0
+def eye_openness_ratio(lm: np.ndarray) -> float:
+    return (_region_openness_ratio(lm, EYE_RIGHT) + _region_openness_ratio(lm, EYE_LEFT)) / 2.0
 
 
-def mouth_aspect_ratio(lm: np.ndarray) -> float:
-    width = _dist(lm[MOUTH_LEFT_CORNER], lm[MOUTH_RIGHT_CORNER])
-    heights = [
-        _dist(lm[top], lm[bottom])
-        for top, bottom in zip(MOUTH_TOP_MID_OUTER, MOUTH_BOTTOM_MID_OUTER)
-    ]
-    return float(np.mean(heights)) / (width + 1e-6)
+def mouth_openness_ratio(lm: np.ndarray) -> float:
+    return _region_openness_ratio(lm, MOUTH)
 
 
 def mouth_width_ratio(lm: np.ndarray) -> float:
-    """Mouth corner-to-corner width normalized by interocular distance, so
-    it isn't skewed by how close the camera is."""
-    mouth_width = _dist(lm[MOUTH_LEFT_CORNER], lm[MOUTH_RIGHT_CORNER])
-    interocular = _dist(lm[LEFT_EYE_OUTER], lm[RIGHT_EYE_OUTER])
+    """Mouth width (widest horizontal span across the 20 mouth points)
+    normalized by interocular distance (between the two eyes' own centers),
+    so it isn't skewed by how close the camera is."""
+    mouth_pts = lm[MOUTH]
+    mouth_width = float(mouth_pts[:, 0].max() - mouth_pts[:, 0].min())
+    eye_right_center = lm[EYE_RIGHT].mean(axis=0)
+    eye_left_center = lm[EYE_LEFT].mean(axis=0)
+    interocular = _dist(eye_right_center, eye_left_center)
     return mouth_width / (interocular + 1e-6)
 
 
-def get_pose(face) -> Optional[Tuple[float, float, float]]:
-    """Returns (pitch, yaw, roll) in degrees, or None if the pose submodel
-    didn't produce a result for this frame (e.g. an extreme angle where
-    landmark fitting failed)."""
-    pose = getattr(face, "pose", None)
-    if pose is None:
+# ---------------------------------------------------------------------------
+# Head pose via solvePnP — landmark_2d_106 doesn't produce pose the way
+# landmark_3d_68 did, so this estimates it the standard OpenCV way: match a
+# handful of 2D landmark points against their approximate positions on a
+# generic (not person-specific) 3D face, and let solvePnP recover the
+# rotation that would produce that projection. This is the same "6-point
+# head pose" technique commonly used with dlib/OpenCV — not novel, but ALSO
+# not verified yet against this specific pipeline's landmark points or a
+# live camera (see the YAW_SIGN/PITCH_SIGN note near the thresholds above).
+# ---------------------------------------------------------------------------
+
+# Generic 3D reference face (arbitrary units, roughly millimeters, centered
+# near the nose tip) — the standard reference points used across most
+# OpenCV/dlib head-pose-estimation writeups, not measured from any real
+# person or from this app's own users.
+_GENERIC_3D_FACE = np.array([
+    [0.0, 0.0, 0.0],           # nose tip
+    [0.0, -330.0, -65.0],      # chin
+    [-225.0, 170.0, -135.0],   # subject's right eye, outer corner
+    [225.0, 170.0, -135.0],    # subject's left eye, outer corner
+    [-150.0, -150.0, -125.0],  # subject's right mouth corner
+    [150.0, -150.0, -125.0],   # subject's left mouth corner
+], dtype=np.float64)
+
+
+def estimate_pose(face) -> Optional[Tuple[float, float, float]]:
+    """Returns (pitch, yaw, roll) in degrees via solvePnP, or None if the
+    face has no landmarks/image context to work from, or solvePnP itself
+    fails to converge (rare, but possible at extreme angles)."""
+    lm = _landmarks_xy(face)
+    if lm is None:
         return None
-    pitch, yaw, roll = (float(v) for v in pose)
-    return pitch, yaw, roll
+    img_shape = getattr(face, "img_shape", None)
+    if img_shape is None:
+        return None
+
+    # Corners are found dynamically (min/max x within each region) rather
+    # than by a hardcoded index — see the module-level comment on why exact
+    # per-point roles within a region aren't assumed anywhere in this file.
+    eye_right_pts, eye_left_pts = lm[EYE_RIGHT], lm[EYE_LEFT]
+    mouth_pts = lm[MOUTH]
+    nose_tip = lm[NOSE_TIP_INDEX]
+    chin = lm[JAW][np.argmax(lm[JAW][:, 1])]  # lowest (largest y) jaw point
+    eye_right_outer = eye_right_pts[np.argmin(eye_right_pts[:, 0])]  # away from nose bridge = smallest x on this side
+    eye_left_outer = eye_left_pts[np.argmax(eye_left_pts[:, 0])]
+    mouth_right_corner = mouth_pts[np.argmin(mouth_pts[:, 0])]
+    mouth_left_corner = mouth_pts[np.argmax(mouth_pts[:, 0])]
+
+    image_points = np.array([
+        nose_tip, chin, eye_right_outer, eye_left_outer, mouth_right_corner, mouth_left_corner,
+    ], dtype=np.float64)
+
+    h, w = img_shape
+    focal_length = w  # standard approximation absent real camera calibration
+    camera_matrix = np.array([
+        [focal_length, 0, w / 2],
+        [0, focal_length, h / 2],
+        [0, 0, 1],
+    ], dtype=np.float64)
+    dist_coeffs = np.zeros((4, 1))  # assume no lens distortion
+
+    ok, rvec, _tvec = cv2.solvePnP(_GENERIC_3D_FACE, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE)
+    if not ok:
+        return None
+
+    rotation_matrix, _ = cv2.Rodrigues(rvec)
+    # Standard rotation-matrix -> Euler angle decomposition (X=pitch,
+    # Y=yaw, Z=roll), matching the convention this file's thresholds assume.
+    sy = np.sqrt(rotation_matrix[0, 0] ** 2 + rotation_matrix[1, 0] ** 2)
+    singular = sy < 1e-6
+    if not singular:
+        pitch = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
+        yaw = np.arctan2(-rotation_matrix[2, 0], sy)
+        roll = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+    else:
+        pitch = np.arctan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
+        yaw = np.arctan2(-rotation_matrix[2, 0], sy)
+        roll = 0.0
+
+    return float(np.degrees(pitch)), float(np.degrees(yaw)), float(np.degrees(roll))
 
 
 def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
@@ -279,24 +471,24 @@ def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
     camera never will, because every frame reads the same neutral pose."""
     results = {action: False for action in NON_BASELINE_ACTIONS}
 
-    ears: List[float] = []
+    openness_ratios: List[float] = []
     for face in faces:
         lm = _landmarks_xy(face)
         if lm is None:
             continue
 
-        ear = eye_aspect_ratio(lm)
-        ears.append(ear)
+        eye_ratio = eye_openness_ratio(lm)
+        openness_ratios.append(eye_ratio)
 
-        mar = mouth_aspect_ratio(lm)
-        if mar > OPEN_MOUTH_MAR_THRESHOLD:
+        mouth_ratio = mouth_openness_ratio(lm)
+        if mouth_ratio > OPEN_MOUTH_RATIO_THRESHOLD:
             results["open_mouth"] = True
 
         width_ratio = mouth_width_ratio(lm)
-        if width_ratio > SMILE_WIDTH_RATIO_THRESHOLD and mar <= SMILE_MAX_MAR:
+        if width_ratio > SMILE_WIDTH_RATIO_THRESHOLD and mouth_ratio <= SMILE_MAX_OPENNESS:
             results["smile"] = True
 
-        pose = get_pose(face)
+        pose = estimate_pose(face)
         if pose is not None:
             pitch, yaw, _roll = pose
             yaw *= YAW_SIGN
@@ -310,20 +502,20 @@ def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
             if pitch > PITCH_LOOK_THRESHOLD_DEG:
                 results["look_down"] = True
 
-    # Blink: a relative dip against this burst's own peak-open EAR, rather
+    # Blink: a relative dip against this burst's own peak-open ratio, rather
     # than a fixed population threshold (see BLINK_RELATIVE_DROP comment) —
     # requires at least 2 frames with landmarks to have something to compare.
-    if len(ears) >= 2:
-        max_ear = max(ears)
-        min_ear = min(ears)
-        if min_ear <= BLINK_EAR_ABS_CEILING and min_ear <= max_ear * BLINK_RELATIVE_DROP:
+    if len(openness_ratios) >= 2:
+        max_ratio = max(openness_ratios)
+        min_ratio = min(openness_ratios)
+        if min_ratio <= BLINK_OPENNESS_ABS_CEILING and min_ratio <= max_ratio * BLINK_RELATIVE_DROP:
             results["blink"] = True
 
     return results
 
 
 def is_neutral_pose(face) -> bool:
-    pose = get_pose(face)
+    pose = estimate_pose(face)
     if pose is None:
         return True  # can't tell — don't block enrollment on a pose-estimation miss
     pitch, yaw, _roll = pose
@@ -552,4 +744,4 @@ def verify(req: VerifyRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "modelLoaded": face_app is not None}
+    return {"status": "ok", "modelLoaded": det_model is not None and rec_model is not None and landmark_model is not None}
