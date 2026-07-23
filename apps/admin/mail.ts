@@ -105,6 +105,16 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         port,
         secure: port === 465,
         auth: { user: smtpUser, pass: cleanedPass },
+        // Force IPv4. Many cloud hosts (Render included) have broken or
+        // entirely absent outbound IPv6 routing, but still hand back an
+        // IPv6 address for smtp.gmail.com — Node tries that first, the
+        // packets go nowhere (no ICMP unreachable, no active refusal, just
+        // silence), and the connection sits until it finally times out.
+        // That matches this deployment's actual observed failure mode
+        // exactly ("Connection timeout", not "ECONNREFUSED" — a real block
+        // or auth rejection would fail fast, not hang for 2 minutes).
+        // Forcing IPv4 skips the broken path entirely if this is the cause.
+        family: 4,
         // Nodemailer's defaults (connectionTimeout up to 2 minutes) assume a
         // network that can actually reach the SMTP host. Cloud platforms
         // (Render included) commonly block or heavily throttle outbound SMTP
@@ -116,7 +126,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         connectionTimeout: 8000,
         greetingTimeout: 8000,
         socketTimeout: 8000,
-      });
+      } as any); // nodemailer's TS overloads don't include `family`; a plain object literal here fails overload resolution
       await transporter.sendMail({
         from: `"Smart Teams" <${smtpFrom}>`,
         to, subject, text, html,
