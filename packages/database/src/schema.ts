@@ -156,6 +156,11 @@ export const users = pgTable('users', {
   faceEmbeddings: jsonb('face_embeddings'),
   // Per-action enrollment record from the guided KYC wizard
   kycActionLog: jsonb('kyc_action_log'),
+  // Which identity check this employee completed enrollment with — 'face'
+  // or 'webauthn'. Null until they finish either flow. Only ever read to
+  // pick which daily check-in UI to show first; the camera-broken rescue
+  // path can use WebAuthn for a one-off check-in regardless of this value.
+  verificationMethod: text('verification_method'),
   registeredDeviceId: text('registered_device_id'),
   deviceApprovalPending: boolean('device_approval_pending').default(false),
   activeSessionId: text('active_session_id'),

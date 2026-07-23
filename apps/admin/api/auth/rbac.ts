@@ -10,6 +10,7 @@ import { db, schema } from '../../db';
 // webhooks.routes.ts, serviceAccounts.routes.ts, and roles.routes.ts).
 export const PLATFORM_FEATURES = [
   { key: 'device_identity', label: 'Device Identity Check', description: 'WebAuthn device registration required to check in (fingerprint, Face/Touch ID, or PIN).' },
+  { key: 'face_recognition', label: 'Face Recognition Check-in', description: 'Camera-based face + liveness verification as the primary identity check, with device verification available as a fallback if the camera is unavailable.' },
   { key: 'wifi_lock', label: 'Corporate Wi-Fi IP Security', description: 'Restrict check-in to the registered corporate network IP.' },
   { key: 'gps_geofence', label: 'GPS Geofencing Bounds', description: 'Restrict check-in to within a radius of the branch location.' },
   { key: 'documents', label: 'Document Storage', description: 'Employee document upload/storage module.' },

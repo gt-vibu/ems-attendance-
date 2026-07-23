@@ -43,6 +43,13 @@
       "when": 1784199161533,
       "tag": "0005_groovy_kulan_gath",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784784451426,
+      "tag": "0006_wooden_thanos",
+      "breakpoints": true
     }
   ]
 }

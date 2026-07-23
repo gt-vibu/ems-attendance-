@@ -5,6 +5,8 @@ import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
 import { verifyThisDevice, registerThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
+import { verifyFace, describeFaceActionInstruction, FaceVerifyProgress } from '../lib/faceClient';
+import { describeCameraError } from '../lib/cameraError';
 import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
@@ -47,6 +49,19 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   // requires clearing the existing registration.
   const [showNewDeviceOption, setShowNewDeviceOption] = useState(false);
   const [newDeviceBusy, setNewDeviceBusy] = useState(false);
+
+  // --- Face recognition identity check (used instead of the WebAuthn block
+  // above when user.verificationMethod === 'face') ---
+  const [faceBusy, setFaceBusy] = useState(false);
+  const [faceProgress, setFaceProgress] = useState<FaceVerifyProgress>({ phase: 'passive' });
+  // Set once the camera fails outright or the passive+fallback attempt
+  // doesn't pass — switches this step over to the existing WebAuthn UI
+  // below as a one-off rescue, without touching the employee's stored
+  // verificationMethod (they're back on Face automatically next time).
+  const [faceCameraBroken, setFaceCameraBroken] = useState(false);
+  const faceVideoRef = useRef<HTMLVideoElement>(null);
+  const faceCanvasRef = useRef<HTMLCanvasElement>(null);
+  const faceStreamRef = useRef<MediaStream | null>(null);
 
   // Wi-Fi simulation context input — DEV ONLY, never rendered in production
   // builds. Lives on its own Wi-Fi step now, not inline with the camera.
@@ -127,7 +142,12 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     initToday();
     attemptQueueFlush();
     window.addEventListener('online', attemptQueueFlush);
-    return () => window.removeEventListener('online', attemptQueueFlush);
+    return () => {
+      window.removeEventListener('online', attemptQueueFlush);
+      // Stop the camera if the employee navigates away mid face-verification
+      // — otherwise the tab keeps the camera light on after leaving the page.
+      faceStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -330,8 +350,64 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     identityTokenRef.current = null;
     setIdentityVerified(false);
     setShowNewDeviceOption(false);
+    setFaceCameraBroken(false);
     setStatus('Ready to verify');
     setLoading(false);
+    // Entering this step already followed an explicit "Mark Attendance" tap
+    // earlier in the flow, so starting the camera immediately here doesn't
+    // violate the "camera only opens from an explicit tap" rule — it's the
+    // face equivalent of the WebAuthn block below requiring its own tap.
+    if (user.verificationMethod === 'face') {
+      startFaceVerification();
+    }
+  };
+
+  const stopFaceCamera = () => {
+    faceStreamRef.current?.getTracks().forEach(t => t.stop());
+    faceStreamRef.current = null;
+  };
+
+  const startFaceVerification = async () => {
+    setFaceBusy(true);
+    setError('');
+    setFaceProgress({ phase: 'passive' });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
+      faceStreamRef.current = stream;
+      if (faceVideoRef.current) faceVideoRef.current.srcObject = stream;
+    } catch (err) {
+      setError(describeCameraError(err));
+      setFaceBusy(false);
+      return;
+    }
+    // Give the <video> element a beat to actually start producing frames
+    // (videoWidth/videoHeight are 0 until the first frame decodes).
+    await new Promise(resolve => setTimeout(resolve, 400));
+    try {
+      if (!faceVideoRef.current || !faceCanvasRef.current) {
+        throw new Error('Camera not ready. Please try again.');
+      }
+      const outcome = await verifyFace(faceVideoRef.current, faceCanvasRef.current, setFaceProgress);
+      identityTokenRef.current = outcome.token;
+      setIdentityVerified(true);
+      stopFaceCamera();
+      enterGpsStep();
+    } catch (err: any) {
+      stopFaceCamera();
+      setError(err.message || 'Face verification failed. Please try again.');
+      setFaceBusy(false);
+    }
+  };
+
+  // "Camera not working?" rescue — hands off to the existing WebAuthn UI for
+  // this one check-in only. Doesn't change the employee's stored
+  // verificationMethod, so they're back on Face automatically next time.
+  const useDeviceInsteadOfFace = () => {
+    stopFaceCamera();
+    setFaceBusy(false);
+    setFaceCameraBroken(true);
+    setError('');
+    setStatus('Ready to verify');
   };
 
   const handleVerifyIdentity = async () => {
@@ -909,8 +985,56 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
               </div>
             )}
 
-            {/* STEP 1 — WebAuthn device identity */}
-            {step === 'identity' && (
+            {/* STEP 1 — Face recognition identity check (primary when
+                verificationMethod === 'face'), with a "camera not working"
+                rescue that falls through to the WebAuthn block below. */}
+            {step === 'identity' && user.verificationMethod === 'face' && !faceCameraBroken && (
+              <div className="py-6 text-center space-y-5">
+                <div className="relative w-40 h-40 mx-auto rounded-full overflow-hidden bg-[var(--color-nexus-ink)] border-2 border-[var(--color-nexus-border)]">
+                  <video
+                    ref={faceVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-cover opacity-90 scale-x-[-1]"
+                  />
+                  <canvas ref={faceCanvasRef} className="hidden" />
+                  {faceBusy && (
+                    <div className="absolute inset-0 border-2 border-[var(--color-nexus-secondary)] rounded-full animate-pulse" />
+                  )}
+                </div>
+
+                <p className="text-xs font-bold text-[var(--color-nexus-secondary)] font-mono uppercase tracking-wider h-6">
+                  {!faceBusy
+                    ? '● Ready to verify'
+                    : faceProgress.phase === 'passive'
+                      ? '● Checking...'
+                      : `● One more check — ${describeFaceActionInstruction(faceProgress.action)}`}
+                </p>
+
+                <div className="space-y-4">
+                  {!faceBusy && (
+                    <button
+                      onClick={startFaceVerification}
+                      className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all duration-200 shadow-[0_4px_15px_rgba(37,99,235,0.3)] cursor-pointer"
+                    >
+                      {error ? 'Try Again' : 'Start Verification'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={useDeviceInsteadOfFace}
+                    className="w-full text-center text-xs font-semibold text-[var(--color-nexus-secondary)] underline underline-offset-2 py-1"
+                  >
+                    Camera not working? Verify with your device instead
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 1 — WebAuthn device identity (default, or the face
+                camera-broken rescue path above) */}
+            {step === 'identity' && (user.verificationMethod !== 'face' || faceCameraBroken) && (
               <div className="py-8 text-center space-y-5">
                 <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-full flex items-center justify-center">
                   <div className={`w-8 h-8 border-2 ${identityBusy ? 'border-[var(--color-nexus-secondary)]/20 border-t-[var(--color-nexus-secondary)] animate-spin' : 'border-[var(--color-nexus-secondary)]'} rounded-full`} />
@@ -953,6 +1077,25 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   >
                     Scan QR Code Instead
                   </button>
+
+                  {/* Self-service opt-in for employees who registered a
+                      device before their tenant turned Face Recognition on
+                      (or who just prefer it) — RegisterDevice.tsx routes
+                      here straight to FaceEnrollment since
+                      faceRecognitionEnabled is a tenant-wide flag, not
+                      conditioned on isKycCompleted. Hidden during the
+                      camera-broken rescue path (faceCameraBroken) since
+                      re-inviting them back into Face right after it just
+                      failed would be confusing. */}
+                  {user.faceRecognitionEnabled && user.verificationMethod !== 'face' && !faceCameraBroken && (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/employee/register-device')}
+                      className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
+                    >
+                      Switch to Face Recognition
+                    </button>
+                  )}
                 </div>
               </div>
             )}

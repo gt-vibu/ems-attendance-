@@ -19,6 +19,7 @@ import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
+import { getFaceServiceHealth } from '../services/face';
 
 export const router = Router();
 
@@ -37,6 +38,22 @@ router.get('/api/health/db', async (_req, res) => {
       res.json({ status: 'ok', db: 'up' });
     } catch (err: any) {
       res.status(503).json({ status: 'degraded', db: 'down', error: err?.message });
+    }
+  });
+
+  // Lets the frontend check the face microservice is up and its model
+  // finished loading before opening the camera — used by FaceEnrollment.tsx
+  // and the daily face check-in flow to fail fast with a clear message
+  // instead of a confusing camera-then-network-error sequence.
+router.get('/api/health/face', async (_req, res) => {
+    try {
+      const health = await getFaceServiceHealth();
+      if (health.status !== 'ok' || !health.modelLoaded) {
+        return res.status(503).json({ status: 'degraded', ...health });
+      }
+      res.json({ status: 'ok', ...health });
+    } catch (err: any) {
+      res.status(503).json({ status: 'degraded', error: err?.message || 'Face service unavailable' });
     }
   });
 

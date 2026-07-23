@@ -172,6 +172,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_action_log JSONB;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lat REAL;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lng REAL;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP;`); } catch(e){}

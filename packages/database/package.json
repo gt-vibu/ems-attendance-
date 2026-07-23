@@ -8,6 +8,7 @@
     "lint": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx migrate.ts",
+    "baseline-migrations": "tsx migrations/baseline-migrations.ts",
     "backfill:branches": "tsx migrations/backfill-branches.ts",
     "backfill:role-defaults": "tsx migrations/backfill-role-defaults.ts",
     "db:push": "drizzle-kit push",

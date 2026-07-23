@@ -1,10 +1,11 @@
 import { Router } from 'express';
 
-// Camera-based face enrollment (POST /api/kyc, /api/kyc/verify-step) and the
-// daily liveness-challenge issuer (GET /api/attendance/challenge) have been
-// removed along with the rest of the face-recognition system. Device
-// registration and identity verification now live entirely under
-// /api/webauthn/* (see routes/webauthn.routes.ts) — a WebAuthn credential
-// registration replaces camera KYC, and a WebAuthn assertion replaces the
-// daily face challenge.
+// The old camera-based endpoints that used to live here (POST /api/kyc,
+// /api/kyc/verify-step, GET /api/attendance/challenge) are gone for good —
+// device/identity verification now lives under /api/webauthn/* (see
+// routes/webauthn.routes.ts) by default, with camera-based face
+// enrollment/check-in available as an opt-in alternative under
+// /api/face/enroll, /api/face/verify, /api/face/challenge (see
+// routes/face.routes.ts) for tenants with the 'face_recognition' platform
+// feature enabled.
 export const router = Router();

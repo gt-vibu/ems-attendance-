@@ -74,3 +74,24 @@ services:
         sync: false
       - key: VITE_GOOGLE_CLIENT_ID
         sync: false
+      # Face microservice (services/face-service) — only needed by tenants
+      # that opt into the 'face_recognition' platform feature. Point this at
+      # the smartteams-face service's public URL below (free tier has no
+      # private networking between services, so this uses the public URL
+      # like CORS_ALLOWED_ORIGINS already does for the frontend).
+      - key: FACE_SERVICE_URL
+        sync: false
+
+  # --- Face service: InsightFace buffalo_s (detection + recognition + landmark_3d_68) ----
+  # Optional — only deploy this if you're enabling face_recognition for any
+  # tenant. Free tier is 0.1 shared vCPU + spins down after 15min idle, same
+  # caveat as smartteams-admin above: the first request after idle (or after
+  # a cold deploy) reloads the model and will be noticeably slow. See
+  # services/face-service/README.md for the memory/latency tradeoffs.
+  - type: web
+    name: smartteams-face
+    runtime: docker
+    dockerfilePath: ./services/face-service/Dockerfile
+    dockerContext: ./services/face-service
+    plan: free
+    healthCheckPath: /health

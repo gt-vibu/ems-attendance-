@@ -4,6 +4,7 @@ import { db, schema } from '../../db';
 import { signToken, verifyToken } from '../../jwt';
 import { logger } from '../../logger';
 import { sendEmail, sendPasswordResetEmail } from '../../mail.js';
+import { isPlatformFeatureAllowed } from './rbac';
 
 // Unconditionally establishes a brand-new session for `user`, overwriting any
 // existing activeSessionId. Used by finalizeLogin (after its own
@@ -111,6 +112,11 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
       // send a tenant_admin to the branch-setup wizard, and only once.
       kycEnabled: tenant ? tenant.kycEnabled !== false : true,
       branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
+      // Whether this tenant has opted into camera-based face recognition as
+      // the primary identity check (WebAuthn stays the default/fallback
+      // otherwise) — see PLATFORM_FEATURES['face_recognition'] in rbac.ts.
+      faceRecognitionEnabled: isPlatformFeatureAllowed(tenant, 'face_recognition'),
+      verificationMethod: user.verificationMethod || null,
     }
   };
 }

@@ -24,6 +24,7 @@ import { router as serviceAccountsRouter } from './serviceAccounts.routes';
 import { router as webhooksRouter } from './webhooks.routes';
 import { router as earningsRouter } from './earnings.routes';
 import { router as webauthnRouter } from './webauthn.routes';
+import { router as faceRouter } from './face.routes';
 import { router as terminationsRouter } from './terminations.routes';
 import { router as documentsRouter } from './documents.routes';
 import { router as shiftSwapRouter } from './shiftSwap.routes';
@@ -63,6 +64,7 @@ export function registerRoutes(app: Express) {
   app.use(webhooksRouter);
   app.use(earningsRouter);
   app.use(webauthnRouter);
+  app.use(faceRouter);
   app.use(terminationsRouter);
   app.use(documentsRouter);
   app.use(shiftSwapRouter);

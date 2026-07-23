@@ -4,14 +4,30 @@ import { motion } from 'motion/react';
 import { User } from '../lib/auth';
 import FloatingOrbs from '../components/FloatingOrbs';
 import { registerThisDevice, describeWebAuthnError, browserSupportsWebAuthn } from '../lib/webauthnClient';
+import FaceEnrollment from './FaceEnrollment';
 
 export default function RegisterDevice({ user, updateSession }: { user: User, updateSession: (u: User) => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  // Tenants that opted into face_recognition use it as the default/required
+  // identity check for new users — WebAuthn is offered only as an explicit
+  // rescue if the camera doesn't work (see FaceEnrollment's
+  // onUseDeviceInstead), never as a competing chooser shown upfront.
+  const [forceDeviceVerification, setForceDeviceVerification] = useState(false);
   const navigate = useNavigate();
 
   const supported = browserSupportsWebAuthn();
+
+  if (user.faceRecognitionEnabled && !forceDeviceVerification) {
+    return (
+      <FaceEnrollment
+        user={user}
+        updateSession={updateSession}
+        onUseDeviceInstead={() => setForceDeviceVerification(true)}
+      />
+    );
+  }
 
   const handleRegister = async () => {
     setSubmitting(true);

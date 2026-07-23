@@ -49,6 +49,13 @@ build/
 *.log
 logs/
 
+# --- Python (services/face-service) --------------------------------------------
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
 # --- Editor / OS --------------------------------------------------------------
 .vscode/
 .idea/

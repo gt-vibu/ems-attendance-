@@ -56,6 +56,12 @@ router.post('/api/webauthn/register/verify', authenticate, async (req: any, res:
         isKycCompleted: true,
         registeredDeviceId: deviceId,
         deviceApprovalPending: false,
+        // Don't clobber 'face' — this route also serves as the one-off
+        // camera-broken rescue registration for employees whose primary
+        // method is face recognition (see EmployeeAttendance.tsx). Only sets
+        // 'webauthn' as primary for someone who didn't already have a
+        // method (i.e. this really is their first/only registration).
+        verificationMethod: user.verificationMethod === 'face' ? 'face' : 'webauthn',
       })
       .where(eq(schema.users.id, user.id));
 
@@ -76,7 +82,8 @@ router.post('/api/webauthn/register/verify', authenticate, async (req: any, res:
       name: user.name,
       role: user.role,
       tenantId: user.tenantId,
-      isKycCompleted: true
+      isKycCompleted: true,
+      verificationMethod: (user.verificationMethod === 'face' ? 'face' : 'webauthn') as 'face' | 'webauthn',
     };
     const token = signToken(updatedUser);
 

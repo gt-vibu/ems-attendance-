@@ -16,6 +16,15 @@ export interface User {
   // Whether the tenant_admin has completed (or explicitly skipped) the
   // first-login branch-setup wizard. Irrelevant for non-tenant_admin roles.
   branchSetupCompleted?: boolean;
+  // Whether this tenant has opted into camera-based face recognition as the
+  // primary identity check. Only ever set at login/session refresh — not
+  // returned by every endpoint that calls updateSession(), so call sites
+  // that only update a narrower field (e.g. after enrollment) should merge
+  // into the existing cached user rather than replace it wholesale.
+  faceRecognitionEnabled?: boolean;
+  // Which identity check this employee completed enrollment with — 'face'
+  // or 'webauthn' — or undefined if neither yet.
+  verificationMethod?: 'face' | 'webauthn';
 }
 
 export function useAuth() {
