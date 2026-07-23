@@ -26,7 +26,6 @@ const KYC_STEPS: { key: string; title: string; instruction: string; frameCount: 
   { key: 'turn_left', title: 'Turn left', instruction: 'Slowly turn your head to your left.', frameCount: 3 },
   { key: 'turn_right', title: 'Turn right', instruction: 'Slowly turn your head to your right.', frameCount: 3 },
   { key: 'look_up', title: 'Look up', instruction: 'Tilt your head up slightly.', frameCount: 2 },
-  { key: 'look_down', title: 'Look down', instruction: 'Tilt your head down slightly.', frameCount: 2 },
   { key: 'smile', title: 'Smile', instruction: 'Give a natural smile.', frameCount: 2 },
   { key: 'open_mouth', title: 'Open your mouth', instruction: 'Open your mouth like you are about to say "ah".', frameCount: 2 },
   { key: 'blink', title: 'Blink', instruction: 'Blink naturally a couple of times.', frameCount: 3 },

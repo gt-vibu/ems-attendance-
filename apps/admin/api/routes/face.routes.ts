@@ -34,7 +34,7 @@ async function ensureFaceFeatureEnabled(req: any, res: any): Promise<boolean> {
 }
 
 // KYC FACE ENROLLMENT: guided per-action capture (look_center, turn_left,
-// turn_right, look_up, look_down, smile, open_mouth, blink). Each action
+// turn_right, look_up, smile, open_mouth, blink). Each action
 // must actually be detected in its own burst — this is the same
 // pose/EAR/MAR geometry the daily challenge is verified against, so
 // enrollment can't be satisfied by 8 copies of the same neutral frame.

@@ -120,7 +120,7 @@ docker run -p 8001:8001 smart-teams-face-service
 
 ## Endpoints
 
-- `POST /enroll` — `{ "actions": { "look_center": ["<base64 jpeg>", ...], "turn_left": [...], "turn_right": [...], "look_up": [...], "look_down": [...], "smile": [...], "open_mouth": [...], "blink": [...] } }`
+- `POST /enroll` — `{ "actions": { "look_center": ["<base64 jpeg>", ...], "turn_left": [...], "turn_right": [...], "look_up": [...], "smile": [...], "open_mouth": [...], "blink": [...] } }`
   → one burst of frames per guided KYC pose. Returns `{ embeddings, actionLog, failedActions }`:
   an embedding per detected frame (across all poses, for identity matching),
   a per-action `{framesSubmitted, framesWithFace, verified}` log, and the
@@ -151,9 +151,11 @@ limitations" entry below.
   itself via `cv2.solvePnP` against a self-supplied generic 3D face
   reference — a standard, widely-used technique, but not one that's been
   run against this pipeline's actual landmark points on a real camera yet.
-  Confirm `turn_left`/`turn_right` and `look_up`/`look_down` against a real
-  camera before relying on this in production — flip `YAW_SIGN`/
-  `PITCH_SIGN` at the top of `main.py` if they come out backwards.
+  Confirm `turn_left`/`turn_right` and `look_up` against a real camera
+  before relying on this in production — flip `YAW_SIGN`/`PITCH_SIGN` at
+  the top of `main.py` if they come out backwards. (`look_down` was dropped
+  from the enrollment/challenge vocabulary entirely — its threshold never
+  reliably passed against a real camera.)
 - **The eye/mouth "openness ratio" thresholds are also unverified**, for a
   related reason: they're bounding-box height/width ratios over
   `landmark_2d_106`'s points (see the model section above for why exact

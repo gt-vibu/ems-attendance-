@@ -121,7 +121,6 @@ export function describeFaceActionInstruction(action: string): string {
     turn_left: 'Slowly turn your head to your left',
     turn_right: 'Slowly turn your head to your right',
     look_up: 'Tilt your head up slightly',
-    look_down: 'Tilt your head down slightly',
     smile: 'Give a natural smile',
     open_mouth: 'Open your mouth like you are about to say "ah"',
     blink: 'Blink naturally a couple of times',

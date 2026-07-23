@@ -39,8 +39,8 @@ Node/Express app:
 
 Endpoints:
   POST /enroll  — KYC enrollment. One burst of frames per guided pose
-                  (look_center, turn_left, turn_right, look_up, look_down,
-                  smile, open_mouth, blink) -> face embeddings (one per
+                  (look_center, turn_left, turn_right, look_up, smile,
+                  open_mouth, blink) -> face embeddings (one per
                   detected frame, across all poses) + a per-action log of
                   whether that pose was actually detected in its burst.
   POST /verify  — daily attendance check-in. One burst of frames + the list
@@ -134,8 +134,8 @@ SMILE_MAX_OPENNESS = OPEN_MOUTH_RATIO_THRESHOLD
 # supplied) generic 3D reference model is NOT guaranteed to produce the same
 # sign convention, even though the underlying idea (positive/negative yaw
 # meaning left/right turn) is the same in spirit. Confirm turn_left/
-# turn_right and look_up/look_down against a real camera before relying on
-# this — flip YAW_SIGN/PITCH_SIGN below if they come out backwards, exactly
+# turn_right and look_up against a real camera before relying on this —
+# flip YAW_SIGN/PITCH_SIGN below if they come out backwards, exactly
 # as the previous version's own honest-limitations note already flagged for
 # its own (different) pose source.
 YAW_TURN_THRESHOLD_DEG = 15.0
@@ -143,8 +143,14 @@ PITCH_LOOK_THRESHOLD_DEG = 9.0
 YAW_SIGN = 1
 PITCH_SIGN = 1
 
+# 'look_down' was dropped: its PITCH_LOOK_THRESHOLD_DEG check never reliably
+# passed against a real camera regardless of angle/lighting — same
+# uncalibrated-pose-estimate problem look_center had before it was simplified
+# to just require a detected face, except look_down's whole point IS a
+# specific head angle, so that same fix doesn't apply here. Removed from the
+# vocabulary entirely rather than keep guessing at the threshold.
 NON_BASELINE_ACTIONS = [
-    "turn_left", "turn_right", "look_up", "look_down",
+    "turn_left", "turn_right", "look_up",
     "smile", "open_mouth", "blink",
 ]
 ALL_ENROLLMENT_ACTIONS = ["look_center"] + NON_BASELINE_ACTIONS
@@ -495,8 +501,6 @@ def actions_detected_in_burst(faces: List) -> Dict[str, bool]:
                 results["turn_right"] = True
             if pitch < -PITCH_LOOK_THRESHOLD_DEG:
                 results["look_up"] = True
-            if pitch > PITCH_LOOK_THRESHOLD_DEG:
-                results["look_down"] = True
 
     # Blink: a relative dip against this burst's own peak-open ratio, rather
     # than a fixed population threshold (see BLINK_RELATIVE_DROP comment) —

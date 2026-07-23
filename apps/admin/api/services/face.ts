@@ -97,7 +97,14 @@ export const FACE_MATCH_THRESHOLD = 0.5;
 // The 8 guided poses captured during enrollment. 'look_center' is the
 // neutral baseline; the other 7 are also the vocabulary the daily liveness
 // fallback challenge is randomly drawn from.
-export const KYC_ACTIONS = ['look_center', 'turn_left', 'turn_right', 'look_up', 'look_down', 'smile', 'open_mouth', 'blink'];
+// 'look_down' was dropped from this list — its pose threshold never
+// reliably passed against a real camera regardless of lighting/angle (same
+// class of miscalibration look_center had before it was simplified to just
+// require a detected face; look_down's actual direction made that same fix
+// not apply, since the whole point is checking a specific head angle).
+// Rather than keep guessing at an uncalibrated threshold, it's removed from
+// the enrollment/challenge vocabulary entirely.
+export const KYC_ACTIONS = ['look_center', 'turn_left', 'turn_right', 'look_up', 'smile', 'open_mouth', 'blink'];
 export const DAILY_CHALLENGE_ACTIONS = KYC_ACTIONS.filter(a => a !== 'look_center');
 
 // Server-side record of exactly which liveness challenge was issued to which
