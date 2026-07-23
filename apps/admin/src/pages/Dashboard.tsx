@@ -132,7 +132,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
     selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures,
     undeliveredActivation, setUndeliveredActivation,
-    fetchSuperAdminData, handleToggleTenantStatus, handleOpenApproveModal, handleApproveRequest, toggleFeature,
+    fetchSuperAdminData, handleToggleTenantStatus, handleDeleteTenant, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
     editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
     openEditFeatures, toggleEditFeature, handleSaveEditFeatures,
@@ -1878,6 +1878,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                                   className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-[var(--color-nexus-error)] hover:brightness-110 text-white' : 'bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white'}`}
                                 >
                                   {(t.status || 'active') === 'active' ? 'Suspend' : 'Reactivate'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTenant(t.id, t.name)}
+                                  className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-error)] hover:brightness-110 text-white"
+                                >
+                                  Delete
                                 </button>
                               </div>
                             </td>

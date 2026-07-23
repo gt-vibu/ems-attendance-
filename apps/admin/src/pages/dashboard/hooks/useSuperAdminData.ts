@@ -92,6 +92,36 @@ export function useSuperAdminData(
     }
   };
 
+  // Permanently deletes a tenant AND every one of its employees/data
+  // (attendance, leave, payroll, documents, etc.) — irreversible, unlike
+  // suspend above which just blocks logins. Backed by the existing
+  // POST /api/super/tenants/delete cascade.
+  const handleDeleteTenant = async (tenantId: number, tenantName: string) => {
+    if (!window.confirm(`Permanently delete "${tenantName}" and ALL of its data — every employee, attendance record, leave request, and document? This cannot be undone.`)) return;
+    if (!window.confirm(`Are you absolutely sure? Type-confirm: this will erase "${tenantName}" completely.`)) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/super/tenants/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ tenantId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete tenant');
+      setSuccess(`"${tenantName}" and all of its data have been permanently deleted.`);
+      fetchSuperAdminData();
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete tenant');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOpenApproveModal = (req: any) => {
     setSelectedRequest(req);
     setSelectedPlanOverride(req.plan || 'Standard');
@@ -244,6 +274,7 @@ export function useSuperAdminData(
     undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData,
     handleToggleTenantStatus,
+    handleDeleteTenant,
     handleOpenApproveModal,
     handleApproveRequest,
     toggleFeature,
