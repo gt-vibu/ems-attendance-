@@ -488,6 +488,7 @@ router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, re
           await tx.update(schema.auditLedger).set({ actorId: null }).where(eq(schema.auditLedger.actorId, target.id));
           await tx.update(schema.attendanceCorrections).set({ reviewedByUserId: null }).where(eq(schema.attendanceCorrections.reviewedByUserId, target.id));
           await tx.update(schema.wfhLocationChangeRequests).set({ reviewedByUserId: null }).where(eq(schema.wfhLocationChangeRequests.reviewedByUserId, target.id));
+          await tx.update(schema.attendanceAlerts).set({ currentAssigneeUserId: null }).where(eq(schema.attendanceAlerts.currentAssigneeUserId, target.id));
           await tx.update(schema.attendanceAlerts).set({ resolvedByUserId: null }).where(eq(schema.attendanceAlerts.resolvedByUserId, target.id));
           await tx.update(schema.terminationRequests).set({ reviewedByUserId: null }).where(eq(schema.terminationRequests.reviewedByUserId, target.id));
           await tx.update(schema.leaveRequests).set({ reviewedByUserId: null }).where(eq(schema.leaveRequests.reviewedByUserId, target.id));
@@ -495,16 +496,23 @@ router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, re
           await tx.update(schema.shiftSwapRequests).set({ reviewedByUserId: null }).where(eq(schema.shiftSwapRequests.reviewedByUserId, target.id));
           await tx.update(schema.compensationHistory).set({ changedByUserId: null }).where(eq(schema.compensationHistory.changedByUserId, target.id));
           await tx.update(schema.serviceAccounts).set({ createdByUserId: null }).where(eq(schema.serviceAccounts.createdByUserId, target.id));
+          await tx.update(schema.webhookSubscriptions).set({ createdByUserId: null }).where(eq(schema.webhookSubscriptions.createdByUserId, target.id));
           await tx.update(schema.departments).set({ headUserId: null }).where(eq(schema.departments.headUserId, target.id));
+          await tx.update(schema.shiftOverrides).set({ createdBy: null }).where(eq(schema.shiftOverrides.createdBy, target.id));
+          await tx.update(schema.tickets).set({ currentAssigneeUserId: null }).where(eq(schema.tickets.currentAssigneeUserId, target.id));
+          await tx.update(schema.tickets).set({ resolvedByUserId: null }).where(eq(schema.tickets.resolvedByUserId, target.id));
+          await tx.update(schema.ticketEscalations).set({ fromUserId: null }).where(eq(schema.ticketEscalations.fromUserId, target.id));
+          await tx.update(schema.ticketEscalations).set({ toUserId: null }).where(eq(schema.ticketEscalations.toUserId, target.id));
           await tx.update(schema.users).set({ managerId: null }).where(eq(schema.users.managerId, target.id));
           await tx.delete(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, target.id));
           await tx.delete(schema.webauthnChallenges).where(eq(schema.webauthnChallenges.userId, target.id));
           await tx.delete(schema.notifications).where(eq(schema.notifications.userId, target.id));
+          await tx.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.userId, target.id));
           await tx.delete(schema.users).where(eq(schema.users.id, target.id));
         });
       } catch (txErr: any) {
         return res.status(409).json({
-          error: 'This admin has associated records (e.g. generated QR sessions or payroll changes) that must be reassigned before their account can be deleted.',
+          error: 'This admin has associated records (e.g. generated QR sessions, leave-balance adjustments, uploaded documents, termination requests they filed, a team they manage, or a ticket they raised) that must be reassigned before their account can be deleted.',
           detail: txErr.message,
         });
       }
