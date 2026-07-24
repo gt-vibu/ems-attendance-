@@ -135,20 +135,20 @@ export default function AdminApp() {
           <Route path="/employee/register-device" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
-            // Already registered — most commonly hit via the browser's
-            // back button after finishing registration, which re-visits
-            // this URL from history rather than actually re-mounting a
-            // fresh app state. Without this guard it just re-renders the
-            // enrollment flow from scratch every time.
+            // Already registered with FACE specifically — most commonly hit
+            // via the browser's back button after finishing face
+            // enrollment, which re-visits this URL from history rather than
+            // actually re-mounting a fresh app state. Without this guard it
+            // just re-renders the enrollment flow from scratch every time.
             //
-            // Checked directly against isKycCompleted rather than via
-            // !deviceRegistrationRequired(user) — that helper also returns
-            // false when kycEnabled === false (registration turned off
-            // tenant-wide), which is a completely different situation and
-            // must NOT bounce someone away from a page they were correctly
-            // sent to. This guard only ever fires for the one case it is
-            // meant for: a real, already-completed enrollment.
-            : user.isKycCompleted === true ? <Navigate to="/employee/dashboard" />
+            // Deliberately checks verificationMethod === 'face' as well as
+            // isKycCompleted, not isKycCompleted alone — a WebAuthn-
+            // registered employee (isKycCompleted is already true from
+            // THAT registration) legitimately visits this same URL via the
+            // attendance page's "Switch to Face Recognition" link, and
+            // must NOT be bounced straight back to the dashboard before
+            // ever seeing the face enrollment flow they just asked for.
+            : (user.isKycCompleted === true && user.verificationMethod === 'face') ? <Navigate to="/employee/dashboard" />
             : <RegisterDevice user={user} updateSession={updateSession} />
           } />
           <Route path="/employee/dashboard" element={
