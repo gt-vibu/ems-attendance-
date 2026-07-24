@@ -42,6 +42,13 @@ export async function getFaceServiceHealth(): Promise<{ status: string; modelLoa
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    // Same cold-start reality as callFaceService above — this health check
+    // is what runs first, on page load, so it's actually the MOST likely
+    // place to catch the service still waking up from Render's free-tier
+    // idle spin-down. Same friendly message instead of a bare "HTTP 502".
+    if ([502, 503, 504].includes(response.status)) {
+      throw new Error('The face verification service is still starting up (it was idle and had to reload its models) — please wait about a minute and try again.');
+    }
     throw new Error(body.detail || `Face service returned HTTP ${response.status}`);
   }
   return {

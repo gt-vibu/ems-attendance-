@@ -61,11 +61,33 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
 
   useEffect(() => {
     cancelledRef.current = false;
-    ensureFaceServiceReady()
-      .then(() => startCamera())
-      .catch((err: any) => {
-        setError(err.message || 'Face verification is unavailable right now.');
-      });
+    // Free-tier cold starts routinely take 30-90s (loading the ML models,
+    // not just starting a process) — this page load is often the very
+    // request that wakes the service up, so the first health check failing
+    // is the common case, not the exception. One retry after a real wait
+    // lets most visits recover on their own instead of dead-ending on an
+    // error the moment the page opens.
+    const checkReady = async () => {
+      try {
+        await ensureFaceServiceReady();
+      } catch (firstErr: any) {
+        if (cancelledRef.current) return;
+        setError('The face service was idle and is waking up — retrying automatically in a moment...');
+        await new Promise((resolve) => setTimeout(resolve, 15000));
+        if (cancelledRef.current) return;
+        try {
+          await ensureFaceServiceReady();
+        } catch (secondErr: any) {
+          if (!cancelledRef.current) setError(secondErr.message || 'Face verification is unavailable right now.');
+          return;
+        }
+      }
+      if (!cancelledRef.current) {
+        setError('');
+        startCamera();
+      }
+    };
+    checkReady();
     return () => {
       cancelledRef.current = true;
       stopCamera();
