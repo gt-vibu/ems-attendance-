@@ -140,7 +140,15 @@ export default function AdminApp() {
             // this URL from history rather than actually re-mounting a
             // fresh app state. Without this guard it just re-renders the
             // enrollment flow from scratch every time.
-            : !deviceRegistrationRequired(user) ? <Navigate to="/employee/dashboard" />
+            //
+            // Checked directly against isKycCompleted rather than via
+            // !deviceRegistrationRequired(user) — that helper also returns
+            // false when kycEnabled === false (registration turned off
+            // tenant-wide), which is a completely different situation and
+            // must NOT bounce someone away from a page they were correctly
+            // sent to. This guard only ever fires for the one case it is
+            // meant for: a real, already-completed enrollment.
+            : user.isKycCompleted === true ? <Navigate to="/employee/dashboard" />
             : <RegisterDevice user={user} updateSession={updateSession} />
           } />
           <Route path="/employee/dashboard" element={

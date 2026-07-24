@@ -104,7 +104,15 @@ export const FACE_MATCH_THRESHOLD = 0.5;
 // not apply, since the whole point is checking a specific head angle).
 // Rather than keep guessing at an uncalibrated threshold, it's removed from
 // the enrollment/challenge vocabulary entirely.
-export const KYC_ACTIONS = ['look_center', 'turn_left', 'turn_right', 'look_up', 'smile', 'open_mouth', 'blink'];
+//
+// Cut down further from 7 actions to 4 (look_up/smile/open_mouth dropped):
+// the whole enrollment burst is one request to the free-tier face-service,
+// and fewer actions means fewer total frames means less risk of Render's
+// gateway timing the request out (502) before the (0.1 shared vCPU) service
+// finishes processing it — see FaceEnrollment.tsx's KYC_STEPS for the full
+// story. turn_left/turn_right/blink still give real directional + liveness
+// coverage; must stay in sync with that file's KYC_STEPS list.
+export const KYC_ACTIONS = ['look_center', 'turn_left', 'turn_right', 'blink'];
 export const DAILY_CHALLENGE_ACTIONS = KYC_ACTIONS.filter(a => a !== 'look_center');
 
 // Server-side record of exactly which liveness challenge was issued to which
