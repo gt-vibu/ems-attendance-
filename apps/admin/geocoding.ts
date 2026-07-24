@@ -37,7 +37,7 @@ const MIN_INTERVAL_MS = 1100; // keep comfortably under 1 req/sec
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // a home location's address is stable
 
 // --- In-memory cache, keyed by coords (reverse) or normalized query (forward) ---
-type CacheEntry = { value: ReverseGeocodeResult | ForwardGeocodeResult | null; expires: number };
+type CacheEntry = { value: ReverseGeocodeResult | ForwardGeocodeResult | ForwardGeocodeResult[] | null; expires: number };
 const cache = new Map<string, CacheEntry>();
 function cacheKey(lat: number, lng: number): string {
   return `${lat.toFixed(4)},${lng.toFixed(4)}`;
@@ -136,6 +136,57 @@ async function fetchForwardFromNominatim(query: string): Promise<ForwardGeocodeR
     const lng = parseFloat(first.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     return { lat, lng, displayName: first.display_name };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Multi-result variant of forwardGeocode, for a live-typeahead search box
+// (the branch-creation map's location search) instead of a single best
+// match — same never-throw/throttle/cache discipline as everything else in
+// this module. Cache key includes the limit so a 1-result cache entry (from
+// forwardGeocode above) never masquerades as a full suggestion list.
+function searchCacheKey(query: string, limit: number): string {
+  return `search:${limit}:${query.trim().toLowerCase()}`;
+}
+
+export async function searchPlaces(query: string, limit = 5): Promise<ForwardGeocodeResult[]> {
+  if (!query || !query.trim()) return [];
+
+  const key = searchCacheKey(query, limit);
+  const cached = cache.get(key);
+  if (cached && cached.expires > Date.now()) return (cached.value as ForwardGeocodeResult[] | null) || [];
+
+  try {
+    const value = await throttle(() => fetchSearchFromNominatim(query, limit));
+    cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS });
+    return value;
+  } catch (err: any) {
+    console.error('[geocoding] Nominatim place search failed:', err?.message || err);
+    return [];
+  }
+}
+
+async function fetchSearchFromNominatim(query: string, limit: number): Promise<ForwardGeocodeResult[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const url = `${NOMINATIM_URL}/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=${encodeURIComponent(limit)}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const data: any = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data
+      .map((row: any) => {
+        const lat = parseFloat(row.lat);
+        const lng = parseFloat(row.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { lat, lng, displayName: row.display_name as string };
+      })
+      .filter((r: ForwardGeocodeResult | null): r is ForwardGeocodeResult => r !== null);
   } finally {
     clearTimeout(timer);
   }

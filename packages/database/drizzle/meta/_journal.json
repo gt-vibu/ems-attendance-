@@ -50,6 +50,13 @@
       "when": 1784784451426,
       "tag": "0006_wooden_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784919699770,
+      "tag": "0007_sticky_joseph",
+      "breakpoints": true
     }
   ]
 }

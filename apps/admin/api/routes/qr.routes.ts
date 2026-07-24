@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, gte } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
@@ -20,7 +20,8 @@ import { logToAuditLedger } from '../services/audit';
 import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
-import { getEffectiveShiftId } from '../services/shiftOverrides';
+import { getEffectiveShift } from '../services/shiftOverrides';
+import { resolveEffectivePolicy, computeLateness, computeExpectedCheckout, computeDayOutcome } from '../services/attendancePolicy';
 
 export const router = Router();
 
@@ -449,23 +450,41 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
         logType = 'check_out';
       }
 
-      let isLate = false;
       // Resolves through any active dated shiftOverrides row for today first
       // (see apps/admin/api/services/shiftOverrides.ts), falling back to the
       // user's permanent shiftId — so a temporary shift change actually
       // changes lateness math on the days it's active, not just the display.
+      // Now shared with the office check-in flow via services/attendancePolicy.ts
+      // instead of its own separate inline math.
       const todayDateStr = new Date().toISOString().slice(0, 10);
-      const effectiveShiftId = await getEffectiveShiftId(user.tenantId || 1, user.id, todayDateStr);
-      const qrShift = effectiveShiftId
-        ? (await db.select().from(schema.shifts).where(eq(schema.shifts.id, effectiveShiftId)))[0]
-        : null;
-      const shiftStartStr = qrShift?.checkInTime || qrBranch?.shiftStart || tenant.shiftStart || '09:00';
-      const gracePeriod = qrShift?.gracePeriodMins ?? qrBranch?.gracePeriodMins ?? tenant.gracePeriodMins ?? 15;
+      const qrShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
+      const effectivePolicy = resolveEffectivePolicy(tenant, qrBranch, qrShift);
+      const shiftStartStr = effectivePolicy.shiftStartStr;
+
+      let isLate = false;
+      let lateByMinutes = 0;
+      let expectedCheckoutAt: Date | null = null;
       if (isVerified && logType === 'check_in') {
-        const [shiftHour, shiftMinute] = shiftStartStr.split(':').map(Number);
-        const shiftTime = new Date();
-        shiftTime.setHours(shiftHour, shiftMinute, 0, 0);
-        if (Date.now() > shiftTime.getTime() + gracePeriod * 60000) isLate = true;
+        const lateness = computeLateness(effectivePolicy, new Date());
+        isLate = lateness.isLate;
+        lateByMinutes = lateness.lateByMinutes;
+        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date());
+      }
+
+      let dayOutcome: { workedMinutes: number; isHalfDay: boolean; isShortDay: boolean; overtimeMinutes: number } | null = null;
+      let checkoutAt: Date | null = null;
+      if (isVerified && logType === 'check_out' && lastActiveToday.length > 0) {
+        const checkInLog = lastActiveToday[0];
+        const checkInAt = new Date(checkInLog.clientTimestamp || checkInLog.createdAt as any);
+        checkoutAt = new Date();
+        const todaysBreaks = await db.select().from(schema.breakSessions).where(
+          and(eq(schema.breakSessions.userId, user.id), gte(schema.breakSessions.startTime, todayStart))
+        );
+        const breakMinutes = todaysBreaks.reduce((sum: number, b: any) => {
+          if (!b.endTime) return sum;
+          return sum + Math.max(0, (new Date(b.endTime).getTime() - new Date(b.startTime).getTime()) / 60000);
+        }, 0);
+        dayOutcome = computeDayOutcome(effectivePolicy, checkInAt, checkoutAt, breakMinutes);
       }
 
       const status = isVerified ? 'approved' : 'rejected';
@@ -488,6 +507,14 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
         locationLng: lng ?? null,
         reason,
         attendanceMode: 'qr',
+        isLate: logType === 'check_in' ? isLate : null,
+        lateByMinutes: logType === 'check_in' ? lateByMinutes : null,
+        expectedCheckoutAt,
+        checkoutAt,
+        workedMinutes: dayOutcome?.workedMinutes ?? null,
+        isHalfDay: dayOutcome?.isHalfDay ?? null,
+        isShortDay: dayOutcome?.isShortDay ?? null,
+        overtimeMinutes: dayOutcome?.overtimeMinutes ?? null,
       }).returning();
 
       await db.update(schema.qrScans).set({

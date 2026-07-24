@@ -38,6 +38,11 @@ export interface LocationPickerProps {
   onChange: (lat: number, lng: number, accuracy?: number) => void;
   height?: number;
   className?: string;
+  // Bump this (e.g. a counter incremented on each selection) to make the map
+  // re-center/zoom onto the current lat/lng — the same imperative focus the
+  // "Use Current Location" button already triggers internally. Optional so
+  // every existing caller is unaffected.
+  focusTrigger?: number;
 }
 
 function ClickToPlace({ onPick }: { onPick: (lat: number, lng: number) => void }) {
@@ -86,6 +91,7 @@ export default function LocationPicker({
   onChange,
   height = 300,
   className,
+  focusTrigger,
 }: LocationPickerProps) {
   const hasPos = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng);
   const position: [number, number] = hasPos ? [lat as number, lng as number] : DEFAULT_CENTER;
@@ -98,6 +104,20 @@ export default function LocationPicker({
   // Live coordinates shown while a drag is in progress (marker position itself
   // stays controlled; we only commit on dragend to avoid fighting Leaflet).
   const [dragCoords, setDragCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  // External focus request (e.g. an address search result was picked) —
+  // mirrors what "Use Current Location" does internally, just triggered by
+  // the parent instead. Skips the very first render so mounting with an
+  // already-nonzero focusTrigger doesn't double-fire alongside the initial
+  // hasPos-based centering above.
+  const [lastFocusTrigger, setLastFocusTrigger] = useState(focusTrigger);
+  useEffect(() => {
+    if (focusTrigger !== undefined && focusTrigger !== lastFocusTrigger) {
+      setLastFocusTrigger(focusTrigger);
+      setFocusNonce((n) => n + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTrigger]);
 
   const useCurrentLocation = () => {
     setGeoError('');

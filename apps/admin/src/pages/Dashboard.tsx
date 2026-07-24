@@ -165,6 +165,9 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     shiftStart, setShiftStart, shiftEnd, setShiftEnd, gracePeriodMins, setGracePeriodMins,
     halfDayMins, setHalfDayMins, dailyBreakBudgetMins, setDailyBreakBudgetMins,
     weekendConfig, setWeekendConfig, minAttendancePercent, setMinAttendancePercent,
+    arrivalPolicy, setArrivalPolicy, workingHoursPolicy, setWorkingHoursPolicy,
+    requiredWorkingMins, setRequiredWorkingMins, hybridMaxCheckoutTime, setHybridMaxCheckoutTime,
+    overtimePayrollEnabled, setOvertimePayrollEnabled,
     wfhEnabled, setWfhEnabled, wfhAllowedRoles, setWfhAllowedRoles,
     wfhMaxDaysPerMonth, setWfhMaxDaysPerMonth, wfhAllowedWeekdays, setWfhAllowedWeekdays,
     wfhRadiusMeters, setWfhRadiusMeters, wfhApprovalRequired, setWfhApprovalRequired,
@@ -2887,17 +2890,63 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Expected clock-out time. Used for out-time and overtime calculations.</p>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Grace Period (Minutes)</label>
-                        <input 
-                          type="number"
-                          min="0"
-                          value={gracePeriodMins}
-                          onChange={e => setGracePeriodMins(e.target.value)}
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Arrival Policy</label>
+                        <select
+                          value={arrivalPolicy}
+                          onChange={e => setArrivalPolicy(e.target.value as typeof arrivalPolicy)}
                           className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
-                          placeholder="15"
-                        />
-                        <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Arrivals after Shift Start + Grace are marked Late.</p>
+                        >
+                          <option value="strict">Strict — late the instant shift start passes</option>
+                          <option value="buffered">Buffered — grace period before marked late</option>
+                          <option value="flexible">Flexible — check in anytime, never late</option>
+                        </select>
                       </div>
+                      {arrivalPolicy === 'buffered' && (
+                        <div>
+                          <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Grace Period (Minutes)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={gracePeriodMins}
+                            onChange={e => setGracePeriodMins(e.target.value)}
+                            className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                            placeholder="15"
+                          />
+                          <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Arrivals after Shift Start + Grace are marked Late.</p>
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Working Hours Policy</label>
+                        <select
+                          value={workingHoursPolicy}
+                          onChange={e => setWorkingHoursPolicy(e.target.value as typeof workingHoursPolicy)}
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                        >
+                          <option value="fixed_shift_end">Fixed Shift End — leave at shift end regardless of arrival</option>
+                          <option value="complete_required_hours">Complete Required Hours — checkout shifts to cover a late arrival</option>
+                          <option value="hybrid">Hybrid — complete required hours, capped at a max checkout time</option>
+                        </select>
+                      </div>
+                      {(workingHoursPolicy === 'complete_required_hours' || workingHoursPolicy === 'hybrid') && (
+                        <div>
+                          <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Required Working Hours (Minutes)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={requiredWorkingMins}
+                            onChange={e => setRequiredWorkingMins(e.target.value)}
+                            className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                            placeholder={`Leave blank to use Shift Start–End span (480 = 8h)`}
+                          />
+                        </div>
+                      )}
+                      {workingHoursPolicy === 'hybrid' && (
+                        <div>
+                          <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Maximum Checkout Time (Optional)</label>
+                          <TimeSelect value={hybridMaxCheckoutTime} onChange={setHybridMaxCheckoutTime} />
+                          <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">If required hours can't be completed before this time, Short Hours/Half Day rules apply instead.</p>
+                        </div>
+                      )}
                       <div>
                         <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Half-Day Threshold (Minutes Worked)</label>
                         <input 
@@ -2951,6 +3000,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         </div>
                       </div>
                     </div>
+                    <label className="flex items-start gap-2.5 cursor-pointer select-none mt-4 pt-4 border-t border-[var(--color-nexus-border)]">
+                      <input
+                        type="checkbox"
+                        checked={overtimePayrollEnabled}
+                        onChange={e => setOvertimePayrollEnabled(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 rounded border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] focus:ring-[var(--color-nexus-primary)]/30"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-[var(--color-nexus-ink)]">Enable Overtime &amp; Short-Day Pay Adjustments</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">Off by default. Turning this on makes payroll start paying real overtime and deducting for half/short days based on actual worked minutes — it directly changes computed pay, so leave it off until you've reviewed the Working Hours Policy above.</span>
+                      </span>
+                    </label>
                   </div>
 
                   {/* Work From Home (WFH) Policy — additive attendance mode,

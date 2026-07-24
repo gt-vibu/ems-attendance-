@@ -31,6 +31,18 @@ export function useTenantConfig(
   const [weekendConfig, setWeekendConfig] = useState<string[]>(['Saturday', 'Sunday']);
   const [minAttendancePercent, setMinAttendancePercent] = useState('75');
 
+  // Configurable Attendance Policy — defaults reproduce today's exact
+  // behavior for every existing tenant until an admin actively changes
+  // them (see apps/admin/api/services/attendancePolicy.ts).
+  const [arrivalPolicy, setArrivalPolicy] = useState<'strict' | 'buffered' | 'flexible'>('buffered');
+  const [workingHoursPolicy, setWorkingHoursPolicy] = useState<'fixed_shift_end' | 'complete_required_hours' | 'hybrid'>('fixed_shift_end');
+  const [requiredWorkingMins, setRequiredWorkingMins] = useState('');
+  const [hybridMaxCheckoutTime, setHybridMaxCheckoutTime] = useState('');
+  // Opt-in only — real computed overtime/short-day pay adjustments start
+  // affecting payroll only once this is turned on; off keeps every
+  // existing tenant's payroll numbers unchanged.
+  const [overtimePayrollEnabled, setOvertimePayrollEnabled] = useState(false);
+
   // Work From Home (WFH) policy — additive; mirrors the office policy fields
   // above and is saved via the same /api/tenant/config/update call. Allowed-
   // roles options come from `allRoleNames` (this tenant's real, possibly
@@ -81,6 +93,12 @@ export function useTenantConfig(
     setMinAttendancePercent(tenant.minAttendancePercent != null ? tenant.minAttendancePercent.toString() : '75');
     if (Array.isArray(tenant.weekendConfig)) setWeekendConfig(tenant.weekendConfig);
 
+    setArrivalPolicy(tenant.arrivalPolicy === 'strict' || tenant.arrivalPolicy === 'flexible' ? tenant.arrivalPolicy : 'buffered');
+    setWorkingHoursPolicy(tenant.workingHoursPolicy === 'complete_required_hours' || tenant.workingHoursPolicy === 'hybrid' ? tenant.workingHoursPolicy : 'fixed_shift_end');
+    setRequiredWorkingMins(tenant.requiredWorkingMins != null ? tenant.requiredWorkingMins.toString() : '');
+    setHybridMaxCheckoutTime(tenant.hybridMaxCheckoutTime || '');
+    setOvertimePayrollEnabled(!!tenant.overtimePayrollEnabled);
+
     setWfhEnabled(!!tenant.wfhEnabled);
     if (Array.isArray(tenant.wfhAllowedRoles)) setWfhAllowedRoles(tenant.wfhAllowedRoles);
     setWfhMaxDaysPerMonth(tenant.wfhMaxDaysPerMonth != null ? tenant.wfhMaxDaysPerMonth.toString() : '');
@@ -123,6 +141,11 @@ export function useTenantConfig(
           dailyBreakBudgetMins: parseInt(dailyBreakBudgetMins, 10),
           minAttendancePercent: parseInt(minAttendancePercent, 10),
           weekendConfig,
+          arrivalPolicy,
+          workingHoursPolicy,
+          requiredWorkingMins: requiredWorkingMins ? parseInt(requiredWorkingMins, 10) : null,
+          hybridMaxCheckoutTime: hybridMaxCheckoutTime || null,
+          overtimePayrollEnabled,
           wfhEnabled,
           wfhAllowedRoles,
           wfhMaxDaysPerMonth: wfhMaxDaysPerMonth ? parseInt(wfhMaxDaysPerMonth, 10) : null,
@@ -180,6 +203,11 @@ export function useTenantConfig(
     dailyBreakBudgetMins, setDailyBreakBudgetMins,
     weekendConfig, setWeekendConfig,
     minAttendancePercent, setMinAttendancePercent,
+    arrivalPolicy, setArrivalPolicy,
+    workingHoursPolicy, setWorkingHoursPolicy,
+    requiredWorkingMins, setRequiredWorkingMins,
+    hybridMaxCheckoutTime, setHybridMaxCheckoutTime,
+    overtimePayrollEnabled, setOvertimePayrollEnabled,
     wfhEnabled, setWfhEnabled,
     wfhAllowedRoles, setWfhAllowedRoles,
     wfhMaxDaysPerMonth, setWfhMaxDaysPerMonth,

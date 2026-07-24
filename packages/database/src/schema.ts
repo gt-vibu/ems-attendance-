@@ -25,6 +25,20 @@ export const tenants = pgTable('tenants', {
   // working days so far this month. Dropping below it triggers hierarchical
   // email alerts — see computeAttendancePercent() in server.ts.
   minAttendancePercent: integer('min_attendance_percent').default(75),
+  // --- Configurable Attendance Policy — replaces the old "buffer time is
+  // the only knob" model. Defaults reproduce today's exact behavior for
+  // every existing tenant: arrivalPolicy 'buffered' uses gracePeriodMins
+  // exactly as before, workingHoursPolicy 'fixed_shift_end' never forces an
+  // expected checkout (worked hours = actual elapsed time, same as today). ---
+  arrivalPolicy: text('arrival_policy').default('buffered'), // 'strict' | 'buffered' | 'flexible'
+  workingHoursPolicy: text('working_hours_policy').default('fixed_shift_end'), // 'fixed_shift_end' | 'complete_required_hours' | 'hybrid'
+  requiredWorkingMins: integer('required_working_mins'), // null = derive from shift/branch/tenant checkInTime..checkOutTime span
+  hybridMaxCheckoutTime: text('hybrid_max_checkout_time'), // 'HH:MM', only meaningful when workingHoursPolicy = 'hybrid'
+  // Org-wide opt-in: real computed overtime/half-day/short-day pay
+  // adjustments only start affecting payroll once an admin explicitly
+  // turns this on. Default false keeps every existing tenant's payroll
+  // numbers byte-for-byte identical (overtimeHours always 0, as before).
+  overtimePayrollEnabled: boolean('overtime_payroll_enabled').default(false),
   // --- Work From Home (WFH) policy — additive attendance mode alongside the
   // office flow above; every field here is optional/defaulted so existing
   // tenants behave exactly as before (WFH disabled) until an admin opts in. ---
@@ -115,6 +129,13 @@ export const branches = pgTable('branches', {
   qrRequireFace: boolean('qr_require_face').default(true),
   qrGeofenceRadiusMeters: integer('qr_geofence_radius_meters'),
   qrRequireDeviceTrust: boolean('qr_require_device_trust').default(false),
+  // Per-branch override of the tenant's Attendance Policy — same fallback
+  // convention as every other branch policy field above (null = fall back
+  // to the tenant-level value).
+  arrivalPolicy: text('arrival_policy'),
+  workingHoursPolicy: text('working_hours_policy'),
+  requiredWorkingMins: integer('required_working_mins'),
+  hybridMaxCheckoutTime: text('hybrid_max_checkout_time'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -303,6 +324,17 @@ export const attendanceLogs = pgTable('attendance_logs', {
   // Working hours tracking — populated when employee checks out
   checkoutAt: timestamp('checkout_at'),
   workedMinutes: real('worked_minutes'), // minutes worked (check-in to checkout) minus break time
+  // --- Configurable Attendance Policy outcome fields — populated by
+  // services/attendancePolicy.ts. isLate replaces the old fragile
+  // reason-string-matching ("Late Arrival") dashboards used to rely on.
+  // All nullable so existing rows (and any code path that doesn't set
+  // them) are unaffected. ---
+  isLate: boolean('is_late'),
+  lateByMinutes: integer('late_by_minutes'),
+  expectedCheckoutAt: timestamp('expected_checkout_at'),
+  isHalfDay: boolean('is_half_day'),
+  isShortDay: boolean('is_short_day'),
+  overtimeMinutes: real('overtime_minutes'),
   branchId: integer('branch_id').references(() => branches.id),
   createdAt: timestamp('created_at').defaultNow(),
 });

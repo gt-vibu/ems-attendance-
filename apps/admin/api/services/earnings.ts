@@ -1,6 +1,7 @@
 import { and, eq, desc, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { buildPayrollSummary, getOrCreatePayrollSettings, getRoleCompensationDefault, toDateOnly, diffDaysInclusive, policyDeductionPercent, NO_LEAVE_DAYS } from '../routes/leavePayrollShared';
+import { resolveEffectivePolicy } from './attendancePolicy';
 
 // Day-by-day earnings breakdown for the self-service Earnings page — the
 // counterpart to /api/payroll/mine's monthly-only summary. Nothing here is a
@@ -35,25 +36,13 @@ export interface DailyEarning {
   breakMinutes: number;
   excessBreakMinutes: number;
   excessBreakDeduction: number;
+  isHalfDay: boolean;
+  isShortDay: boolean;
   isLeave: boolean;
   leaveType: string | null;
   leaveChargeable: boolean;
   basePay: number; // flat per-working-day share of monthlyBaseNet, 0 on non-working/absent/unpaid-leave days
   netPay: number; // basePay + overtimePay - excessBreakDeduction (present days), or -leaveDeduction (chargeable leave), or 0
-}
-
-function parseHM(value: string | null | undefined, fallback: string): { h: number; m: number } {
-  const [h, m] = (value || fallback).split(':').map((n) => Number(n) || 0);
-  return { h, m };
-}
-
-function shiftHoursFor(tenant: any): number {
-  const start = parseHM(tenant?.shiftStart, '09:00');
-  const end = parseHM(tenant?.shiftEnd, '18:00');
-  const startMins = start.h * 60 + start.m;
-  const endMins = end.h * 60 + end.m;
-  const diffMins = endMins > startMins ? endMins - startMins : 24 * 60 + endMins - startMins;
-  return Math.max(1, diffMins / 60);
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -100,7 +89,23 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // used per-day below, then fed back into a second buildPayrollSummary()
   // call at the end with the real totals for the headline monthly numbers.
   const baseline = buildPayrollSummary(profile, effectiveComponents, settings, NO_LEAVE_DAYS, 0);
-  const shiftHours = shiftHoursFor(tenant);
+
+  // Resolves shift -> branch -> tenant the same way office/QR check-in do
+  // (see services/attendancePolicy.ts) instead of only ever consulting
+  // tenant.shiftStart/shiftEnd — an employee's actual assigned shift or
+  // their branch's override now determines their regular-hours/overtime
+  // split here too. Uses the user's PERMANENT shift/branch (not a
+  // date-specific override) since this aggregates a whole month and a
+  // per-day override lookup would mean one extra query per day.
+  const employeeUser = userRows[0] || null;
+  const branchRow = employeeUser?.branchId
+    ? (await db.select().from(schema.branches).where(eq(schema.branches.id, employeeUser.branchId)))[0] || null
+    : null;
+  const shiftRow = employeeUser?.shiftId
+    ? (await db.select().from(schema.shifts).where(eq(schema.shifts.id, employeeUser.shiftId)))[0] || null
+    : null;
+  const effectivePolicy = resolveEffectivePolicy(tenant, branchRow, shiftRow);
+  const shiftHours = effectivePolicy.requiredWorkingMins / 60;
   const hourlyRate = shiftHours > 0 ? baseline.dailyRate / shiftHours : 0;
   const overtimeRate = baseline.overtimeRate || hourlyRate;
   const weekendDays: string[] = Array.isArray(tenant.weekendConfig) ? tenant.weekendConfig : ['Saturday', 'Sunday'];
@@ -168,7 +173,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     const weekdayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 
     if (dateKey > todayKey) {
-      days.push({ date: dateKey, status: 'future', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
+      days.push({ date: dateKey, status: 'future', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
       continue;
     }
 
@@ -207,7 +212,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
       days.push({
         date: dateKey, status: 'leave', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0,
-        breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: true, leaveType, leaveChargeable: chargeable,
+        breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: true, leaveType, leaveChargeable: chargeable,
         basePay: chargeable ? 0 : baseline.dailyRate,
         netPay: chargeable ? -dayDeduction : baseline.dailyRate,
       });
@@ -225,15 +230,15 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
     if (!checkIn) {
       if (holidayName) {
-        days.push({ date: dateKey, status: 'holiday', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: false, leaveType: null, leaveChargeable: false, basePay: baseline.dailyRate, netPay: baseline.dailyRate });
+        days.push({ date: dateKey, status: 'holiday', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: baseline.dailyRate, netPay: baseline.dailyRate });
         continue;
       }
       if (isWeekend) {
-        days.push({ date: dateKey, status: 'weekend', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
+        days.push({ date: dateKey, status: 'weekend', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
         continue;
       }
       absentDays += 1;
-      days.push({ date: dateKey, status: 'absent', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
+      days.push({ date: dateKey, status: 'absent', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
       continue;
     }
 
@@ -264,6 +269,9 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     // whatever overtime they additionally earned by actually working it.
     const basePay = isPending ? 0 : (workedNonScheduledDay ? (holidayName ? baseline.dailyRate : 0) : baseline.dailyRate);
     const netPay = basePay + overtimePay - excessBreakDeduction;
+    const workedMinutesForDay = hoursWorked * 60;
+    const isHalfDay = !workedNonScheduledDay && workedMinutesForDay < effectivePolicy.halfDayMins;
+    const isShortDay = !workedNonScheduledDay && !isHalfDay && workedMinutesForDay < effectivePolicy.requiredWorkingMins;
 
     totalOvertimeHours += overtimeHours;
     totalOvertimePay += overtimePay;
@@ -284,6 +292,8 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
       breakMinutes: Math.round(breakMins),
       excessBreakMinutes: Math.round(excessBreakMinutes),
       excessBreakDeduction: Math.round(excessBreakDeduction * 100) / 100,
+      isHalfDay,
+      isShortDay,
       isLeave: false,
       leaveType: null,
       leaveChargeable: false,

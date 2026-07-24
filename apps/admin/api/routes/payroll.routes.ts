@@ -14,8 +14,21 @@ import {
   splitLeaveDaysForPayroll,
   NO_LEAVE_DAYS,
 } from './leavePayrollShared';
+import { computeEmployeeEarnings } from '../services/earnings';
 
 export const router = Router();
+
+// Real overtime is computed day-by-day from actual worked minutes (see
+// services/earnings.ts / services/attendancePolicy.ts) — expensive relative
+// to a flat 0, so it only runs at all once a tenant admin has explicitly
+// opted in via tenant.overtimePayrollEnabled (default false). Until then,
+// every payroll number here stays byte-for-byte identical to before this
+// feature existed (overtimeHours always 0).
+async function resolveOvertimeHours(overtimePayrollEnabled: boolean, userId: number, tenantId: number, year: number, month: number): Promise<number> {
+  if (!overtimePayrollEnabled) return 0;
+  const earnings = await computeEmployeeEarnings(userId, tenantId, year, month);
+  return earnings.summary?.totalOvertimeHours || 0;
+}
 
 router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
   try {
@@ -25,13 +38,14 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
     const year = Number(req.query.year || now.getUTCFullYear());
     const month = Number(req.query.month || (now.getUTCMonth() + 1));
 
-    const [settings, profileRows, requests, policies, components, userRows] = await Promise.all([
+    const [settings, profileRows, requests, policies, components, userRows, tenantRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
       db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
+      db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     ]);
 
     let profile: any = profileRows[0] || null;
@@ -54,7 +68,8 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
     if (!profile) return res.json({ profile: null, components: [], summary: null, settings, source: 'none' });
 
     const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
-    const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0);
+    const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
+    const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours);
     res.json({ profile, components: effectiveComponents, summary, settings, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -75,13 +90,14 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     const year = now.getUTCFullYear();
     const month = now.getUTCMonth() + 1;
 
-    const [settings, profileRows, requests, policies, components, userRows] = await Promise.all([
+    const [settings, profileRows, requests, policies, components, userRows, tenantRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
       db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
+      db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     ]);
 
     let profile: any = profileRows[0] || null;
@@ -101,7 +117,8 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     // to record yet.
     if (profile) {
       const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
-      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0);
+      const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
+      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours);
       await db.insert(schema.payrollRuns).values({
         tenantId,
         userId,
@@ -110,7 +127,7 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
         month,
         workingDays: Number(settings?.workingDaysPerMonth || 26),
         approvedLeaveDays: leaveDays.totalDays,
-        overtimeHours: 0,
+        overtimeHours,
         grossPay: summary.monthlyGross,
         leaveDeduction: summary.leaveDeduction,
         overtimePay: summary.overtimePay,
@@ -396,13 +413,14 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     // only ever seeing their most recent ~15 days of check-ins/outs.
     const monthStart = new Date(Date.UTC(year, month - 1, 1));
     const monthEnd = new Date(Date.UTC(year, month, 1));
-    const [settings, profileRows, components, leaveRows, policies, attendanceRows] = await Promise.all([
+    const [settings, profileRows, components, leaveRows, policies, attendanceRows, tenantRows] = await Promise.all([
       getOrCreatePayrollSettings(req.user.tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, req.user.tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, req.user.tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, req.user.tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
       db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.user.tenantId)),
       db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.tenantId, req.user.tenantId), eq(schema.attendanceLogs.userId, userId), gte(schema.attendanceLogs.createdAt, monthStart), lte(schema.attendanceLogs.createdAt, monthEnd))).orderBy(schema.attendanceLogs.createdAt),
+      db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1),
     ]);
     let profile: any = profileRows[0] || null;
     let effectiveComponents = components;
@@ -418,7 +436,8 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     }
 
     const leaveDays = splitLeaveDaysForPayroll(leaveRows, policies, year, month);
-    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, 0) : null;
+    const overtimeHours = profile ? await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, req.user.tenantId, year, month) : 0;
+    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours) : null;
     res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

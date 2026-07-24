@@ -41,6 +41,15 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS daily_break_budget_mins INTEGER DEFAULT 60;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wifi_check_enabled BOOLEAN DEFAULT false;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS min_attendance_percent INTEGER DEFAULT 75;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS arrival_policy TEXT DEFAULT 'buffered';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS working_hours_policy TEXT DEFAULT 'fixed_shift_end';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS overtime_payroll_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS arrival_policy TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS working_hours_policy TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){}
 
     // Work From Home (WFH) policy columns — additive; wfh_enabled defaults
     // false so existing tenants are entirely unaffected until an admin opts in.
@@ -117,6 +126,10 @@ export async function verifyAndSyncDatabase() {
         qr_require_face BOOLEAN DEFAULT true,
         qr_geofence_radius_meters INTEGER,
         qr_require_device_trust BOOLEAN DEFAULT false,
+        arrival_policy TEXT,
+        working_hours_policy TEXT,
+        required_working_mins INTEGER,
+        hybrid_max_checkout_time TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -531,6 +544,12 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS checkout_at TIMESTAMP;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS worked_minutes REAL;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_late BOOLEAN;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS late_by_minutes INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS expected_checkout_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_short_day BOOLEAN;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime_minutes REAL;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_home_locations (

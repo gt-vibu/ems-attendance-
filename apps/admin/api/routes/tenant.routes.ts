@@ -41,6 +41,16 @@ function resolveBranchFilterIds(scopedBranchIds: number[] | null, requestedBranc
   return requestedBranchId !== null ? [requestedBranchId] : null;
 }
 
+// Reads the authoritative isLate column (see services/attendancePolicy.ts)
+// with a fallback to the old reason-string match for rows logged before
+// this column existed — keeps historical reports/trends unchanged instead
+// of silently zeroing out "late" counts for any date before this shipped.
+function isLateLog(l: any): boolean {
+  if (l.isLate === true) return true;
+  if (l.isLate === false) return false;
+  return (l.reason || '').includes('Late Arrival');
+}
+
 
   // TENANT ADMIN API: Today's live attendance snapshot + monthly summary for
   // the tenant's own dashboard.
@@ -82,7 +92,7 @@ router.get('/api/tenant/analytics', authenticate, async (req: any, res: any) => 
         todaysLogs.filter((l: any) => l.type === 'check_in' && l.status === 'approved').map((l: any) => l.userId)
       );
       const lateToday = todaysLogs.filter((l: any) =>
-        l.type === 'check_in' && l.status === 'approved' && (l.reason || '').includes('Late Arrival')
+        l.type === 'check_in' && l.status === 'approved' && isLateLog(l)
       ).length;
       const rejectedToday = todaysLogs.filter((l: any) => l.status === 'rejected').length;
 
@@ -108,7 +118,7 @@ router.get('/api/tenant/analytics', authenticate, async (req: any, res: any) => 
           checkInTime: l.createdAt, attendanceMode: l.attendanceMode, status: l.status,
         }));
         const late = checkInRows
-          .filter((l: any) => (l.reason || '').includes('Late Arrival'))
+          .filter((l: any) => isLateLog(l))
           .map((l: any) => ({
             userId: l.userId, name: nameOf(l.userId), role: roleOf(l.userId),
             checkInTime: l.createdAt, attendanceMode: l.attendanceMode, status: l.status,
@@ -192,7 +202,7 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
         });
         const checkIns = dayLogs.filter((l: any) => l.type === 'check_in' && l.status === 'approved');
         const presentUserIds = new Set(checkIns.map((l: any) => l.userId));
-        const lateCount = checkIns.filter((l: any) => (l.reason || '').includes('Late Arrival')).length;
+        const lateCount = checkIns.filter((l: any) => isLateLog(l)).length;
 
         series.push({
           date: dayStart.toISOString().slice(0, 10),

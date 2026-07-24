@@ -1,5 +1,12 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { X } from 'lucide-react';
+import TimeSelect from './TimeSelect';
+
+interface PlaceSuggestion {
+  lat: number;
+  lng: number;
+  displayName: string;
+}
 
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('./LocationPicker'));
@@ -19,6 +26,13 @@ export interface BranchFormValue {
   officeIp: string;
   wifiCheckEnabled: boolean;
   qrEnabled: boolean;
+  // Empty string = inherit the tenant's Attendance Policy default (see
+  // apps/admin/api/services/attendancePolicy.ts) — only set these when this
+  // branch genuinely needs to diverge from the org-wide setting.
+  arrivalPolicy: '' | 'strict' | 'buffered' | 'flexible';
+  workingHoursPolicy: '' | 'fixed_shift_end' | 'complete_required_hours' | 'hybrid';
+  requiredWorkingMins: string;
+  hybridMaxCheckoutTime: string;
 }
 
 const EMPTY: BranchFormValue = {
@@ -35,6 +49,10 @@ const EMPTY: BranchFormValue = {
   officeIp: '',
   wifiCheckEnabled: false,
   qrEnabled: false,
+  arrivalPolicy: '',
+  workingHoursPolicy: '',
+  requiredWorkingMins: '',
+  hybridMaxCheckoutTime: '',
 };
 
 export function branchToFormValue(b: any): BranchFormValue {
@@ -53,6 +71,10 @@ export function branchToFormValue(b: any): BranchFormValue {
     officeIp: b.officeIp || '',
     wifiCheckEnabled: !!b.wifiCheckEnabled,
     qrEnabled: !!b.qrEnabled,
+    arrivalPolicy: b.arrivalPolicy || '',
+    workingHoursPolicy: b.workingHoursPolicy || '',
+    requiredWorkingMins: b.requiredWorkingMins != null ? String(b.requiredWorkingMins) : '',
+    hybridMaxCheckoutTime: b.hybridMaxCheckoutTime || '',
   };
 }
 
@@ -72,14 +94,57 @@ export default function BranchFormModal({
   const [geocoding, setGeocoding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Bumped whenever a location is set from search/suggestion pick, so the
+  // (otherwise self-contained) map re-centers/zooms onto it — same signal
+  // the "Use Current Location" button already sends internally.
+  const [focusTrigger, setFocusTrigger] = useState(0);
+
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
 
   const update = (patch: Partial<BranchFormValue>) => setValue(prev => ({ ...prev, ...patch }));
+
+  // Live autocomplete as the admin types — debounced so it doesn't fire a
+  // Nominatim request on every keystroke.
+  useEffect(() => {
+    const query = value.address.trim();
+    if (query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(query)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!cancelled) setSuggestions(res.ok && Array.isArray(data.results) ? data.results : []);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggestLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.address]);
+
+  const selectSuggestion = (s: PlaceSuggestion) => {
+    update({ locationLat: s.lat, locationLng: s.lng, address: s.displayName });
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setFocusTrigger(n => n + 1);
+  };
 
   const searchAddress = async () => {
     const query = value.address.trim();
     if (!query) return;
     setGeocoding(true);
     setError('');
+    setShowSuggestions(false);
     try {
       const res = await fetch('/api/geocode/forward', {
         method: 'POST',
@@ -89,6 +154,7 @@ export default function BranchFormModal({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No matching location found');
       update({ locationLat: data.lat, locationLng: data.lng, address: data.displayName || query });
+      setFocusTrigger(n => n + 1);
     } catch (err: any) {
       setError(err.message || 'Failed to search address');
     } finally {
@@ -115,6 +181,10 @@ export default function BranchFormModal({
       officeIp: value.officeIp || null,
       wifiCheckEnabled: value.wifiCheckEnabled,
       qrEnabled: value.qrEnabled,
+      arrivalPolicy: value.arrivalPolicy || null,
+      workingHoursPolicy: value.workingHoursPolicy || null,
+      requiredWorkingMins: value.requiredWorkingMins ? parseInt(value.requiredWorkingMins, 10) : null,
+      hybridMaxCheckoutTime: value.hybridMaxCheckoutTime || null,
     };
     try {
       const url = mode === 'create' ? '/api/branches' : `/api/branches/${value.id}`;
@@ -164,20 +234,40 @@ export default function BranchFormModal({
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-4 relative">
           <label className={labelClasses}>Search Address</label>
           <div className="flex gap-2">
             <input
               className={inputClasses}
               value={value.address}
-              onChange={e => update({ address: e.target.value })}
+              onChange={e => { update({ address: e.target.value }); setShowSuggestions(true); }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchAddress(); } }}
-              placeholder="Type an address and search, or pick on the map below"
+              placeholder="e.g. JP Nagar, Bengaluru — type to search, or pick on the map below"
             />
             <button type="button" onClick={searchAddress} disabled={geocoding} className="px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors disabled:opacity-50 shrink-0">
               {geocoding ? 'Searching…' : 'Search'}
             </button>
           </div>
+          {showSuggestions && (suggestions.length > 0 || suggestLoading) && (
+            <div className="absolute z-10 left-0 right-[88px] mt-1 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg shadow-lg overflow-hidden">
+              {suggestLoading && suggestions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-[var(--color-nexus-muted)]">Searching…</div>
+              )}
+              {suggestions.map((s, i) => (
+                <button
+                  type="button"
+                  key={`${s.lat},${s.lng},${i}`}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => selectSuggestion(s)}
+                  className="block w-full text-left px-3 py-2 text-xs text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors border-b border-[var(--color-nexus-border)] last:border-b-0"
+                >
+                  {s.displayName}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <Suspense fallback={<div className="h-[220px] flex items-center justify-center text-xs text-[var(--color-nexus-muted)]">Loading map…</div>}>
@@ -187,8 +277,33 @@ export default function BranchFormModal({
             radius={value.locationRadiusMeters}
             onChange={(lat, lng) => update({ locationLat: lat, locationLng: lng })}
             height={220}
+            focusTrigger={focusTrigger}
           />
         </Suspense>
+
+        <div className="mb-4">
+          <label className={labelClasses}>Attendance Policy Override (optional — leave as "Use organization default" to inherit)</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <select className={inputClasses} value={value.arrivalPolicy} onChange={e => update({ arrivalPolicy: e.target.value as typeof value.arrivalPolicy })}>
+              <option value="">Arrival Policy — Use organization default</option>
+              <option value="strict">Strict</option>
+              <option value="buffered">Buffered</option>
+              <option value="flexible">Flexible</option>
+            </select>
+            <select className={inputClasses} value={value.workingHoursPolicy} onChange={e => update({ workingHoursPolicy: e.target.value as typeof value.workingHoursPolicy })}>
+              <option value="">Working Hours Policy — Use organization default</option>
+              <option value="fixed_shift_end">Fixed Shift End</option>
+              <option value="complete_required_hours">Complete Required Hours</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+            {(value.workingHoursPolicy === 'complete_required_hours' || value.workingHoursPolicy === 'hybrid') && (
+              <input type="number" className={inputClasses} placeholder="Required Working Minutes (blank = org default)" value={value.requiredWorkingMins} onChange={e => update({ requiredWorkingMins: e.target.value })} />
+            )}
+            {value.workingHoursPolicy === 'hybrid' && (
+              <TimeSelect value={value.hybridMaxCheckoutTime} onChange={(v) => update({ hybridMaxCheckoutTime: v })} />
+            )}
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
           <div>

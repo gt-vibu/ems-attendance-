@@ -24,6 +24,8 @@ import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
+import { getEffectiveShift } from '../services/shiftOverrides';
+import { resolveEffectivePolicy, computeLateness, computeExpectedCheckout, computeDayOutcome } from '../services/attendancePolicy';
 
 export const router = Router();
 
@@ -463,25 +465,35 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       const isVerified = verificationErrors.length === 0;
       const status = isVerified ? 'approved' : 'rejected';
 
-      // --- 7. Check for Late Arrival on check-in ---
-      let isLate = false;
-      const shiftStartStr = tenant.shiftStart || '09:00';
+      // --- 7. Check for Late Arrival on check-in — resolves the same
+      // shift -> branch -> tenant chain the QR check-in flow already used
+      // (previously this only ever consulted tenant-level shiftStart/
+      // gracePeriodMins, silently ignoring any branch/shift override an
+      // admin had configured). See services/attendancePolicy.ts. ---
+      const branchRow = user.branchId
+        ? (await db.select().from(schema.branches).where(eq(schema.branches.id, user.branchId)))[0] || null
+        : null;
+      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const effectiveShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
+      const effectivePolicy = resolveEffectivePolicy(tenant, branchRow, effectiveShift);
+      const shiftStartStr = effectivePolicy.shiftStartStr;
       // WFH can be given its own, separate grace period; falls back to the
-      // office gracePeriodMins when unset so tenants that never touch the
-      // WFH policy get identical late-arrival behavior either way.
-      const gracePeriod = (attendanceMode === 'wfh' && tenant.wfhLateLoginGraceMins != null)
-        ? tenant.wfhLateLoginGraceMins
-        : (tenant.gracePeriodMins || 15);
+      // resolved office grace period when unset so tenants that never touch
+      // the WFH policy get identical late-arrival behavior either way. Only
+      // meaningful under the 'buffered' arrival policy — flexible/strict
+      // WFH check-ins follow the same arrival policy as office.
+      const wfhPolicyOverride = (attendanceMode === 'wfh' && tenant.wfhLateLoginGraceMins != null)
+        ? { ...effectivePolicy, gracePeriodMins: tenant.wfhLateLoginGraceMins }
+        : effectivePolicy;
 
+      let isLate = false;
+      let lateByMinutes = 0;
+      let expectedCheckoutAt: Date | null = null;
       if (isVerified && logType === 'check_in') {
-        const [shiftHour, shiftMinute] = shiftStartStr.split(':').map(Number);
-        const shiftTime = new Date();
-        shiftTime.setHours(shiftHour, shiftMinute, 0, 0);
-        const lateThresholdTime = new Date(shiftTime.getTime() + gracePeriod * 60000);
-
-        if (Date.now() > lateThresholdTime.getTime()) {
-          isLate = true;
-        }
+        const lateness = computeLateness(wfhPolicyOverride, new Date());
+        isLate = lateness.isLate;
+        lateByMinutes = lateness.lateByMinutes;
+        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date());
       }
 
       // A late check-in needs the employee's explanation before it's
@@ -509,6 +521,26 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
             : (isLate ? `Verified successfully (Late Arrival — pending manager approval)` : `Verified successfully (Device Identity, GPS, and Wi-Fi context match)`))
         : verificationErrors.join(' | ');
 
+      // --- 8. Worked-minutes/half-day/short-day/overtime on check-out —
+      // paired against today's matching check-in row (lastActiveToday[0],
+      // since logType only becomes 'check_out' when that row exists and is
+      // a check-in). See services/attendancePolicy.ts computeDayOutcome. ---
+      let dayOutcome: { workedMinutes: number; isHalfDay: boolean; isShortDay: boolean; overtimeMinutes: number } | null = null;
+      let checkoutAt: Date | null = null;
+      if (isVerified && logType === 'check_out' && lastActiveToday.length > 0) {
+        const checkInLog = lastActiveToday[0];
+        const checkInAt = new Date(checkInLog.clientTimestamp || checkInLog.createdAt as any);
+        checkoutAt = new Date();
+        const todaysBreaks = await db.select().from(schema.breakSessions).where(
+          and(eq(schema.breakSessions.userId, user.id), gte(schema.breakSessions.startTime, todayStart))
+        );
+        const breakMinutes = todaysBreaks.reduce((sum: number, b: any) => {
+          if (!b.endTime) return sum;
+          return sum + Math.max(0, (new Date(b.endTime).getTime() - new Date(b.startTime).getTime()) / 60000);
+        }, 0);
+        dayOutcome = computeDayOutcome(effectivePolicy, checkInAt, checkoutAt, breakMinutes);
+      }
+
       const log = await db.insert(schema.attendanceLogs).values({
         userId: user.id,
         tenantId: user.tenantId || 1,
@@ -525,6 +557,14 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
         homeLng: attendanceMode === 'wfh' ? wfhHomeLocation.longitude : null,
         distanceFromHomeMeters: wfhDistanceMeters,
         wfhReason: attendanceMode === 'wfh' ? (wfhReason || null) : null,
+        isLate: logType === 'check_in' ? isLate : null,
+        lateByMinutes: logType === 'check_in' ? lateByMinutes : null,
+        expectedCheckoutAt,
+        checkoutAt,
+        workedMinutes: dayOutcome?.workedMinutes ?? null,
+        isHalfDay: dayOutcome?.isHalfDay ?? null,
+        isShortDay: dayOutcome?.isShortDay ?? null,
+        overtimeMinutes: dayOutcome?.overtimeMinutes ?? null,
       }).returning();
 
       // Log action to cryptographic ledger

@@ -4,9 +4,19 @@ import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
-import { forwardGeocode } from '../../geocoding.js';
+import { forwardGeocode, searchPlaces } from '../../geocoding.js';
 
 export const router = Router();
+
+// Reads the authoritative isLate column (see services/attendancePolicy.ts)
+// with a fallback to the old reason-string match for rows logged before
+// this column existed — keeps historical stats unchanged instead of
+// silently zeroing out "late" counts for any date before this shipped.
+function isLateLog(l: any): boolean {
+  if (l.isLate === true) return true;
+  if (l.isLate === false) return false;
+  return (l.reason || '').includes('Late Arrival');
+}
 
 // Non-location policy fields a branch carries — the set the "apply to all
 // branches" wizard button copies between in-progress branch cards. Location
@@ -18,6 +28,7 @@ const POLICY_FIELDS = [
   'dailyBreakBudgetMins', 'minAttendancePercent', 'wifiSsid', 'officeIp',
   'wifiCheckEnabled', 'qrEnabled', 'qrRotationSeconds', 'qrRequireGps',
   'qrRequireWifi', 'qrRequireFace', 'qrGeofenceRadiusMeters', 'qrRequireDeviceTrust',
+  'arrivalPolicy', 'workingHoursPolicy', 'requiredWorkingMins', 'hybridMaxCheckoutTime',
 ] as const;
 
 function pickBranchInsertFields(body: any, tenantId: number) {
@@ -88,7 +99,7 @@ router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
       todaysLogs.filter((l: any) => l.type === 'check_in' && l.status === 'approved').map((l: any) => l.userId)
     );
     const lateToday = todaysLogs.filter((l: any) =>
-      l.type === 'check_in' && l.status === 'approved' && (l.reason || '').includes('Late Arrival')
+      l.type === 'check_in' && l.status === 'approved' && isLateLog(l)
     ).length;
     const pendingToday = todaysLogs.filter((l: any) => l.status === 'pending').length;
 
@@ -271,6 +282,20 @@ router.post('/api/geocode/forward', authenticate, async (req: any, res: any) => 
     const result = await forwardGeocode(query);
     if (!result) return res.status(404).json({ error: 'No matching location found' });
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Live-typeahead variant of the above — returns up to a handful of
+// candidate matches for the branch location search box's autocomplete
+// dropdown, instead of committing to a single best guess.
+router.get('/api/geocode/search', authenticate, async (req: any, res: any) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    if (!query.trim()) return res.json({ results: [] });
+    const results = await searchPlaces(query, 5);
+    res.json({ results });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

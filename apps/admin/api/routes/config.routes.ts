@@ -48,6 +48,7 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       }
       const {
         wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
+        arrivalPolicy, workingHoursPolicy, requiredWorkingMins, hybridMaxCheckoutTime, overtimePayrollEnabled,
         wfhEnabled, wfhAllowedRoles, wfhMaxDaysPerMonth, wfhAllowedWeekdays, wfhRadiusMeters, wfhApprovalRequired, wfhRequireReason, wfhLateLoginGraceMins,
         kycEnabled, documentsEnabled, passwordExpiryDays, idleTimeoutMinutes, attendanceRetentionMonths,
       } = req.body;
@@ -92,6 +93,15 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       if (dailyBreakBudgetMins !== undefined && dailyBreakBudgetMins !== '') updates.dailyBreakBudgetMins = parseInt(dailyBreakBudgetMins);
       if (minAttendancePercent !== undefined && minAttendancePercent !== '') updates.minAttendancePercent = Math.min(100, Math.max(0, parseInt(minAttendancePercent)));
       if (Array.isArray(weekendConfig)) updates.weekendConfig = weekendConfig;
+
+      // --- Configurable Attendance Policy (see services/attendancePolicy.ts) ---
+      if (arrivalPolicy !== undefined && ['strict', 'buffered', 'flexible'].includes(arrivalPolicy)) updates.arrivalPolicy = arrivalPolicy;
+      if (workingHoursPolicy !== undefined && ['fixed_shift_end', 'complete_required_hours', 'hybrid'].includes(workingHoursPolicy)) updates.workingHoursPolicy = workingHoursPolicy;
+      if (requiredWorkingMins !== undefined) updates.requiredWorkingMins = requiredWorkingMins === '' || requiredWorkingMins === null ? null : parseInt(requiredWorkingMins);
+      if (hybridMaxCheckoutTime !== undefined) updates.hybridMaxCheckoutTime = hybridMaxCheckoutTime === '' ? null : hybridMaxCheckoutTime;
+      // Opt-in only — turning this on is the one part of this policy that
+      // directly changes computed pay; turning it off is always allowed.
+      if (overtimePayrollEnabled !== undefined) updates.overtimePayrollEnabled = !!overtimePayrollEnabled;
 
       // --- Work From Home (WFH) policy ---
       if (wfhEnabled !== undefined) updates.wfhEnabled = !!wfhEnabled;
