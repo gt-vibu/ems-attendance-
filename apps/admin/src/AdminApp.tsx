@@ -132,7 +132,17 @@ export default function AdminApp() {
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/employee/login" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
-          <Route path="/employee/register-device" element={user && canClockIn(user.role) ? <RegisterDevice user={user} updateSession={updateSession} /> : <Navigate to="/employee/login" />} />
+          <Route path="/employee/register-device" element={
+            !user ? <Navigate to="/employee/login" />
+            : !canClockIn(user.role) ? <Navigate to="/employee/login" />
+            // Already registered — most commonly hit via the browser's
+            // back button after finishing registration, which re-visits
+            // this URL from history rather than actually re-mounting a
+            // fresh app state. Without this guard it just re-renders the
+            // enrollment flow from scratch every time.
+            : !deviceRegistrationRequired(user) ? <Navigate to="/employee/dashboard" />
+            : <RegisterDevice user={user} updateSession={updateSession} />
+          } />
           <Route path="/employee/dashboard" element={
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />

@@ -8,6 +8,8 @@ import { verifyThisDevice, registerThisDevice, describeWebAuthnError } from '../
 import { verifyFace, describeFaceActionInstruction, FaceVerifyProgress } from '../lib/faceClient';
 import { describeCameraError } from '../lib/cameraError';
 import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
+import DateSelect from '../components/DateSelect';
+import TimeSelect from '../components/TimeSelect';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 
@@ -372,7 +374,24 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
     setError('');
     setFaceProgress({ phase: 'passive' });
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
+      } catch (firstErr: any) {
+        // Mobile browsers (Chrome on Android especially) don't always
+        // release the camera hardware the instant a previous page's stream
+        // calls track.stop() — arriving here right after a camera-using
+        // page (e.g. face enrollment) can transiently fail with
+        // "already in use" even though nothing is actually still using it.
+        // One retry after a short wait resolves this without bothering the
+        // user; if it still fails, it's a real camera problem.
+        if (firstErr?.name === 'NotReadableError' || /already in use|in use by another/i.test(firstErr?.message || '')) {
+          await new Promise(resolve => setTimeout(resolve, 700));
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
+        } else {
+          throw firstErr;
+        }
+      }
       faceStreamRef.current = stream;
       if (faceVideoRef.current) faceVideoRef.current.srcObject = stream;
     } catch (err) {
@@ -882,7 +901,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   onClick={startAttendance}
                   className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)]"
                 >
-                  Mark Attendance
+                  Start Verification
                 </button>
               </div>
             )}
@@ -1248,22 +1267,11 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Date</label>
-                    <input
-                      type="date"
-                      value={correctionDate}
-                      onChange={e => setCorrectionDate(e.target.value)}
-                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                      required
-                    />
+                    <DateSelect value={correctionDate} onChange={setCorrectionDate} required />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
-                    <input
-                      type="time"
-                      value={correctionTime}
-                      onChange={e => setCorrectionTime(e.target.value)}
-                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                    />
+                    <TimeSelect value={correctionTime} onChange={setCorrectionTime} />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Explanation</label>

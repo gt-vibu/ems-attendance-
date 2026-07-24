@@ -195,6 +195,13 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
       // enroll response only carries identity/KYC fields, not tenant-wide
       // flags like faceRecognitionEnabled that were set at login.
       updateSession({ ...user, ...data.user });
+      // Release the camera NOW rather than waiting for this component to
+      // unmount 800ms later — on mobile Chrome, track.stop() doesn't
+      // synchronously free the hardware, and the attendance page's own
+      // getUserMedia() call (fired right after navigate()) can race ahead
+      // of that release and fail with "camera already in use". Stopping
+      // here gives the OS a full 800ms head start instead of ~0ms.
+      stopCamera();
       setTimeout(() => {
         navigate('/employee/attendance');
       }, 800);
