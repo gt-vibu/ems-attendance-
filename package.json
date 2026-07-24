@@ -21,21 +21,24 @@
     "db:migrate": "pnpm --filter @company/database db:migrate"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "firebase": "^12.15.0",
+    "firebase": "^12.16.0",
     "pg": "^8.22.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "tsx": "^4.21.0",
-    "turbo": "^2.5.5",
-    "typescript": "~5.8.2"
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "turbo": "^2.10.6",
+    "typescript": "~7.0.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@tailwindcss/oxide"
-    ]
+    ],
+    "overrides": {
+      "fast-xml-parser": "^5.10.1"
+    }
   }
 }
