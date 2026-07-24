@@ -66,6 +66,40 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const [searchParams, setSearchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
 
+  // Live-typeahead location search for the Workspace Boundaries geofence
+  // map — same debounced /api/geocode/search pattern as BranchFormModal's
+  // branch-location search, so jumping the map to a distant area doesn't
+  // require manually dragging across it.
+  const [geoSearchQuery, setGeoSearchQuery] = useState('');
+  const [geoSuggestions, setGeoSuggestions] = useState<{ lat: number; lng: number; displayName: string }[]>([]);
+  const [geoShowSuggestions, setGeoShowSuggestions] = useState(false);
+  const [geoSuggestLoading, setGeoSuggestLoading] = useState(false);
+  const [geoFocusTrigger, setGeoFocusTrigger] = useState(0);
+  useEffect(() => {
+    const query = geoSearchQuery.trim();
+    if (query.length < 3) {
+      setGeoSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setGeoSuggestLoading(true);
+      try {
+        const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(query)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!cancelled) setGeoSuggestions(res.ok && Array.isArray(data.results) ? data.results : []);
+      } catch {
+        if (!cancelled) setGeoSuggestions([]);
+      } finally {
+        if (!cancelled) setGeoSuggestLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoSearchQuery]);
+
   useEffect(() => { preloadNavPages(); }, []);
 
   // The caller's own effective privileges — used to hide sidebar
@@ -2857,6 +2891,48 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         </div>
                       </div>
 
+                      {/* Live search-as-you-type above the map — same
+                          debounced /api/geocode/search autocomplete used by
+                          the branch location picker, so jumping to a
+                          location far from the current map view doesn't
+                          require dragging across the whole map. */}
+                      <div className="md:col-span-2 relative">
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Search Location</label>
+                        <input
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                          value={geoSearchQuery}
+                          onChange={e => { setGeoSearchQuery(e.target.value); setGeoShowSuggestions(true); }}
+                          onFocus={() => setGeoShowSuggestions(true)}
+                          onBlur={() => setTimeout(() => setGeoShowSuggestions(false), 150)}
+                          placeholder="e.g. JP Nagar, Bengaluru — type to search"
+                        />
+                        {geoShowSuggestions && (geoSuggestions.length > 0 || geoSuggestLoading) && (
+                          <div className="absolute z-10 left-0 right-0 mt-1 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg shadow-lg overflow-hidden">
+                            {geoSuggestLoading && geoSuggestions.length === 0 && (
+                              <div className="px-3 py-2 text-xs text-[var(--color-nexus-muted)]">Searching…</div>
+                            )}
+                            {geoSuggestions.map((s, i) => (
+                              <button
+                                type="button"
+                                key={`${s.lat},${s.lng},${i}`}
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => {
+                                  setLat(s.lat.toFixed(7));
+                                  setLng(s.lng.toFixed(7));
+                                  setGeoSearchQuery(s.displayName);
+                                  setGeoSuggestions([]);
+                                  setGeoShowSuggestions(false);
+                                  setGeoFocusTrigger(n => n + 1);
+                                }}
+                                className="block w-full text-left px-3 py-2 text-xs text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors border-b border-[var(--color-nexus-border)] last:border-b-0"
+                              >
+                                {s.displayName}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Interactive OpenStreetMap picker — click to place, drag
                           the pin, or use current location. Reads/writes the SAME
                           lat/lng/radius state as the inputs above; the circle
@@ -2868,6 +2944,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                             lng={lng ? parseFloat(lng) : null}
                             radius={radius ? parseInt(radius, 10) : null}
                             onChange={(la, ln) => { setLat(la.toFixed(7)); setLng(ln.toFixed(7)); }}
+                            focusTrigger={geoFocusTrigger}
                           />
                         </Suspense>
                       </div>
