@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Ticket, Plus, X, ArrowUpCircle, CheckCircle2, XCircle } from 'lucide-react';
 import type { User } from '../lib/auth';
+import DateSelect from './DateSelect';
+import TimeSelect from './TimeSelect';
 
 interface TicketRow {
   id: number;
@@ -194,9 +196,9 @@ export default function TicketsPanel({ user }: { user: User }) {
                         </select>
                         {correctedStatus === 'present' && (
                           <>
-                            <input type="time" value={checkInTime} onChange={(e) => setCheckInTime(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                            <TimeSelect value={checkInTime} onChange={setCheckInTime} />
                             <span className="text-[10px] text-[var(--color-nexus-muted)]">to</span>
-                            <input type="time" value={checkOutTime} onChange={(e) => setCheckOutTime(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                            <TimeSelect value={checkOutTime} onChange={setCheckOutTime} />
                           </>
                         )}
                       </div>
@@ -240,7 +242,7 @@ export default function TicketsPanel({ user }: { user: User }) {
           {category === 'attendance_dispute' && (
             <div>
               <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Date in question</label>
-              <input type="date" value={relatedDate} onChange={(e) => setRelatedDate(e.target.value)} className="w-full px-3 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none" />
+              <DateSelect value={relatedDate} onChange={setRelatedDate} />
             </div>
           )}
           <div>

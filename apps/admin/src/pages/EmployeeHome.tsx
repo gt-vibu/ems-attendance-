@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import AuroraField from '../three/AuroraField';
+import DateSelect from '../components/DateSelect';
+import TimeSelect from '../components/TimeSelect';
 
 // The post-check-in landing page — everything that happens between clocking
 // in and clocking out (breaks, status, correction requests, checkout) lives
@@ -529,22 +531,11 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Date</label>
-                    <input
-                      type="date"
-                      value={correctionDate}
-                      onChange={e => setCorrectionDate(e.target.value)}
-                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                      required
-                    />
+                    <DateSelect value={correctionDate} onChange={setCorrectionDate} required />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
-                    <input
-                      type="time"
-                      value={correctionTime}
-                      onChange={e => setCorrectionTime(e.target.value)}
-                      className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                    />
+                    <TimeSelect value={correctionTime} onChange={setCorrectionTime} />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Explanation</label>

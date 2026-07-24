@@ -92,7 +92,11 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
 
   // Attendance correction request modal
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
-  const [correctionType, setCorrectionType] = useState('missed_checkin');
+  // Starts empty (not pre-selected to the first option) so submitting
+  // without touching this field is impossible — the employee has to
+  // actually choose an issue type, not accidentally inherit whatever
+  // happened to be listed first.
+  const [correctionType, setCorrectionType] = useState('');
   const [correctionDate, setCorrectionDate] = useState('');
   const [correctionTime, setCorrectionTime] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
@@ -721,7 +725,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
 
   const handleSubmitCorrection = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!correctionDate || !correctionReason) return;
+    if (!correctionType || !correctionDate || !correctionReason) return;
     setCorrectionSubmitting(true);
     setError('');
     try {
@@ -741,6 +745,7 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to submit request');
       setCorrectionSubmitted(true);
+      setCorrectionType('');
       setCorrectionDate('');
       setCorrectionTime('');
       setCorrectionReason('');
@@ -1258,7 +1263,9 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                       value={correctionType}
                       onChange={e => setCorrectionType(e.target.value)}
                       className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
+                      required
                     >
+                      <option value="" disabled>Select an issue...</option>
                       <option value="missed_checkin">Missed Check-In</option>
                       <option value="missed_checkout">Missed Check-Out</option>
                       <option value="wrong_location">Wrong Location Flagged</option>

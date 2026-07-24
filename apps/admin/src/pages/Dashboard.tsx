@@ -16,6 +16,8 @@ import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
 import EmployeeDirectory from './EmployeeDirectory';
 import TeamsPage from './TeamsPage';
+import DateSelect from '../components/DateSelect';
+import TimeSelect from '../components/TimeSelect';
 import { useLedger } from './dashboard/hooks/useLedger';
 import { useSuperAdminData } from './dashboard/hooks/useSuperAdminData';
 import { useSelfService } from './dashboard/hooks/useSelfService';
@@ -1689,22 +1691,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Date</label>
-                            <input
-                              type="date"
-                              value={selfCorrectionDate}
-                              onChange={e => setSelfCorrectionDate(e.target.value)}
-                              className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                              required
-                            />
+                            <DateSelect value={selfCorrectionDate} onChange={setSelfCorrectionDate} required />
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Time (optional)</label>
-                            <input
-                              type="time"
-                              value={selfCorrectionTime}
-                              onChange={e => setSelfCorrectionTime(e.target.value)}
-                              className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                            />
+                            <TimeSelect value={selfCorrectionTime} onChange={setSelfCorrectionTime} />
                           </div>
                           <div>
                             <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Explanation</label>
@@ -2872,21 +2863,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Shift Start Time</label>
-                        <input 
-                          type="time"
-                          value={shiftStart}
-                          onChange={e => setShiftStart(e.target.value)}
-                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
-                        />
+                        <TimeSelect value={shiftStart} onChange={setShiftStart} />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Shift End Time</label>
-                        <input 
-                          type="time"
-                          value={shiftEnd}
-                          onChange={e => setShiftEnd(e.target.value)}
-                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
-                        />
+                        <TimeSelect value={shiftEnd} onChange={setShiftEnd} />
                         <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Expected clock-out time. Used for out-time and overtime calculations.</p>
                       </div>
                       <div>
@@ -3154,13 +3135,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)] mb-1">Holiday Calendar</h3>
                   <p className="text-[11px] text-[var(--color-nexus-muted)] mb-4">Days marked here show as "Holiday" instead of "Absent" in attendance status, for everyone in the organization.</p>
                   <form onSubmit={handleAddHoliday} className="flex flex-col sm:flex-row gap-3 mb-4">
-                    <input
-                      type="date"
-                      value={newHolidayDate}
-                      onChange={e => setNewHolidayDate(e.target.value)}
-                      className="px-4 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)]"
-                      required
-                    />
+                    <DateSelect value={newHolidayDate} onChange={setNewHolidayDate} required />
                     <input
                       type="text"
                       value={newHolidayName}

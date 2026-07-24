@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import DateSelect from './DateSelect';
 
 type Colleague = { id: number; name: string; designation?: string };
 
@@ -92,7 +93,7 @@ export default function ShiftSwapWidget({ colleagues }: { colleagues: Colleague[
           </div>
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Date</label>
-            <input type="date" value={swapDate} onChange={(e) => setSwapDate(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3 py-2.5 text-sm focus:outline-none" required />
+            <DateSelect value={swapDate} onChange={setSwapDate} required />
           </div>
           <button type="submit" disabled={submitting} className="rounded-xl bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold uppercase tracking-wider py-2.5 disabled:opacity-50">
             {submitting ? 'Sending…' : 'Propose'}

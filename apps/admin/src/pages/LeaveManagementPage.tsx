@@ -7,6 +7,7 @@ import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav'
 import LeaveBalanceCards from '../components/LeaveBalanceCards';
 import StatusPill from '../components/StatusPill';
 import { downloadCsv } from '../lib/csv';
+import DateSelect from '../components/DateSelect';
 
 const STATUS_TONE = {
   pending: 'warning',
@@ -973,7 +974,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               <form onSubmit={handleAddHoliday} className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="flex-1">
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Date</label>
-                  <input type="date" value={newHolidayDate} onChange={(e) => setNewHolidayDate(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                  <DateSelect value={newHolidayDate} onChange={setNewHolidayDate} required />
                 </div>
                 <div className="flex-[2]">
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Holiday Name</label>

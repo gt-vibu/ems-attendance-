@@ -28,7 +28,7 @@ export interface CompensationHistoryEntry {
 export default function CompensationHistoryList({ history, emptyLabel }: { history: CompensationHistoryEntry[]; emptyLabel: string }) {
   if (history.length === 0) {
     return (
-      <div className="nexus-card rounded-3xl p-12 text-center">
+      <div className="nexus-card rounded-2xl p-8 text-center">
         <History className="w-8 h-8 mx-auto mb-3 text-[var(--color-nexus-muted)]" />
         <p className="text-sm font-bold text-[var(--color-nexus-ink)]">No changes recorded</p>
         <p className="text-xs text-[var(--color-nexus-muted)] mt-1">{emptyLabel} Nil.</p>
@@ -39,7 +39,7 @@ export default function CompensationHistoryList({ history, emptyLabel }: { histo
   return (
     <div className="space-y-4">
       {history.map((entry) => (
-        <div key={entry.id} className="nexus-card rounded-3xl p-6">
+        <div key={entry.id} className="nexus-card rounded-2xl p-4">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${entry.isFirstSetup ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]' : 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]'}`}>

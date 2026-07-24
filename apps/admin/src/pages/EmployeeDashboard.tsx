@@ -16,6 +16,8 @@ import ShiftSwapWidget from '../components/ShiftSwapWidget';
 import MyActivityPanel from '../components/MyActivityPanel';
 import TicketsPanel from '../components/TicketsPanel';
 import PushNotificationToggle from '../components/PushNotificationToggle';
+import DateSelect from '../components/DateSelect';
+import TimeSelect from '../components/TimeSelect';
 
 type AttendanceCalendarStatus = 'present' | 'late' | 'half_day' | 'paid_leave' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
 
@@ -468,6 +470,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const handleSubmitLeaveRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!leavePolicyId || !leaveStartDate || !leaveEndDate || !leaveReason.trim()) return;
+    if (leaveEndDate < leaveStartDate) {
+      setError('End date cannot be before the start date.');
+      return;
+    }
     const selectedPolicy = leaveData?.policies?.find((policy: any) => String(policy.id) === leavePolicyId);
     setLeaveSubmitting(true);
     setError('');
@@ -1393,8 +1399,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1.5">Date</label>
                     <div className="grid grid-cols-2 gap-3">
-                      <input type="date" value={leaveStartDate} onChange={e => setLeaveStartDate(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-4 py-3 text-sm focus:outline-none" required />
-                      <input type="date" min={leaveStartDate || undefined} value={leaveEndDate} onChange={e => setLeaveEndDate(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-4 py-3 text-sm focus:outline-none" required />
+                      <DateSelect value={leaveStartDate} onChange={setLeaveStartDate} required />
+                      <DateSelect value={leaveEndDate} onChange={setLeaveEndDate} required />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1615,8 +1621,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   <select value={correctionType} onChange={e => setCorrectionType(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
                     <option value="missed_checkin">Missed Check-In</option><option value="missed_checkout">Missed Check-Out</option><option value="wrong_location">Wrong Location Flagged</option><option value="other">Other</option>
                   </select>
-                  <input type="date" value={correctionDate} onChange={e => setCorrectionDate(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]" required />
-                  <input type="time" value={correctionTime} onChange={e => setCorrectionTime(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]" />
+                  <DateSelect value={correctionDate} onChange={setCorrectionDate} required />
+                  <TimeSelect value={correctionTime} onChange={setCorrectionTime} />
                   <textarea value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} rows={3} placeholder="Explain what happened…" className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none" required />
                 </div>
                 <div className="flex gap-3 mt-6">

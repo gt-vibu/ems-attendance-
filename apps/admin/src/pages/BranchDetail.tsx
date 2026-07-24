@@ -7,6 +7,7 @@ import {
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import BranchFormModal, { branchToFormValue } from '../components/BranchFormModal';
+import TimeSelect from '../components/TimeSelect';
 
 type Tab = 'overview' | 'roster' | 'shifts' | 'trends' | 'settings';
 
@@ -286,11 +287,11 @@ export default function BranchDetail({ user }: { user: User }) {
               </div>
               <div>
                 <label className={labelClasses}>Check In</label>
-                <input type="time" className={inputClasses} value={shiftCheckIn} onChange={e => setShiftCheckIn(e.target.value)} />
+                <TimeSelect value={shiftCheckIn} onChange={setShiftCheckIn} />
               </div>
               <div>
                 <label className={labelClasses}>Check Out</label>
-                <input type="time" className={inputClasses} value={shiftCheckOut} onChange={e => setShiftCheckOut(e.target.value)} />
+                <TimeSelect value={shiftCheckOut} onChange={setShiftCheckOut} />
               </div>
               <button type="submit" disabled={shiftSaving} className="px-4 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors disabled:opacity-50">
                 {shiftSaving ? 'Adding…' : 'Add Shift'}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import AuroraField from '../three/AuroraField';
+import TimeSelect from '../components/TimeSelect';
 
 // Lazy so Leaflet is code-split out of the main bundle, same convention as
 // Dashboard.tsx's use of this component.
@@ -249,11 +250,11 @@ export default function BranchSetupWizard({ user, updateSession }: { user: User;
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                     <div>
                       <label className={labelClasses}>Shift Start</label>
-                      <input type="time" className={inputClasses} value={d.shiftStart} onChange={e => updateDraft(i, { shiftStart: e.target.value })} />
+                      <TimeSelect value={d.shiftStart} onChange={(v) => updateDraft(i, { shiftStart: v })} />
                     </div>
                     <div>
                       <label className={labelClasses}>Shift End</label>
-                      <input type="time" className={inputClasses} value={d.shiftEnd} onChange={e => updateDraft(i, { shiftEnd: e.target.value })} />
+                      <TimeSelect value={d.shiftEnd} onChange={(v) => updateDraft(i, { shiftEnd: v })} />
                     </div>
                     <div>
                       <label className={labelClasses}>Grace (mins)</label>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { User } from '../lib/auth';
 import PortalShell from '../components/PortalShell';
 import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
+import DateSelect from '../components/DateSelect';
 
 type PayrollWizardStep = 'salary' | 'statutory' | 'review';
 // This wizard is shared by two entry points that both write a compensation
@@ -438,7 +439,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                   <>
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Effective From</label>
-                      <input type="date" value={draft.effectiveFrom} onChange={(e) => updateDraft('effectiveFrom', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                      <DateSelect value={draft.effectiveFrom} onChange={(v) => updateDraft('effectiveFrom', v)} />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Overtime Hourly Rate</label>

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, ChevronRight, Banknote, CalendarDays, Pencil, Check } from 'lucide-react';
+import DateSelect from './DateSelect';
+import TimeSelect from './TimeSelect';
 
 // Reusable, self-contained employee detail overlay. Given just a userId, it
 // fetches everything it needs (basic profile, a navigable month calendar
@@ -495,7 +497,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                   </div>
                   <div>
                     <label className="block text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">Joined</label>
-                    <input type="date" value={editForm.dateOfJoining} onChange={(e) => setEditForm((f) => ({ ...f, dateOfJoining: e.target.value }))} className="w-full px-3 py-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-sm" />
+                    <DateSelect value={editForm.dateOfJoining} onChange={(v) => setEditForm((f) => ({ ...f, dateOfJoining: v }))} minYear={new Date().getFullYear() - 50} maxYear={new Date().getFullYear() + 1} />
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -568,11 +570,11 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-[var(--color-nexus-muted)] mb-1 uppercase tracking-wider">Start Date</label>
-                    <input type="date" value={overrideStart} onChange={(e) => setOverrideStart(e.target.value)} className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg text-sm text-[var(--color-nexus-ink)]" required />
+                    <DateSelect value={overrideStart} onChange={setOverrideStart} required />
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-[var(--color-nexus-muted)] mb-1 uppercase tracking-wider">End Date</label>
-                    <input type="date" value={overrideEnd} onChange={(e) => setOverrideEnd(e.target.value)} className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg text-sm text-[var(--color-nexus-ink)]" required />
+                    <DateSelect value={overrideEnd} onChange={setOverrideEnd} required />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-[var(--color-nexus-muted)] mb-1 uppercase tracking-wider">Reason (optional)</label>
@@ -690,9 +692,9 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                     </select>
                     {dayNewStatus === 'present' && (
                       <>
-                        <input type="time" value={dayCheckIn} onChange={(e) => setDayCheckIn(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                        <TimeSelect value={dayCheckIn} onChange={setDayCheckIn} />
                         <span className="text-[10px] text-[var(--color-nexus-muted)]">to</span>
-                        <input type="time" value={dayCheckOut} onChange={(e) => setDayCheckOut(e.target.value)} className="px-2 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg text-xs" />
+                        <TimeSelect value={dayCheckOut} onChange={setDayCheckOut} />
                       </>
                     )}
                   </div>
