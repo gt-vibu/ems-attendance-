@@ -237,7 +237,7 @@ export default function DemoPanel() {
                   type="checkbox" 
                   checked={lowConfidence}
                   onChange={(e) => setLowConfidence(e.target.checked)}
-                  className="rounded text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"
+                  className="rounded text-[var(--color-premium-warning)] focus:ring-[var(--color-premium-warning)] w-3.5 h-3.5"
                 />
                 <span className="font-sans text-xs font-semibold text-[var(--color-premium-muted)] flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5 text-[var(--color-premium-muted)]" />

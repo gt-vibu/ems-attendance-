@@ -1235,7 +1235,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                           </div>
                           <div className="rounded-xl p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]">
                             <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">On Leave Today</span>
-                            <span className="text-xl font-black text-blue-500 block mt-1">{teamOnLeave}</span>
+                            <span className="text-xl font-black text-[var(--color-nexus-primary)] block mt-1">{teamOnLeave}</span>
                           </div>
                         </div>
                         <div className="divide-y divide-[var(--color-nexus-border)]/50 max-h-72 overflow-y-auto pr-1">
@@ -1428,7 +1428,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                             <div className="space-y-0.5">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-[var(--color-nexus-ink)]">{r.userName || 'Employee'}</span>
-                                <span className="bg-blue-100 text-blue-700 text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md">WFH Geofence Change</span>
+                                <span className="bg-[var(--color-nexus-info-soft)] text-[var(--color-nexus-info)] text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md">WFH Geofence Change</span>
                               </div>
                               <p className="text-[var(--color-nexus-muted)] leading-relaxed">
                                 Requested geofence center to: <strong className="text-[var(--color-nexus-ink)]">{r.newAddress || `${Number(r.newLatitude).toFixed(4)}, ${Number(r.newLongitude).toFixed(4)}`}</strong>

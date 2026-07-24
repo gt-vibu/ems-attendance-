@@ -248,7 +248,7 @@ export default function BranchDetail({ user }: { user: User }) {
                       <td className="py-2 pr-4 font-semibold text-[var(--color-nexus-ink)]">{r.name}</td>
                       <td className="py-2 pr-4 text-[var(--color-nexus-muted)]">{r.role}</td>
                       <td className="py-2 pr-4 text-[var(--color-nexus-muted)]">{r.shift ? `${r.shift.name} (${r.shift.checkInTime}–${r.shift.checkOutTime})` : '—'}</td>
-                      <td className="py-2 pr-4">{r.checkedInToday ? <span className="text-green-500 font-semibold">Yes</span> : <span className="text-[var(--color-nexus-muted)]">No</span>}</td>
+                      <td className="py-2 pr-4">{r.checkedInToday ? <span className="text-[var(--color-nexus-success-text)] font-semibold">Yes</span> : <span className="text-[var(--color-nexus-muted)]">No</span>}</td>
                     </tr>
                   ))}
                   {(detail?.roster || []).length === 0 && (

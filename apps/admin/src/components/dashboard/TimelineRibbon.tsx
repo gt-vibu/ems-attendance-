@@ -39,56 +39,56 @@ export default function TimelineRibbon() {
   };
 
   const statusMeta = {
-    PRESENT: { color: 'bg-emerald-500 border-emerald-600', label: 'Geofence Present' },
-    BREAK: { color: 'bg-amber-500 border-amber-600', label: 'Declared Break' },
-    GPS_DISABLED: { color: 'bg-slate-400 border-slate-500', label: 'GPS Offline / Unknown' },
-    UNRECONCILED: { color: 'bg-rose-500 border-rose-600', label: 'Presence Discrepancy' }
+    PRESENT: { color: 'bg-[var(--color-nexus-success-text)] border-[var(--color-nexus-success-text)]', label: 'Geofence Present' },
+    BREAK: { color: 'bg-[var(--color-nexus-warning)] border-[var(--color-nexus-warning)]', label: 'Declared Break' },
+    GPS_DISABLED: { color: 'bg-[var(--color-nexus-muted)] border-[var(--color-nexus-muted)]', label: 'GPS Offline / Unknown' },
+    UNRECONCILED: { color: 'bg-[var(--color-nexus-error)] border-[var(--color-nexus-error)]', label: 'Presence Discrepancy' }
   };
 
   return (
-    <div className="bg-white/80 border border-slate-200/50 rounded-3xl p-6 shadow-lg max-w-4xl mx-auto backdrop-blur-md">
+    <div className="bg-[var(--color-nexus-surface)]/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-lg max-w-4xl mx-auto backdrop-blur-md">
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h4 className="font-sans font-bold text-sm tracking-tight text-slate-950 uppercase flex items-center gap-1.5">
-            <Clock className="w-4 h-4 text-slate-700" />
+          <h4 className="font-sans font-bold text-sm tracking-tight text-[var(--color-nexus-ink)] uppercase flex items-center gap-1.5">
+            <Clock className="w-4 h-4 text-[var(--color-nexus-muted)]" />
             Presence Timeline Ribbon
           </h4>
-          <span className="font-mono text-[9px] tracking-widest text-slate-400 font-semibold uppercase block">
+          <span className="font-mono text-[9px] tracking-widest text-[var(--color-nexus-muted)] font-semibold uppercase block">
             12-Hour Continuous Telemetry Stream (09:00 AM - 05:00 PM)
           </span>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span className="font-mono text-[9px] text-slate-500 uppercase font-bold">Present</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-nexus-success-text)]" />
+            <span className="font-mono text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold">Present</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span className="font-mono text-[9px] text-slate-500 uppercase font-bold">Break</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-nexus-warning)]" />
+            <span className="font-mono text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold">Break</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-            <span className="font-mono text-[9px] text-slate-500 uppercase font-bold">Offline</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-nexus-muted)]" />
+            <span className="font-mono text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold">Offline</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-            <span className="font-mono text-[9px] text-slate-500 uppercase font-bold">Anomaly</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-nexus-error)]" />
+            <span className="font-mono text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold">Anomaly</span>
           </div>
         </div>
       </div>
 
       {/* Main timeline interactive ribbon track container */}
-      <div 
+      <div
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoveredEvent(null)}
-        className="relative h-12 w-full bg-slate-100 rounded-2xl border border-slate-200/30 shadow-inner overflow-hidden cursor-crosshair flex"
+        className="relative h-12 w-full bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]/30 shadow-inner overflow-hidden cursor-crosshair flex"
       >
         {events.map((event, index) => (
           <div
             key={index}
             id={`timeline-event-seg-${index}`}
             onMouseEnter={() => setHoveredEvent(event)}
-            className={`h-full border-r border-white/20 transition-all duration-300 ${statusMeta[event.status].color}`}
+            className={`h-full border-r border-[var(--color-nexus-surface)]/20 transition-all duration-300 ${statusMeta[event.status].color}`}
             style={{ width: `${event.width}%` }}
           />
         ))}
@@ -96,7 +96,7 @@ export default function TimelineRibbon() {
         {/* Moving vertical timeline line scrubber */}
         {hoveredEvent && (
           <motion.div
-            className="absolute top-0 bottom-0 w-[1.5px] bg-slate-950/80 shadow-[0_0_8px_#020617] pointer-events-none"
+            className="absolute top-0 bottom-0 w-[1.5px] bg-[var(--color-nexus-ink)]/80 shadow-[0_0_8px_#020617] pointer-events-none"
             style={{ left: mousePos.x }}
             animate={{ x: 0 }}
           />
@@ -104,7 +104,7 @@ export default function TimelineRibbon() {
       </div>
 
       {/* Ribbon Axis Tick Marks */}
-      <div className="flex justify-between px-1.5 mt-2 text-[9px] font-mono text-slate-400 font-semibold tracking-wider border-b border-slate-100 pb-2 mb-3">
+      <div className="flex justify-between px-1.5 mt-2 text-[9px] font-mono text-[var(--color-nexus-muted)] font-semibold tracking-wider border-b border-[var(--color-nexus-border)] pb-2 mb-3">
         <span>09:00 AM</span>
         <span>11:00 AM</span>
         <span>01:00 PM</span>
@@ -118,30 +118,30 @@ export default function TimelineRibbon() {
           <motion.div
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/50"
+            className="w-full flex items-start gap-3 p-3 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]/50"
           >
-            {hoveredEvent.status === 'PRESENT' && <ShieldCheck className="w-4.5 h-4.5 text-emerald-500 shrink-0 mt-0.5" />}
-            {hoveredEvent.status === 'BREAK' && <Clock className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />}
-            {hoveredEvent.status === 'GPS_DISABLED' && <HelpCircle className="w-4.5 h-4.5 text-slate-400 shrink-0 mt-0.5" />}
-            {hoveredEvent.status === 'UNRECONCILED' && <AlertTriangle className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />}
+            {hoveredEvent.status === 'PRESENT' && <ShieldCheck className="w-4.5 h-4.5 text-[var(--color-nexus-success-text)] shrink-0 mt-0.5" />}
+            {hoveredEvent.status === 'BREAK' && <Clock className="w-4.5 h-4.5 text-[var(--color-nexus-warning)] shrink-0 mt-0.5" />}
+            {hoveredEvent.status === 'GPS_DISABLED' && <HelpCircle className="w-4.5 h-4.5 text-[var(--color-nexus-muted)] shrink-0 mt-0.5" />}
+            {hoveredEvent.status === 'UNRECONCILED' && <AlertTriangle className="w-4.5 h-4.5 text-[var(--color-nexus-error)] shrink-0 mt-0.5" />}
 
             <div className="grid grid-cols-3 w-full gap-4 text-xs">
               <div className="col-span-1">
-                <span className="block font-mono text-[9px] text-slate-400 font-bold uppercase">TELEMETRY_TIMESTAMP</span>
-                <span className="font-mono font-black text-slate-950">{hoveredEvent.time}</span>
+                <span className="block font-mono text-[9px] text-[var(--color-nexus-muted)] font-bold uppercase">TELEMETRY_TIMESTAMP</span>
+                <span className="font-mono font-black text-[var(--color-nexus-ink)]">{hoveredEvent.time}</span>
               </div>
               <div className="col-span-1">
-                <span className="block font-mono text-[9px] text-slate-400 font-bold uppercase">STATUS_INTERPRETER</span>
-                <span className="font-sans font-semibold text-slate-800">{hoveredEvent.label}</span>
+                <span className="block font-mono text-[9px] text-[var(--color-nexus-muted)] font-bold uppercase">STATUS_INTERPRETER</span>
+                <span className="font-sans font-semibold text-[var(--color-nexus-ink)]">{hoveredEvent.label}</span>
               </div>
               <div className="col-span-1">
-                <span className="block font-mono text-[9px] text-slate-400 font-bold uppercase">ACTIVE_EVIDENCE</span>
-                <span className="font-sans text-slate-500 leading-tight block">{hoveredEvent.desc}</span>
+                <span className="block font-mono text-[9px] text-[var(--color-nexus-muted)] font-bold uppercase">ACTIVE_EVIDENCE</span>
+                <span className="font-sans text-[var(--color-nexus-muted)] leading-tight block">{hoveredEvent.desc}</span>
               </div>
             </div>
           </motion.div>
         ) : (
-          <p className="font-sans text-xs text-slate-400 flex items-center gap-1.5 italic">
+          <p className="font-sans text-xs text-[var(--color-nexus-muted)] flex items-center gap-1.5 italic">
             <Clock className="w-3.5 h-3.5" />
             Hover or scrub over any segment of the ribbon to inspect exact presence logs.
           </p>

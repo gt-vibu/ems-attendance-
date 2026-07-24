@@ -100,20 +100,20 @@ export default function PolicyBuilderView() {
   };
 
   return (
-    <div className="bg-white/80 border border-slate-200/50 rounded-3xl p-6 shadow-xl max-w-5xl mx-auto backdrop-blur-md">
-      
+    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-xl max-w-5xl mx-auto backdrop-blur-md">
+
       {/* Container Header */}
-      <div className="flex justify-between items-center mb-6 pb-3 border-b border-slate-200/40">
+      <div className="flex justify-between items-center mb-6 pb-3 border-b border-[var(--color-nexus-border)]/40">
         <div>
-          <h4 className="font-sans font-bold text-sm tracking-tight text-slate-950 uppercase flex items-center gap-1.5">
-            <Sparkles className="text-indigo-500 w-4.5 h-4.5 animate-pulse" />
+          <h4 className="font-sans font-bold text-sm tracking-tight text-[var(--color-nexus-ink)] uppercase flex items-center gap-1.5">
+            <Sparkles className="text-[var(--color-nexus-ai-accent)] w-4.5 h-4.5 animate-pulse" />
             AI Policy Builder & Rule Engine
           </h4>
-          <span className="font-mono text-[9px] tracking-widest text-slate-400 font-semibold uppercase">
+          <span className="font-mono text-[9px] tracking-widest text-[var(--color-nexus-muted)] font-semibold uppercase">
             Compile English specifications into validated JSON policies (v2.4.1)
           </span>
         </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-100 text-[10px] font-mono font-bold">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-nexus-ai-accent-soft)] text-[var(--color-nexus-ai-accent)] border border-[var(--color-nexus-ai-accent-soft)] text-[10px] font-mono font-bold">
           <Terminal className="w-3 h-3" />
           LLM_TRANSLATION_CORE
         </div>
@@ -124,13 +124,13 @@ export default function PolicyBuilderView() {
         {/* Left Column: Input and templates */}
         <div className="lg:col-span-7 space-y-6">
           <div className="space-y-2">
-            <label className="font-mono text-[10px] tracking-wider text-slate-400 font-bold uppercase block">
+            <label className="font-mono text-[10px] tracking-wider text-[var(--color-nexus-muted)] font-bold uppercase block">
               Describe attendance policy in plain english
             </label>
             <div className="relative">
               <textarea
                 placeholder="Ex. Allow 15 minutes of late grace for morning shift employees..."
-                className="w-full h-24 bg-slate-50 border border-slate-200 focus:border-slate-400 focus:outline-none rounded-2xl p-4 text-xs text-slate-700 placeholder-slate-400 resize-none font-sans"
+                className="w-full h-24 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] focus:border-[var(--color-nexus-muted)] focus:outline-none rounded-2xl p-4 text-xs text-[var(--color-nexus-ink)] placeholder-[var(--color-nexus-muted)] resize-none font-sans"
                 value={nlInput}
                 onChange={(e) => setNlInput(e.target.value)}
               />
@@ -140,8 +140,8 @@ export default function PolicyBuilderView() {
                 id="btn-execute-translation"
                 className={`absolute bottom-3 right-3 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-bold tracking-wide shadow-md transition-all duration-300 ${
                   translating || !nlInput.trim()
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-[1.03]'
+                    ? 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] cursor-not-allowed'
+                    : 'bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] hover:scale-[1.03]'
                 }`}
               >
                 <Sparkles className="w-3 h-3 animate-pulse" />
@@ -152,7 +152,7 @@ export default function PolicyBuilderView() {
 
           {/* Quick templates / prompts */}
           <div className="space-y-2">
-            <span className="font-mono text-[9px] tracking-wider text-slate-400 font-bold uppercase block">
+            <span className="font-mono text-[9px] tracking-wider text-[var(--color-nexus-muted)] font-bold uppercase block">
               Suggested policy presets (click to load)
             </span>
             <div className="space-y-1.5">
@@ -161,9 +161,9 @@ export default function PolicyBuilderView() {
                   key={i}
                   id={`preset-tpl-btn-${i}`}
                   onClick={() => handleTemplateClick(tpl.prompt)}
-                  className="w-full text-left p-2.5 rounded-xl border border-slate-150 bg-white/50 hover:bg-white text-[11px] font-sans text-slate-600 hover:text-slate-900 transition-all duration-300 flex gap-2 items-center"
+                  className="w-full text-left p-2.5 rounded-xl border border-[var(--color-nexus-border)] bg-white/50 hover:bg-white text-[11px] font-sans text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] transition-all duration-300 flex gap-2 items-center"
                 >
-                  <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <Cpu className="w-3.5 h-3.5 text-[var(--color-nexus-primary)] shrink-0" />
                   <span className="truncate">{tpl.prompt}</span>
                 </button>
               ))}
@@ -172,7 +172,7 @@ export default function PolicyBuilderView() {
 
           {/* Rule ledger / listings */}
           <div className="space-y-3">
-            <span className="font-mono text-[9px] tracking-wider text-slate-400 font-bold uppercase block border-b border-slate-100 pb-1">
+            <span className="font-mono text-[9px] tracking-wider text-[var(--color-nexus-muted)] font-bold uppercase block border-b border-[var(--color-nexus-border)] pb-1">
               Active compiled policy rules
             </span>
             <div className="space-y-2.5">
@@ -182,27 +182,27 @@ export default function PolicyBuilderView() {
                   onClick={() => setActiveJsonIndex(idx)}
                   className={`p-3.5 rounded-2xl border transition-all duration-300 flex items-start justify-between cursor-pointer ${
                     activeJsonIndex === idx
-                      ? 'bg-indigo-50/10 border-indigo-200'
-                      : 'bg-white border-slate-200/60'
+                      ? 'bg-[var(--color-nexus-primary-fixed)]/10 border-[var(--color-nexus-primary-fixed)]'
+                      : 'bg-white border-[var(--color-nexus-border)]/60'
                   }`}
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[9px] uppercase font-bold text-slate-400">
+                      <span className="font-mono text-[9px] uppercase font-bold text-[var(--color-nexus-muted)]">
                         {rule.category}
                       </span>
-                      <h5 className="font-sans font-bold text-xs text-slate-900">{rule.name}</h5>
+                      <h5 className="font-sans font-bold text-xs text-[var(--color-nexus-ink)]">{rule.name}</h5>
                     </div>
-                    <p className="font-sans text-[11px] text-slate-500 max-w-md">{rule.description}</p>
+                    <p className="font-sans text-[11px] text-[var(--color-nexus-muted)] max-w-md">{rule.description}</p>
                   </div>
-                  
+
                   {/* Status Toggle & Delete button */}
                   <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => handleToggleRule(idx)}
                       id={`rule-toggle-btn-${idx}`}
                       className={`relative w-9 h-5 rounded-full transition-colors duration-300 cursor-pointer ${
-                        rule.active ? 'bg-indigo-600' : 'bg-slate-200'
+                        rule.active ? 'bg-[var(--color-nexus-primary)]' : 'bg-[var(--color-nexus-surface-sunken)]'
                       }`}
                     >
                       <motion.div
@@ -214,7 +214,7 @@ export default function PolicyBuilderView() {
                     <button
                       onClick={() => handleDeleteRule(idx)}
                       id={`rule-delete-btn-${idx}`}
-                      className="text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                      className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-error)] transition-colors cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -227,13 +227,13 @@ export default function PolicyBuilderView() {
 
         {/* Right Column: Code inspector */}
         <div className="lg:col-span-5 flex flex-col h-full">
-          <div className="flex-1 border border-slate-200 rounded-3xl bg-slate-950 text-slate-300 p-5 font-mono text-xs overflow-hidden flex flex-col shadow-inner relative">
-            <div className="absolute top-0 right-0 p-3 text-[8px] text-slate-500 tracking-widest uppercase font-bold">
+          <div className="flex-1 border border-[var(--color-nexus-border)] rounded-3xl bg-[var(--color-nexus-ink)] text-[var(--color-nexus-surface-alt)] p-5 font-mono text-xs overflow-hidden flex flex-col shadow-inner relative">
+            <div className="absolute top-0 right-0 p-3 text-[8px] text-[var(--color-nexus-muted)] tracking-widest uppercase font-bold">
               POLICY_SCHEMA_JSON
             </div>
-            
-            <div className="flex items-center gap-1.5 text-slate-400 border-b border-slate-800 pb-3 mb-4 shrink-0">
-              <FileJson className="w-4 h-4 text-indigo-400" />
+
+            <div className="flex items-center gap-1.5 text-[var(--color-nexus-muted)] border-b border-[var(--color-nexus-border)]/20 pb-3 mb-4 shrink-0">
+              <FileJson className="w-4 h-4 text-[var(--color-nexus-primary)]" />
               <span>policyVersion: v2.4.1</span>
             </div>
 
@@ -247,10 +247,10 @@ export default function PolicyBuilderView() {
                   exit={{ opacity: 0 }}
                   className="flex-1 flex flex-col items-center justify-center text-center space-y-3"
                 >
-                  <Cpu className="w-8 h-8 text-indigo-400 animate-spin" />
+                  <Cpu className="w-8 h-8 text-[var(--color-nexus-ai-accent)] animate-spin" />
                   <div className="space-y-1">
                     <p className="font-bold text-white text-xs">Translating English Statement...</p>
-                    <p className="text-[10px] text-slate-500">Mapping tokens into conditional rule actions</p>
+                    <p className="text-[10px] text-[var(--color-nexus-muted)]">Mapping tokens into conditional rule actions</p>
                   </div>
                 </motion.div>
               ) : activeJsonIndex !== null && rules[activeJsonIndex] ? (
@@ -258,7 +258,7 @@ export default function PolicyBuilderView() {
                   key="json-view"
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex-1 overflow-auto text-[11px] leading-relaxed text-indigo-200"
+                  className="flex-1 overflow-auto text-[11px] leading-relaxed text-[var(--color-nexus-primary-fixed)]"
                 >
                   <pre className="whitespace-pre-wrap font-mono">
                     {`{
@@ -281,10 +281,10 @@ export default function PolicyBuilderView() {
                   </pre>
                 </motion.div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center text-slate-500">
-                  <ScrollText className="w-8 h-8 text-slate-700 mb-2" />
+                <div className="flex-1 flex flex-col items-center justify-center text-center text-[var(--color-nexus-muted)]">
+                  <ScrollText className="w-8 h-8 text-[var(--color-nexus-muted)] mb-2" />
                   <p className="text-xs">No active rule selected.</p>
-                  <p className="text-[10px] text-slate-600">Select a compiled policy card to inspect its JSON schema definition.</p>
+                  <p className="text-[10px] text-[var(--color-nexus-muted)]">Select a compiled policy card to inspect its JSON schema definition.</p>
                 </div>
               )}
             </AnimatePresence>
