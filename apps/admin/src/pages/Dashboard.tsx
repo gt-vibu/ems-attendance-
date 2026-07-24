@@ -73,18 +73,29 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // doesn't actually have access to, instead of showing the tab and letting
   // the page itself render "Access Denied" (e.g. a manager who wasn't
   // granted payroll.read/payroll.manage). 'ALL' (super_admin/tenant_admin)
-  // always passes every check. Starts as 'ALL' so nothing flashes hidden
-  // then reappears for the two admin tiers while this loads.
-  const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>('ALL');
+  // always passes every check. Starts as 'ALL' ONLY for tenant_admin (who
+  // provably holds every privilege by role, no fetch needed to confirm it)
+  // so their nav doesn't flash hidden-then-shown while this loads. Every
+  // other role starts empty/fail-closed — defaulting to 'ALL' for everyone
+  // used to mean a manager or custom-role employee with, say, one granted
+  // privilege would see the ENTIRE privileged surface (every tile, every
+  // tab) for the brief window before this fetch resolved, which is a real
+  // RBAC leak, not just a cosmetic flash, since a fast click during that
+  // window could reach a tile they were never meant to see at all.
+  const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>(user.role === 'tenant_admin' ? 'ALL' : []);
   useEffect(() => {
     fetch('/api/tenant/my-privileges', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => { if (d.privileges) setMyPrivileges(d.privileges); })
       .catch(() => {
-        // Network hiccup — default already permissive ('ALL') so a
-        // temporary failure never spuriously hides nav items for an admin;
-        // for anyone else the underlying page's own privilege check still
-        // protects the data even if a hidden tab briefly shows.
+        // Network hiccup — for tenant_admin the default is already
+        // permissive ('ALL'), so a temporary failure never spuriously
+        // hides their nav. For everyone else the default is empty/
+        // fail-closed, so a failed fetch here means those tiles simply
+        // stay hidden rather than risk showing something they shouldn't
+        // have access to — a stuck-closed nav is a bug report, a
+        // stuck-open one is a security report, and only one of those is
+        // acceptable as a fallback.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2382,14 +2393,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 {showOtherOptions && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { id: 'corrections', label: 'Corrections', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length },
-                      { id: 'late-arrivals', label: 'Late Arrivals & WFH', icon: Clock, count: pendingAttendance.length },
-                      { id: 'wfh-locations', label: 'WFH Location Requests', icon: MapPin, count: wfhLocationRequests.length },
-                      { id: 'wfh-ledger', label: 'WFH Ledger', icon: ClipboardCheck },
-                      { id: 'qr-attendance', label: 'QR Attendance', icon: QrCode },
-                      { id: 'qr-logs', label: 'QR Attendance Logs', icon: ScanLine },
-                      { id: 'violations', label: 'Timing Violations', icon: AlertTriangle, count: attendanceAlerts.filter(a => a.status === 'pending').length },
-                    ].map((opt) => {
+                      { id: 'corrections', label: 'Corrections', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length, visible: hasAnyPrivilege('attendance.approve.corrections', 'attendance.approve') },
+                      { id: 'late-arrivals', label: 'Late Arrivals & WFH', icon: Clock, count: pendingAttendance.length, visible: hasAnyPrivilege('attendance.approve.late_arrival', 'attendance.approve.wfh', 'attendance.approve') },
+                      { id: 'wfh-locations', label: 'WFH Location Requests', icon: MapPin, count: wfhLocationRequests.length, visible: hasAnyPrivilege('attendance.approve.wfh', 'attendance.approve') },
+                      { id: 'wfh-ledger', label: 'WFH Ledger', icon: ClipboardCheck, visible: hasAnyPrivilege('wfh.view_logs') },
+                      { id: 'qr-attendance', label: 'QR Attendance', icon: QrCode, visible: hasAnyPrivilege('attendance.qr.generate', 'attendance.qr.display') },
+                      { id: 'qr-logs', label: 'QR Attendance Logs', icon: ScanLine, visible: hasAnyPrivilege('attendance.qr.view_logs') },
+                      { id: 'violations', label: 'Timing Violations', icon: AlertTriangle, count: attendanceAlerts.filter(a => a.status === 'pending').length, visible: hasAnyPrivilege('alerts.receive', 'alerts.break_violation.receive', 'alerts.geofence_exit.receive', 'alerts.security.receive', 'alerts.low_attendance.receive') },
+                    ].filter((opt) => opt.visible).map((opt) => {
                       const Icon = opt.icon;
                       const isActive = otherOptionsTab === opt.id;
                       return (
@@ -2409,12 +2420,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         </button>
                       );
                     })}
-                    <button type="button" onClick={() => navigate('/tenant/leave')} className="text-left nexus-card  rounded-2xl p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <CalendarDays size={18} className="text-[var(--color-nexus-primary)]" />
-                      </div>
-                      <span className="text-xs font-bold block">Leave Management</span>
-                    </button>
+                    {hasAnyPrivilege('leave.read', 'leave.approve') && (
+                      <button type="button" onClick={() => navigate('/tenant/leave')} className="text-left nexus-card  rounded-2xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <CalendarDays size={18} className="text-[var(--color-nexus-primary)]" />
+                        </div>
+                        <span className="text-xs font-bold block">Leave Management</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2686,17 +2699,20 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
-                    { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck },
-                    { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches' },
-                    { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles' },
-                    { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length },
-                    { id: 'notifications', label: 'Notifications', icon: Bell, count: notifications.filter((n: any) => !n.isRead).length },
-                    { id: 'ledger', label: 'Audit Ledger', icon: ScrollText },
-                    ...(hasTerminationAccess ? [{ id: 'terminations', label: 'Termination Requests', icon: UserX, count: terminationRequests.length }] : []),
-                    ...(hasShiftSwapAccess ? [{ id: 'shift-swaps', label: 'Shift Swap Requests', icon: Clock, count: shiftSwapRequests.length }] : []),
-                    { id: 'tickets', label: 'Tickets', icon: Ticket },
-                    { id: 'org-chart', label: 'Org Chart', icon: Users2 },
-                  ].map((opt) => {
+                    { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck, visible: hasAnyPrivilege('tenant.config.manage') },
+                    { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
+                    { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
+                    { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: hasAnyPrivilege('settings.edit') },
+                    // Notifications and Org Chart are informational/personal
+                    // rather than tied to a specific management privilege —
+                    // visible to anyone who can reach Administration at all.
+                    { id: 'notifications', label: 'Notifications', icon: Bell, count: notifications.filter((n: any) => !n.isRead).length, visible: true },
+                    { id: 'ledger', label: 'Audit Ledger', icon: ScrollText, visible: hasAnyPrivilege('reports.view') },
+                    ...(hasTerminationAccess ? [{ id: 'terminations', label: 'Termination Requests', icon: UserX, count: terminationRequests.length, visible: true }] : []),
+                    ...(hasShiftSwapAccess ? [{ id: 'shift-swaps', label: 'Shift Swap Requests', icon: Clock, count: shiftSwapRequests.length, visible: true }] : []),
+                    { id: 'tickets', label: 'Tickets', icon: Ticket, visible: hasAnyPrivilege('tickets.manage') },
+                    { id: 'org-chart', label: 'Org Chart', icon: Users2, visible: true },
+                  ].filter((opt) => opt.visible).map((opt) => {
                     const Icon = opt.icon;
                     const isActive = adminSubTab === opt.id;
                     return (
