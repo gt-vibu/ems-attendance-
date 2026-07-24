@@ -22,13 +22,13 @@ import { describeCameraError } from '../lib/cameraError';
 // fewer frames doesn't weaken what's actually being checked — blink is the
 // only one that needs at least 2 to compare against.
 const KYC_STEPS: { key: string; title: string; instruction: string; frameCount: number }[] = [
-  { key: 'look_center', title: 'Look straight ahead', instruction: 'Center your face in the frame and look directly at the camera.', frameCount: 5 },
-  { key: 'turn_left', title: 'Turn left', instruction: 'Slowly turn your head to your left.', frameCount: 5 },
-  { key: 'turn_right', title: 'Turn right', instruction: 'Slowly turn your head to your right.', frameCount: 5 },
-  { key: 'look_up', title: 'Look up', instruction: 'Tilt your head up slightly.', frameCount: 5 },
-  { key: 'smile', title: 'Smile', instruction: 'Give a natural smile.', frameCount: 5 },
-  { key: 'open_mouth', title: 'Open your mouth', instruction: 'Open your mouth like you are about to say "ah".', frameCount: 5 },
-  { key: 'blink', title: 'Blink', instruction: 'Blink naturally a couple of times.', frameCount: 5 },
+  { key: 'look_center', title: 'Look straight ahead', instruction: 'Center your face in the frame and look directly at the camera.', frameCount: 3 },
+  { key: 'turn_left', title: 'Turn left', instruction: 'Slowly turn your head to your left.', frameCount: 3 },
+  { key: 'turn_right', title: 'Turn right', instruction: 'Slowly turn your head to your right.', frameCount: 3 },
+  { key: 'look_up', title: 'Look up', instruction: 'Tilt your head up slightly.', frameCount: 2 },
+  { key: 'smile', title: 'Smile', instruction: 'Give a natural smile.', frameCount: 2 },
+  { key: 'open_mouth', title: 'Open your mouth', instruction: 'Open your mouth like you are about to say "ah".', frameCount: 2 },
+  { key: 'blink', title: 'Blink', instruction: 'Blink naturally a couple of times.', frameCount: 3 },
 ];
 
 type KycStep = (typeof KYC_STEPS)[number];
