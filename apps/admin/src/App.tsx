@@ -25,17 +25,42 @@ import BottomNav from './components/BottomNav';
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
-// A one-time fade + slight rise as each section scrolls into view — this is
-// the one deliberately-kept motion effect. It's not a continuous loop or a
-// scroll-linked parallax: `viewport: { once: true }` means it plays once
-// and then the section just sits there like a normal static page, which is
-// what "content must move up as we scroll" is asking for.
-const revealOnScroll = (delay = 0) => ({
-  initial: { opacity: 0, y: 24 },
+// One-time entrance animations as each section scrolls into view — the
+// page itself is static (no pinned backgrounds, no continuous loops, no
+// scroll-linked parallax); `viewport: { once: true }` means each of these
+// plays once and then just sits there. Several distinct variants so
+// different sections don't all move identically.
+const revealUp = (delay = 0) => ({
+  initial: { opacity: 0, y: 28 },
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, margin: '-10% 0px' },
   transition: { duration: 0.6, ease: EASE_OUT, delay },
 });
+
+const revealFromLeft = (delay = 0) => ({
+  initial: { opacity: 0, x: -36 },
+  whileInView: { opacity: 1, x: 0 },
+  viewport: { once: true, margin: '-10% 0px' },
+  transition: { duration: 0.65, ease: EASE_OUT, delay },
+});
+
+const revealFromRight = (delay = 0) => ({
+  initial: { opacity: 0, x: 36 },
+  whileInView: { opacity: 1, x: 0 },
+  viewport: { once: true, margin: '-10% 0px' },
+  transition: { duration: 0.65, ease: EASE_OUT, delay },
+});
+
+const revealScaleUp = (delay = 0) => ({
+  initial: { opacity: 0, scale: 0.92 },
+  whileInView: { opacity: 1, scale: 1 },
+  viewport: { once: true, margin: '-10% 0px' },
+  transition: { duration: 0.55, ease: EASE_OUT, delay },
+});
+
+// Kept as an alias so the rest of the file (mid-page sections already
+// wired to it) doesn't need touching.
+const revealOnScroll = revealUp;
 
 const SESSION_LABELS: Record<string, string> = {
   NOT_STARTED: 'Not started',
@@ -124,7 +149,7 @@ export default function App() {
       {/* HERO — a normal (non-sticky, non-pinned) section. Copy on the left,
           a static product preview on the right instead of a 3D scene. */}
       <section className="max-w-7xl mx-auto px-6 pt-16 pb-20 md:pt-24 md:pb-28 grid md:grid-cols-2 gap-12 items-center">
-        <div className="space-y-8 text-center md:text-left">
+        <motion.div {...revealFromLeft()} className="space-y-8 text-center md:text-left">
           <div className="space-y-4">
             <span className="text-xs text-[var(--color-premium-accent)] font-bold uppercase tracking-widest">
               Attendance you can prove
@@ -177,13 +202,15 @@ export default function App() {
               </span>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        <HeroPreview />
+        <motion.div {...revealFromRight(0.1)}>
+          <HeroPreview />
+        </motion.div>
       </section>
 
       {/* STATE FLOW — static grid replacing the previous 3D orbit. */}
-      <motion.section {...revealOnScroll()} className="py-16 md:py-20">
+      <motion.section {...revealScaleUp()} className="py-16 md:py-20">
         <StateFlowStrip />
       </motion.section>
 
@@ -236,7 +263,7 @@ export default function App() {
       </section>
 
       {/* HOW IT WORKS — static step flow replacing the previous 3D path. */}
-      <motion.section {...revealOnScroll()} id="how-it-works" className="py-20 px-6 max-w-7xl mx-auto scroll-mt-28">
+      <motion.section {...revealFromLeft()} id="how-it-works" className="py-20 px-6 max-w-7xl mx-auto scroll-mt-28">
         <ProcessSteps />
       </motion.section>
 
