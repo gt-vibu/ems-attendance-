@@ -60,9 +60,20 @@ router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Access denied: This branch does not belong to your organization.' });
     }
 
-    const scopedBranchIds = await getScopedBranchIds(req.user);
-    if (scopedBranchIds !== null && !scopedBranchIds.includes(branchId)) {
-      return res.status(403).json({ error: 'Access denied: You are not scoped to this branch.' });
+    // SECURITY: this response includes the full roster's names/emails plus
+    // today's attendance — getScopedBranchIds() returns null both for
+    // unrestricted admins AND for a non-admin with no branchId assigned,
+    // so null alone can't be trusted as "unrestricted" here (that previously
+    // let any branchId-less custom role pull any branch's roster/emails by
+    // guessing an ID). Require actual branch.manage, or genuine membership
+    // in the caller's own scoped branch set.
+    const isUnrestrictedAdmin = req.user.role === 'super_admin' || req.user.role === 'tenant_admin';
+    if (!isUnrestrictedAdmin) {
+      const scopedBranchIds = await getScopedBranchIds(req.user);
+      const isInOwnScope = scopedBranchIds !== null && scopedBranchIds.includes(branchId);
+      if (!isInOwnScope && !(await hasPrivilege(req.user, 'branch.manage'))) {
+        return res.status(403).json({ error: 'Access denied: You are not scoped to this branch.' });
+      }
     }
 
     const roster = await db.select().from(schema.users)
