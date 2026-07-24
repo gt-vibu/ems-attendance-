@@ -30,7 +30,7 @@
     "@sentry/node": "^10.66.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
-    "@tailwindcss/vite": "^4.1.14",
+    "@tailwindcss/vite": "4.1.14",
     "@tanstack/react-table": "^8.21.3",
     "@types/pdfkit": "^0.17.6",
     "@types/three": "^0.185.0",
@@ -82,7 +82,7 @@
     "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
+    "tailwindcss": "4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"

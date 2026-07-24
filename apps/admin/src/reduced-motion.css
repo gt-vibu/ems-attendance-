@@ -1,0 +1,16 @@
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-mesh-bg,
+  .premium-gradient-bg,
+  .float-a, .float-b, .float-c,
+  .pulse-ring, .rise-in, .draw-in,
+  .animate-bounce-slow, .animate-fade-in-up, .animate-fade-scale-down,
+  .animate-spin-slow, .scan-line {
+    animation: none !important;
+  }
+  .draw-in { stroke-dashoffset: 0 !important; }
+  .card-3d { transition: none; }
+  .card-3d:hover { transform: none; box-shadow: var(--shadow-elevation-1); }
+  .card-3d { --tilt-x: 0deg !important; --tilt-y: 0deg !important; --tilt-lift: 0px !important; }
+  .reveal-on-scroll { opacity: 1 !important; transform: none !important; transition: none !important; }
+}

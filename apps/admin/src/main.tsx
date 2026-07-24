@@ -7,6 +7,11 @@ import {createRoot} from 'react-dom/client';
 import AdminApp from './AdminApp';
 import { initCardTilt } from './lib/cardTilt';
 import './index.css';
+// Loaded as a separate JS-level stylesheet import (not a CSS @import inside
+// index.css) — co-locating this @media block inside index.css alongside the
+// @theme block reproducibly triggered a Tailwind v4.3.2 CSS-engine bug (see
+// reduced-motion.css's own header comment for the full story).
+import './reduced-motion.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
