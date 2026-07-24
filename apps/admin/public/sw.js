@@ -31,7 +31,7 @@
 // caching STRATEGY itself changes, to force old installs to drop any
 // caches keyed under the previous logic.
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const STATIC_CACHE = `smart-teams-static-${VERSION}`;
 const MODEL_CACHE = `smart-teams-models-${VERSION}`;
 
@@ -179,7 +179,18 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => cached);
-      return cached || networkFetch;
+      const result = cached || (await networkFetch);
+      // Same failure mode as the navigation branch above: if this was never
+      // cached (e.g. old cached HTML referencing a bundle hash that no
+      // longer exists after a fresh deploy) AND the network fetch also
+      // fails, `result` is undefined here — event.respondWith() requires a
+      // real Response, or it throws "Failed to convert value to 'Response'"
+      // and the whole page load/resource fetch dies with it.
+      return result || new Response('Resource unavailable.', {
+        status: 503,
+        statusText: 'Offline',
+        headers: { 'Content-Type': 'text/plain' },
+      });
     })
   );
 });
