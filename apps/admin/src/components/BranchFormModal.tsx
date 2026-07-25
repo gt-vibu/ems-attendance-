@@ -268,6 +268,7 @@ export default function BranchFormModal({
               ))}
             </div>
           )}
+          <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Searches areas, streets, and landmarks (OpenStreetMap) — specific business/company names usually won't be found. Search the nearest area instead, then fine-tune the pin on the map below.</p>
         </div>
 
         <Suspense fallback={<div className="h-[220px] flex items-center justify-center text-xs text-[var(--color-nexus-muted)]">Loading map…</div>}>
