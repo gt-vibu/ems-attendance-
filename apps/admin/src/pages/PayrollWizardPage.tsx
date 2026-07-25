@@ -27,11 +27,25 @@ type CompensationDraft = {
   annualCtc: string;
   effectiveFrom: string;
   overtimeHourlyRate: string;
-  basicPercent: string;
-  hraPercent: string;
-  employeePfPercent: string;
-  employerPfPercent: string;
-  professionalTaxAnnual: string;
+  basicCalcType: CalculationType;
+  basicValue: string;
+  // HRA and PF are NOT universal — plenty of companies (especially ones
+  // below statutory thresholds, or outside jurisdictions that use these
+  // specific components) don't pay HRA or run PF at all. Both are
+  // opt-out-able rather than hardcoded-mandatory; `enabled` defaults true
+  // only for a brand-new, never-configured draft (see isFreshSetup below)
+  // so every already-saved profile keeps behaving exactly as it did before
+  // this toggle existed.
+  hraEnabled: boolean;
+  hraCalcType: CalculationType;
+  hraValue: string;
+  pfEnabled: boolean;
+  employeePfCalcType: CalculationType;
+  employeePfValue: string;
+  employerPfCalcType: CalculationType;
+  employerPfValue: string;
+  professionalTaxCalcType: CalculationType;
+  professionalTaxValue: string;
   customEarnings: CustomComponentDraft[];
   customDeductions: CustomComponentDraft[];
 };
@@ -40,11 +54,18 @@ const DEFAULT_DRAFT: CompensationDraft = {
   annualCtc: '',
   effectiveFrom: new Date().toISOString().slice(0, 10),
   overtimeHourlyRate: '',
-  basicPercent: '50',
-  hraPercent: '20',
-  employeePfPercent: '12',
-  employerPfPercent: '12',
-  professionalTaxAnnual: '2400',
+  basicCalcType: 'percent_of_ctc',
+  basicValue: '50',
+  hraEnabled: true,
+  hraCalcType: 'percent_of_ctc',
+  hraValue: '20',
+  pfEnabled: true,
+  employeePfCalcType: 'percent_of_ctc',
+  employeePfValue: '12',
+  employerPfCalcType: 'percent_of_ctc',
+  employerPfValue: '12',
+  professionalTaxCalcType: 'fixed_annual',
+  professionalTaxValue: '2400',
   customEarnings: [],
   customDeductions: [],
 };
@@ -60,13 +81,19 @@ function parsePercent(value: string) {
   return Math.max(0, Number(value || 0));
 }
 
-function percentFromComponent(component: any, annualCtc: number, fallback: string) {
-  if (!component) return fallback;
-  if (component.calculationType === 'percent_of_ctc') return String(component.value);
-  if (component.calculationType === 'fixed_annual' && annualCtc > 0) {
-    return String((Number(component.value || 0) / annualCtc) * 100);
-  }
-  return fallback;
+// A single component's annual contribution, regardless of which fixed
+// row (Basic/HRA/PF/Professional Tax) or custom row it came from — the
+// same % of CTC / fixed amount duality applies uniformly everywhere.
+function componentAnnual(calcType: CalculationType, value: string, annualCtc: number): number {
+  return calcType === 'percent_of_ctc' ? (annualCtc * parsePercent(value)) / 100 : Math.max(0, Number(value || 0));
+}
+
+function valueFromComponent(component: any, fallbackCalcType: CalculationType, fallbackValue: string): { calcType: CalculationType; value: string } {
+  if (!component) return { calcType: fallbackCalcType, value: fallbackValue };
+  return {
+    calcType: component.calculationType === 'fixed_annual' ? 'fixed_annual' : 'percent_of_ctc',
+    value: String(component.value ?? fallbackValue),
+  };
 }
 
 function loadSavedDraft(draftKey: string): CompensationDraft | null {
@@ -89,10 +116,16 @@ function clearDraft(draftKey: string) {
 
 // Shared by both modes: given a saved components array (from either the
 // per-employee profile or a role's default template) plus the annual CTC,
-// reconstruct the Basic/HRA/PF percent fields and any custom earning/
-// deduction rows the same way regardless of where the data came from.
+// reconstruct the salary structure fields the same way regardless of where
+// the data came from.
 function buildDraftFromComponents(annualCtcRaw: any, components: any[], effectiveFrom?: string | null, overtimeHourlyRate?: any): CompensationDraft {
   const list = Array.isArray(components) ? components : [];
+  // Nothing saved yet at all (brand-new employee/role, never configured) —
+  // this is the ONLY case that gets the traditional Basic/HRA/PF starter
+  // defaults. Any profile that HAS been saved before (even if it explicitly
+  // dropped HRA or PF) is respected exactly as saved — see hraEnabled/
+  // pfEnabled below.
+  const isFreshSetup = list.length === 0;
   const basic = list.find((row: any) => row.componentType === 'earning' && String(row.componentName || '').toLowerCase().includes('basic'));
   const hra = list.find((row: any) => row.componentType === 'earning' && String(row.componentName || '').toLowerCase().includes('hra'));
   const employeePf = list.find((row: any) => row.componentType === 'deduction' && String(row.componentName || '').toLowerCase().includes('pf'));
@@ -112,19 +145,65 @@ function buildDraftFromComponents(annualCtcRaw: any, components: any[], effectiv
     calcType: row.calculationType === 'percent_of_ctc' ? 'percent_of_ctc' : 'fixed_annual',
     value: String(row.value ?? 0),
   });
-  const annualCtcValue = Number(annualCtcRaw || 0);
+  const basicVC = valueFromComponent(basic, DEFAULT_DRAFT.basicCalcType, DEFAULT_DRAFT.basicValue);
+  const hraVC = valueFromComponent(hra, DEFAULT_DRAFT.hraCalcType, DEFAULT_DRAFT.hraValue);
+  const employeePfVC = valueFromComponent(employeePf, DEFAULT_DRAFT.employeePfCalcType, DEFAULT_DRAFT.employeePfValue);
+  const employerPfVC = valueFromComponent(employerPf, DEFAULT_DRAFT.employerPfCalcType, DEFAULT_DRAFT.employerPfValue);
+  const ptVC = valueFromComponent(professionalTax, DEFAULT_DRAFT.professionalTaxCalcType, DEFAULT_DRAFT.professionalTaxValue);
   return {
     annualCtc: annualCtcRaw != null ? String(annualCtcRaw) : DEFAULT_DRAFT.annualCtc,
     effectiveFrom: effectiveFrom || DEFAULT_DRAFT.effectiveFrom,
     overtimeHourlyRate: overtimeHourlyRate != null ? String(overtimeHourlyRate) : DEFAULT_DRAFT.overtimeHourlyRate,
-    basicPercent: percentFromComponent(basic, annualCtcValue, DEFAULT_DRAFT.basicPercent),
-    hraPercent: percentFromComponent(hra, annualCtcValue, DEFAULT_DRAFT.hraPercent),
-    employeePfPercent: percentFromComponent(employeePf, annualCtcValue, DEFAULT_DRAFT.employeePfPercent),
-    employerPfPercent: percentFromComponent(employerPf, annualCtcValue, DEFAULT_DRAFT.employerPfPercent),
-    professionalTaxAnnual: professionalTax?.value != null ? String(professionalTax.value) : DEFAULT_DRAFT.professionalTaxAnnual,
+    basicCalcType: basicVC.calcType,
+    basicValue: basicVC.value,
+    hraEnabled: isFreshSetup ? true : !!hra,
+    hraCalcType: hraVC.calcType,
+    hraValue: hraVC.value,
+    pfEnabled: isFreshSetup ? true : !!(employeePf || employerPf),
+    employeePfCalcType: employeePfVC.calcType,
+    employeePfValue: employeePfVC.value,
+    employerPfCalcType: employerPfVC.calcType,
+    employerPfValue: employerPfVC.value,
+    professionalTaxCalcType: ptVC.calcType,
+    professionalTaxValue: ptVC.value,
     customEarnings: customEarningComponents.map(toCustomDraft),
     customDeductions: customDeductionComponents.map(toCustomDraft),
   };
+}
+
+// A small reusable "% of CTC / Fixed amount" selector + value input, used
+// identically for Basic, HRA, PF (both sides), Professional Tax, and every
+// custom row — no salary component is hardcoded to one calculation type.
+function CalcTypeValueInput({ calcType, value, onCalcTypeChange, onValueChange, disabled }: {
+  calcType: CalculationType;
+  value: string;
+  onCalcTypeChange: (v: CalculationType) => void;
+  onValueChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
+      <input
+        type="number"
+        min="0"
+        max={calcType === 'percent_of_ctc' ? 100 : undefined}
+        step={calcType === 'percent_of_ctc' ? 0.5 : 1}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onValueChange(e.target.value)}
+        className="w-20 bg-white px-4 py-3 text-sm focus:outline-none disabled:bg-[var(--color-nexus-surface-alt)] disabled:text-[var(--color-nexus-muted)]"
+      />
+      <select
+        value={calcType}
+        disabled={disabled}
+        onChange={(e) => onCalcTypeChange(e.target.value as CalculationType)}
+        className="border-l border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3 text-sm text-[var(--color-nexus-ink)] focus:outline-none disabled:text-[var(--color-nexus-muted)]"
+      >
+        <option value="percent_of_ctc">% of CTC</option>
+        <option value="fixed_annual">Fixed amount</option>
+      </select>
+    </div>
+  );
 }
 
 export default function PayrollWizardPage({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -146,6 +225,14 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
   const [detail, setDetail] = useState<any>(null);
   const [draft, setDraft] = useState<CompensationDraft>(DEFAULT_DRAFT);
 
+  // SEGREGATION OF DUTIES: a delegable 'payroll.manage' grant (e.g. a
+  // manager) must never let its holder set up their OWN pay — the server
+  // enforces this too (see POST /api/tenant/payroll/employee/:userId), this
+  // is just the fast, friendly client-side version of the same rule.
+  // tenant_admin/super_admin are the org's own ultimate authority and are
+  // exempt, same as everywhere else in this app's privilege model.
+  const isSelfSetup = mode === 'employee' && String(user.id) === entityId && user.role !== 'tenant_admin' && user.role !== 'super_admin';
+
   useEffect(() => {
     if (!entityId) return;
     if (step && !STEP_ORDER.includes(step as PayrollWizardStep)) {
@@ -155,7 +242,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
   }, [navigate, step, entityId, mode]);
 
   useEffect(() => {
-    if (!entityId) return;
+    if (!entityId || isSelfSetup) return;
     const populate = async () => {
       setLoading(true);
       try {
@@ -214,7 +301,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
       }
     };
     populate();
-  }, [token, entityId, mode, draftKey]);
+  }, [token, entityId, mode, draftKey, isSelfSetup]);
 
   useEffect(() => {
     // Guarded on `loading`: without this, this effect fires on the very
@@ -225,16 +312,15 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
     // initializing from the fetched profile/role-default entirely. Once
     // loading is false, populate() has already made its decision, so it's
     // safe to persist every subsequent change.
-    if (!entityId || loading) return;
+    if (!entityId || loading || isSelfSetup) return;
     saveDraft(draftKey, draft);
-  }, [draft, entityId, draftKey, loading]);
+  }, [draft, entityId, draftKey, loading, isSelfSetup]);
 
   const annualCtc = Number(draft.annualCtc || 0);
-  const basicAnnual = annualCtc * parsePercent(draft.basicPercent) / 100;
-  const hraAnnual = annualCtc * parsePercent(draft.hraPercent) / 100;
+  const basicAnnual = componentAnnual(draft.basicCalcType, draft.basicValue, annualCtc);
+  const hraAnnual = draft.hraEnabled ? componentAnnual(draft.hraCalcType, draft.hraValue, annualCtc) : 0;
 
-  const customComponentAnnual = (row: CustomComponentDraft) =>
-    row.calcType === 'percent_of_ctc' ? annualCtc * parsePercent(row.value) / 100 : Math.max(0, Number(row.value || 0));
+  const customComponentAnnual = (row: CustomComponentDraft) => componentAnnual(row.calcType, row.value, annualCtc);
   const customEarningsAnnualTotal = draft.customEarnings.reduce((sum, row) => sum + customComponentAnnual(row), 0);
   const customDeductionsAnnualTotal = draft.customDeductions.reduce((sum, row) => sum + customComponentAnnual(row), 0);
 
@@ -242,9 +328,9 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
   // HRA, and any custom earnings — so "Cost to Company" always foots back to
   // the annual CTC no matter how the earnings are split (Zoho-style).
   const fixedAllowanceAnnual = Math.max(0, annualCtc - basicAnnual - hraAnnual - customEarningsAnnualTotal);
-  const employeePfAnnual = annualCtc * parsePercent(draft.employeePfPercent) / 100;
-  const employerPfAnnual = annualCtc * parsePercent(draft.employerPfPercent) / 100;
-  const professionalTaxAnnual = Number(draft.professionalTaxAnnual || 0);
+  const employeePfAnnual = draft.pfEnabled ? componentAnnual(draft.employeePfCalcType, draft.employeePfValue, annualCtc) : 0;
+  const employerPfAnnual = draft.pfEnabled ? componentAnnual(draft.employerPfCalcType, draft.employerPfValue, annualCtc) : 0;
+  const professionalTaxAnnual = componentAnnual(draft.professionalTaxCalcType, draft.professionalTaxValue, annualCtc);
   const monthlyGross = annualCtc / 12;
   const monthlyDeductions = (employeePfAnnual + professionalTaxAnnual + customDeductionsAnnualTotal) / 12;
   const monthlyNet = monthlyGross - monthlyDeductions;
@@ -254,24 +340,24 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
   const salaryOverAllocated = basicAnnual + hraAnnual + customEarningsAnnualTotal > annualCtc;
 
   const previewRows = useMemo(() => [
-    { label: 'Basic', section: 'Earnings', type: '% of CTC', monthly: basicAnnual / 12, annual: basicAnnual },
-    { label: 'HRA', section: 'Earnings', type: '% of CTC', monthly: hraAnnual / 12, annual: hraAnnual },
+    { label: 'Basic', section: 'Earnings', type: draft.basicCalcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount', monthly: basicAnnual / 12, annual: basicAnnual },
+    ...(draft.hraEnabled ? [{ label: 'HRA', section: 'Earnings', type: draft.hraCalcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount', monthly: hraAnnual / 12, annual: hraAnnual }] : []),
     { label: 'Fixed Allowance', section: 'Earnings', type: 'Fixed amount', monthly: fixedAllowanceAnnual / 12, annual: fixedAllowanceAnnual },
     ...draft.customEarnings.filter((row) => row.name.trim()).map((row) => ({
       label: row.name, section: 'Earnings', type: row.calcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount',
       monthly: customComponentAnnual(row) / 12, annual: customComponentAnnual(row),
     })),
-    { label: 'Employee PF', section: 'Deductions', type: '% of CTC', monthly: employeePfAnnual / 12, annual: employeePfAnnual },
-    { label: 'Professional Tax', section: 'Deductions', type: 'Fixed annual', monthly: professionalTaxAnnual / 12, annual: professionalTaxAnnual },
+    ...(draft.pfEnabled ? [{ label: 'Employee PF', section: 'Deductions', type: draft.employeePfCalcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount', monthly: employeePfAnnual / 12, annual: employeePfAnnual }] : []),
+    { label: 'Professional Tax', section: 'Deductions', type: draft.professionalTaxCalcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount', monthly: professionalTaxAnnual / 12, annual: professionalTaxAnnual },
     ...draft.customDeductions.filter((row) => row.name.trim()).map((row) => ({
       label: row.name, section: 'Deductions', type: row.calcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount',
       monthly: customComponentAnnual(row) / 12, annual: customComponentAnnual(row),
     })),
-    { label: 'Employer PF', section: 'Employer Contribution', type: '% of CTC', monthly: employerPfAnnual / 12, annual: employerPfAnnual },
+    ...(draft.pfEnabled ? [{ label: 'Employer PF', section: 'Employer Contribution', type: draft.employerPfCalcType === 'percent_of_ctc' ? '% of CTC' : 'Fixed amount', monthly: employerPfAnnual / 12, annual: employerPfAnnual }] : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [basicAnnual, employeePfAnnual, employerPfAnnual, fixedAllowanceAnnual, hraAnnual, professionalTaxAnnual, draft.customEarnings, draft.customDeductions, annualCtc]);
+  ], [basicAnnual, employeePfAnnual, employerPfAnnual, fixedAllowanceAnnual, hraAnnual, professionalTaxAnnual, draft, annualCtc]);
 
-  const updateDraft = (key: keyof CompensationDraft, value: string) => {
+  const updateDraft = <K extends keyof CompensationDraft>(key: K, value: CompensationDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
@@ -296,25 +382,25 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
   };
 
   const saveProfile = async () => {
-    if (!entityId) return;
+    if (!entityId || isSelfSetup) return;
     setSaving(true);
     setError('');
     try {
       const componentsPayload = [
-        { componentName: 'Basic', componentType: 'earning', calculationType: 'percent_of_ctc', value: parsePercent(draft.basicPercent) },
-        { componentName: 'HRA', componentType: 'earning', calculationType: 'percent_of_ctc', value: parsePercent(draft.hraPercent) },
+        { componentName: 'Basic', componentType: 'earning', calculationType: draft.basicCalcType, value: componentAnnualPayloadValue(draft.basicCalcType, draft.basicValue) },
+        ...(draft.hraEnabled ? [{ componentName: 'HRA', componentType: 'earning', calculationType: draft.hraCalcType, value: componentAnnualPayloadValue(draft.hraCalcType, draft.hraValue) }] : []),
         { componentName: 'Fixed Allowance', componentType: 'earning', calculationType: 'fixed_annual', value: fixedAllowanceAnnual },
         ...draft.customEarnings.filter((row) => row.name.trim()).map((row) => ({
           componentName: row.name.trim(), componentType: 'earning', calculationType: row.calcType,
-          value: row.calcType === 'percent_of_ctc' ? parsePercent(row.value) : Math.max(0, Number(row.value || 0)),
+          value: componentAnnualPayloadValue(row.calcType, row.value),
         })),
-        { componentName: 'Employee PF', componentType: 'deduction', calculationType: 'percent_of_ctc', value: parsePercent(draft.employeePfPercent) },
-        { componentName: 'Professional Tax', componentType: 'deduction', calculationType: 'fixed_annual', value: professionalTaxAnnual },
+        ...(draft.pfEnabled ? [{ componentName: 'Employee PF', componentType: 'deduction', calculationType: draft.employeePfCalcType, value: componentAnnualPayloadValue(draft.employeePfCalcType, draft.employeePfValue) }] : []),
+        { componentName: 'Professional Tax', componentType: 'deduction', calculationType: draft.professionalTaxCalcType, value: componentAnnualPayloadValue(draft.professionalTaxCalcType, draft.professionalTaxValue) },
         ...draft.customDeductions.filter((row) => row.name.trim()).map((row) => ({
           componentName: row.name.trim(), componentType: 'deduction', calculationType: row.calcType,
-          value: row.calcType === 'percent_of_ctc' ? parsePercent(row.value) : Math.max(0, Number(row.value || 0)),
+          value: componentAnnualPayloadValue(row.calcType, row.value),
         })),
-        { componentName: 'Employer PF', componentType: 'employer_contribution', calculationType: 'percent_of_ctc', value: parsePercent(draft.employerPfPercent) },
+        ...(draft.pfEnabled ? [{ componentName: 'Employer PF', componentType: 'employer_contribution', calculationType: draft.employerPfCalcType, value: componentAnnualPayloadValue(draft.employerPfCalcType, draft.employerPfValue) }] : []),
       ];
 
       const res = mode === 'employee'
@@ -349,6 +435,34 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
 
   const stepIndex = STEP_ORDER.indexOf(activeStep);
 
+  if (isSelfSetup) {
+    return (
+      <PortalShell
+        user={user}
+        roleLabel={user.role === 'tenant_admin' ? 'Tenant Admin' : user.role}
+        navItems={getAdminPortalNavItems(user.role)}
+        activeTab="payroll"
+        onTabChange={(id) => navigate(routeForAdminNav(id))}
+        onLogout={onLogout}
+        title="Payroll Setup Wizard"
+        fallbackHref="/tenant/payroll"
+      >
+        <div className="nexus-card rounded-3xl p-10 text-center">
+          <h2 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Access Denied</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-nexus-muted)]">
+            You can't set up your own payroll, even with payroll permissions — this is a standard segregation-of-duties control. Ask a tenant admin or another payroll manager to configure it for you.
+          </p>
+          <button
+            onClick={() => navigate('/tenant/payroll')}
+            className="mt-6 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+          >
+            Back to Payroll
+          </button>
+        </div>
+      </PortalShell>
+    );
+  }
+
   return (
     <PortalShell
       user={user}
@@ -361,7 +475,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
       fallbackHref={mode === 'role' ? '/tenant/payroll?section=roles' : '/tenant/payroll'}
     >
       {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
-      {success && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-nexus-success-text)]/20 font-medium">{success}</div>}
+      {success && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[color:var(--color-nexus-success-text)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-nexus-success-text)]/20 font-medium">{success}</div>}
 
       {loading ? (
         <div className="nexus-card rounded-3xl p-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading payroll builder…</div>
@@ -427,7 +541,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
             <section className="nexus-card rounded-3xl p-6">
               <div className="mb-5">
                 <h3 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Salary Structure</h3>
-                <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Start with the annual CTC and split the earnings the way you showed: basic, HRA, and an auto-balanced fixed allowance.</p>
+                <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Start with the annual CTC and split the earnings the way you showed: basic, HRA (if applicable), and an auto-balanced fixed allowance.</p>
               </div>
 
               <div className={`grid grid-cols-1 gap-5 ${mode === 'employee' ? 'md:grid-cols-3' : 'md:max-w-xs'}`}>
@@ -461,23 +575,46 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                     <div>
                       <div className="font-bold text-[var(--color-nexus-ink)]">Basic</div>
                     </div>
-                    <div className="flex overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
-                      <input type="number" min="0" max="100" step="0.5" value={draft.basicPercent} onChange={(e) => updateDraft('basicPercent', e.target.value)} className="w-20 bg-white px-4 py-3 text-sm focus:outline-none" />
-                      <span className="flex items-center border-l border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 text-sm text-[var(--color-nexus-ink)]">% of CTC</span>
-                    </div>
+                    <CalcTypeValueInput
+                      calcType={draft.basicCalcType}
+                      value={draft.basicValue}
+                      onCalcTypeChange={(v) => updateDraft('basicCalcType', v)}
+                      onValueChange={(v) => updateDraft('basicValue', v)}
+                    />
                     <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(basicAnnual / 12)}</div>
                     <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(basicAnnual)}</div>
                   </div>
                   <div className="grid grid-cols-[1.3fr_1fr_1fr_1fr] items-center gap-4 border-b border-[var(--color-nexus-border)] py-5">
                     <div>
-                      <div className="font-bold text-[var(--color-nexus-ink)]">HRA</div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={draft.hraEnabled}
+                          onChange={(e) => updateDraft('hraEnabled', e.target.checked)}
+                          className="h-4 w-4 rounded border-[var(--color-nexus-border)]"
+                        />
+                        <span className="font-bold text-[var(--color-nexus-ink)]">HRA</span>
+                      </label>
+                      {!draft.hraEnabled && <p className="mt-1 text-[10px] text-[var(--color-nexus-muted)]">Not applicable — this company doesn't pay HRA.</p>}
                     </div>
-                    <div className="flex overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
-                      <input type="number" min="0" max="100" step="0.5" value={draft.hraPercent} onChange={(e) => updateDraft('hraPercent', e.target.value)} className="w-20 bg-white px-4 py-3 text-sm focus:outline-none" />
-                      <span className="flex items-center border-l border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 text-sm text-[var(--color-nexus-ink)]">% of CTC</span>
-                    </div>
-                    <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(hraAnnual / 12)}</div>
-                    <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(hraAnnual)}</div>
+                    {draft.hraEnabled ? (
+                      <>
+                        <CalcTypeValueInput
+                          calcType={draft.hraCalcType}
+                          value={draft.hraValue}
+                          onCalcTypeChange={(v) => updateDraft('hraCalcType', v)}
+                          onValueChange={(v) => updateDraft('hraValue', v)}
+                        />
+                        <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(hraAnnual / 12)}</div>
+                        <div className="text-sm font-semibold text-[var(--color-nexus-ink)]">{formatMoney(hraAnnual)}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm text-[var(--color-nexus-muted)]">—</div>
+                        <div className="text-sm text-[var(--color-nexus-muted)]">{formatMoney(0)}</div>
+                        <div className="text-sm text-[var(--color-nexus-muted)]">{formatMoney(0)}</div>
+                      </>
+                    )}
                   </div>
                   <div className={`grid grid-cols-[1.3fr_1fr_1fr_1fr] items-center gap-4 py-5 ${draft.customEarnings.length > 0 ? 'border-b border-[var(--color-nexus-border)]' : ''}`}>
                     <div>
@@ -561,17 +698,42 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                 <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">This is the part that was missing before: proper places for PF percentages and tax deductions.</p>
               </div>
 
+              <label className="mb-5 flex items-center gap-2.5 cursor-pointer select-none rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                <input
+                  type="checkbox"
+                  checked={draft.pfEnabled}
+                  onChange={(e) => updateDraft('pfEnabled', e.target.checked)}
+                  className="h-4 w-4 rounded border-[var(--color-nexus-border)]"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-[var(--color-nexus-ink)]">This company runs Provident Fund (PF)</span>
+                  <span className="block text-[11px] text-[var(--color-nexus-muted)]">Not every company is registered under EPFO or above the statutory threshold — turn off if PF doesn't apply here.</span>
+                </span>
+              </label>
+
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
                   <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Employee Deductions</h4>
                   <div className="mt-4 space-y-4">
+                    {draft.pfEnabled && (
+                      <div>
+                        <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Employee PF</label>
+                        <CalcTypeValueInput
+                          calcType={draft.employeePfCalcType}
+                          value={draft.employeePfValue}
+                          onCalcTypeChange={(v) => updateDraft('employeePfCalcType', v)}
+                          onValueChange={(v) => updateDraft('employeePfValue', v)}
+                        />
+                      </div>
+                    )}
                     <div>
-                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Employee PF % of CTC</label>
-                      <input type="number" min="0" max="100" step="0.5" value={draft.employeePfPercent} onChange={(e) => updateDraft('employeePfPercent', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-white px-4 py-3 text-sm focus:outline-none" />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Professional Tax Annual</label>
-                      <input type="number" min="0" step="1" value={draft.professionalTaxAnnual} onChange={(e) => updateDraft('professionalTaxAnnual', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-white px-4 py-3 text-sm focus:outline-none" />
+                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Professional Tax</label>
+                      <CalcTypeValueInput
+                        calcType={draft.professionalTaxCalcType}
+                        value={draft.professionalTaxValue}
+                        onCalcTypeChange={(v) => updateDraft('professionalTaxCalcType', v)}
+                        onValueChange={(v) => updateDraft('professionalTaxValue', v)}
+                      />
                     </div>
                     {draft.customDeductions.map((row) => (
                       <div key={row.id} className="rounded-2xl border border-[var(--color-nexus-border)] bg-white p-3">
@@ -616,13 +778,24 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                 <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
                   <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Employer Contributions</h4>
                   <div className="mt-4 space-y-4">
-                    <div>
-                      <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Employer PF % of CTC</label>
-                      <input type="number" min="0" max="100" step="0.5" value={draft.employerPfPercent} onChange={(e) => updateDraft('employerPfPercent', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-white px-4 py-3 text-sm focus:outline-none" />
-                    </div>
-                    <div className="rounded-2xl bg-white p-4 text-sm text-[var(--color-nexus-muted)]">
-                      Employer-side contributions are previewed separately so HR can review true cost without mixing them into the employee's take-home.
-                    </div>
+                    {draft.pfEnabled ? (
+                      <>
+                        <div>
+                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Employer PF</label>
+                          <CalcTypeValueInput
+                            calcType={draft.employerPfCalcType}
+                            value={draft.employerPfValue}
+                            onCalcTypeChange={(v) => updateDraft('employerPfCalcType', v)}
+                            onValueChange={(v) => updateDraft('employerPfValue', v)}
+                          />
+                        </div>
+                        <div className="rounded-2xl bg-white p-4 text-sm text-[var(--color-nexus-muted)]">
+                          Employer-side contributions are previewed separately so HR can review true cost without mixing them into the employee's take-home.
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-[var(--color-nexus-muted)]">PF is off for this company, so there's no employer contribution to configure.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -722,4 +895,13 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
       )}
     </PortalShell>
   );
+}
+
+// The server stores each component's own raw value + calculationType (not a
+// pre-multiplied annual figure) for every row EXCEPT Fixed Allowance, which
+// is intentionally the one auto-balanced absolute amount — so a percent row
+// keeps its percent (0-100), and a fixed row keeps its flat annual amount,
+// exactly as entered.
+function componentAnnualPayloadValue(_calcType: CalculationType, value: string): number {
+  return Math.max(0, Number(value || 0));
 }

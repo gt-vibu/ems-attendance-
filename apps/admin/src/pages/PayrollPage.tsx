@@ -19,6 +19,12 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
+  // SEGREGATION OF DUTIES: even a manager holding 'payroll.manage' can't set
+  // up their own pay — tenant_admin/super_admin are exempt (org's own
+  // ultimate authority). Server-enforced too, see POST
+  // /api/tenant/payroll/employee/:userId; this just disables the button
+  // instead of letting them hit a 403 after clicking through the wizard.
+  const isSelfRow = (employeeId: number) => String(employeeId) === String(user.id) && user.role !== 'tenant_admin' && user.role !== 'super_admin';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -579,7 +585,9 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                           </button>
                           <button
                             onClick={() => navigate(`/tenant/payroll/setup/employee/${employee.id}/salary`)}
-                            className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+                            disabled={isSelfRow(employee.id)}
+                            title={isSelfRow(employee.id) ? "You can't set up your own payroll — ask a tenant admin or another payroll manager." : undefined}
+                            className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[var(--color-nexus-primary)]"
                           >
                             {existingRow ? 'Edit Structure' : 'Setup Payroll'}
                           </button>

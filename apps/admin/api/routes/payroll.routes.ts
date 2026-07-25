@@ -256,6 +256,13 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       return res.status(403).json({ error: 'Access denied.' });
     }
     const userId = Number(req.params.userId);
+    // SEGREGATION OF DUTIES: a delegated 'payroll.manage' grant (e.g. a
+    // manager) must never let its holder set their OWN pay — tenant_admin/
+    // super_admin are the org's own ultimate authority and are exempt, same
+    // as every other unrestricted-role carve-out in this codebase.
+    if (userId === req.user.userId && req.user.role !== 'tenant_admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Access denied: You cannot set up your own payroll. Ask a tenant admin or another payroll manager to configure it.' });
+    }
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
       return res.status(404).json({ error: 'Employee not found.' });
