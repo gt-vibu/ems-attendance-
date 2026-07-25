@@ -63,7 +63,7 @@ export default function BottomNav() {
         {/* Action Call Button */}
         <button
           onClick={scrollToDemo}
-          className="px-4 py-1.5 rounded-full bg-[var(--color-premium-ink)] text-white font-bold text-[11px] uppercase tracking-wide hover:opacity-90 transition-opacity cursor-pointer"
+          className="px-4 py-1.5 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-[11px] uppercase tracking-wide transition-colors cursor-pointer"
         >
           Start Free
         </button>

@@ -50,15 +50,16 @@ function DemoBadge({ state, correctionState, presenceState }: { state: SessionSt
     }
   });
 
-  // State colors corresponding to the Ledger palette
-  let badgeColor = '#8A9089'; // NOT_STARTED
-  if (state === SessionStatus.PENDING_VERIFICATION) badgeColor = '#B8873A';
-  else if (state === SessionStatus.ACTIVE) badgeColor = '#0F6E5B';
-  else if (state === SessionStatus.ON_BREAK) badgeColor = '#2E6F8E';
-  else if (state === SessionStatus.NEEDS_REVIEW) badgeColor = '#B8873A';
-  else if (state === SessionStatus.CLOSED) badgeColor = '#14805F';
-  else if (state === SessionStatus.REJECTED) badgeColor = '#B3432B';
-  else if (state === SessionStatus.ABSENT) badgeColor = '#8A9089';
+  // State colors matching the page's blue/purple brand palette (see
+  // SESSION_DOT_COLOR in App.tsx — same mapping, kept in sync).
+  let badgeColor = '#64748B'; // NOT_STARTED
+  if (state === SessionStatus.PENDING_VERIFICATION) badgeColor = '#F59E0B';
+  else if (state === SessionStatus.ACTIVE) badgeColor = '#22C55E';
+  else if (state === SessionStatus.ON_BREAK) badgeColor = '#2563EB';
+  else if (state === SessionStatus.NEEDS_REVIEW) badgeColor = '#F59E0B';
+  else if (state === SessionStatus.CLOSED) badgeColor = '#22C55E';
+  else if (state === SessionStatus.REJECTED) badgeColor = '#EF4444';
+  else if (state === SessionStatus.ABSENT) badgeColor = '#64748B';
 
   return (
     <mesh ref={meshRef}>
@@ -154,17 +155,17 @@ export default function DemoPanel() {
     attendanceEngine.reset();
   };
 
-  // State palette map
+  // State palette map — kept in sync with SESSION_DOT_COLOR in App.tsx.
   const stateColorMap: Record<string, string> = {
-    NOT_STARTED: '#8A9089',
-    PENDING_VERIFICATION: '#B8873A',
-    ACTIVE: '#0F6E5B',
-    ON_BREAK: '#2E6F8E',
-    NEEDS_REVIEW: '#B8873A',
-    PENDING_APPROVAL: '#7C6FB0',
-    CLOSED: '#14805F',
-    REJECTED: '#B3432B',
-    ABSENT: '#8A9089'
+    NOT_STARTED: '#64748B',
+    PENDING_VERIFICATION: '#F59E0B',
+    ACTIVE: '#22C55E',
+    ON_BREAK: '#2563EB',
+    NEEDS_REVIEW: '#F59E0B',
+    PENDING_APPROVAL: '#8B5CF6',
+    CLOSED: '#22C55E',
+    REJECTED: '#EF4444',
+    ABSENT: '#64748B'
   };
 
   const SESSION_LABELS: Record<string, string> = {
@@ -176,7 +177,7 @@ export default function DemoPanel() {
   return (
     <div id="interactive-demo-panel" className="scroll-mt-28 py-12 px-4 max-w-4xl mx-auto select-none space-y-8 animate-fade-in">
       <div className="text-center">
-        <span className="inline-block px-4 py-1.5 rounded-full bg-[var(--color-premium-ink)] text-[#5FBFA0] text-xs font-bold uppercase tracking-wider">
+        <span className="inline-block px-4 py-1.5 rounded-full bg-[var(--color-premium-accent)] text-white text-xs font-bold uppercase tracking-wider">
           Shift Simulator
         </span>
       </div>
@@ -198,7 +199,7 @@ export default function DemoPanel() {
         <div className="grid md:grid-cols-12 gap-8 items-center border-b border-[var(--color-premium-border)] pb-8 mb-8">
 
           <div className="md:col-span-4 flex flex-col items-center justify-center">
-            <div className="relative w-40 h-40 bg-[var(--color-premium-ink)] rounded-full shadow-inner flex items-center justify-center overflow-hidden">
+            <div className="relative w-40 h-40 bg-[var(--color-premium-surface-alt)] rounded-full shadow-inner flex items-center justify-center overflow-hidden">
               <div className="absolute inset-0 bg-radial-[circle_at_center,transparent_30%,rgba(0,0,0,0.6)_100%]" />
 
               <Canvas camera={{ position: [0, 0, 2.5] }} style={{ pointerEvents: 'none' }}>
@@ -269,7 +270,7 @@ export default function DemoPanel() {
           <button
             onClick={handleCheckIn}
             disabled={session !== SessionStatus.NOT_STARTED && session !== SessionStatus.CLOSED}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-success-soft)] flex items-center justify-center text-[var(--color-premium-success)] mb-3 group-hover:scale-105 transition-transform">
               <Play className="w-4 h-4 fill-current" />
@@ -282,7 +283,7 @@ export default function DemoPanel() {
           <button
             onClick={handleBreak}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-info-soft)] flex items-center justify-center text-[var(--color-premium-info)] mb-3 group-hover:scale-105 transition-transform">
               <Coffee className="w-4 h-4" />
@@ -297,7 +298,7 @@ export default function DemoPanel() {
           <button
             onClick={handleCheckOut}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center text-[var(--color-premium-accent-2)] mb-3 group-hover:scale-105 transition-transform">
               <CheckCircle className="w-4 h-4" />
@@ -309,7 +310,7 @@ export default function DemoPanel() {
           {/* Action 4: Reset platform */}
           <button
             onClick={handleReset}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-[var(--color-premium-border)] bg-white hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-[var(--color-premium-muted)] mb-3 group-hover:scale-105 transition-transform">
               <RefreshCw className="w-4 h-4" />
@@ -344,7 +345,7 @@ export default function DemoPanel() {
               {correction === 'NONE' && (
                 <button
                   onClick={handleStartCorrection}
-                  className="px-4 py-2 rounded-full bg-[var(--color-premium-ink)] text-white text-xs font-semibold cursor-pointer shadow-md hover:opacity-90 flex items-center gap-1"
+                  className="px-4 py-2 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white text-xs font-semibold cursor-pointer shadow-md transition-colors flex items-center gap-1"
                 >
                   File Correction
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -360,7 +361,7 @@ export default function DemoPanel() {
 
                   {/* Node 1: Employee */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className="w-7 h-7 rounded-full bg-[var(--color-premium-ink)] border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">
+                    <div className="w-7 h-7 rounded-full bg-[var(--color-premium-accent)] border-2 border-[var(--color-premium-surface-alt)] flex items-center justify-center text-[10px] font-bold text-white shadow-sm">
                       EM
                     </div>
                     <span className="font-sans text-[9px] font-bold text-[var(--color-premium-muted)] mt-1 uppercase">Employee</span>
@@ -371,7 +372,7 @@ export default function DemoPanel() {
 
                   {/* Node 2: Manager */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
+                    <div className={`w-7 h-7 rounded-full border-2 border-[var(--color-premium-surface-alt)] flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
                       correction === 'SUBMITTED' ? 'bg-[var(--color-premium-warning)]' : correction === 'MANAGER_APPROVED' || correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[var(--color-premium-success)]' : 'bg-[var(--color-premium-border)] text-[var(--color-premium-muted)]'
                     }`}>
                       MN
@@ -384,8 +385,8 @@ export default function DemoPanel() {
 
                   {/* Node 3: HR Compliance */}
                   <div className="flex flex-col items-center relative z-10">
-                    <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
-                      correction === 'MANAGER_APPROVED' ? 'bg-[#7C6FB0]' : correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[var(--color-premium-success)]' : 'bg-[var(--color-premium-border)] text-[var(--color-premium-muted)]'
+                    <div className={`w-7 h-7 rounded-full border-2 border-[var(--color-premium-surface-alt)] flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors ${
+                      correction === 'MANAGER_APPROVED' ? 'bg-[#8B5CF6]' : correction === 'HR_APPROVED' || correction === 'APPLIED' ? 'bg-[var(--color-premium-success)]' : 'bg-[var(--color-premium-border)] text-[var(--color-premium-muted)]'
                     }`}>
                       HR
                     </div>
@@ -415,7 +416,7 @@ export default function DemoPanel() {
                   {correction === 'MANAGER_APPROVED' && (
                     <button
                       onClick={handleHRAudit}
-                      className="px-4 py-1.5 rounded-full bg-[#7C6FB0] text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:opacity-90"
+                      className="px-4 py-1.5 rounded-full bg-[#8B5CF6] text-white text-[11px] font-semibold cursor-pointer shadow-sm hover:opacity-90"
                     >
                       HR Audit &amp; Approve
                     </button>

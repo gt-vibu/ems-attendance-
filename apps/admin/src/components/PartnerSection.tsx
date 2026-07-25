@@ -75,7 +75,7 @@ export default function PartnerSection() {
               top: `${t.y}px`,
               transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
             }}
-            className="absolute w-10 h-10 rounded-2xl bg-[var(--color-premium-ink)] text-[#5FBFA0] flex items-center justify-center font-display font-bold text-sm pointer-events-none shadow-md animate-fade-scale-down z-20"
+            className="absolute w-10 h-10 rounded-2xl bg-[var(--color-premium-accent)] text-white flex items-center justify-center font-display font-bold text-sm pointer-events-none shadow-md animate-fade-scale-down z-20"
           >
             {t.letter}
           </div>
@@ -95,8 +95,8 @@ export default function PartnerSection() {
           </p>
 
           <div className="pt-4 flex justify-center">
-            <button className="px-8 py-4 rounded-full bg-[var(--color-premium-ink)] text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer shadow-xl pointer-events-auto">
-              <Sparkles className="w-4 h-4 text-[#5FBFA0]" />
+            <button className="px-8 py-4 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-colors cursor-pointer shadow-xl pointer-events-auto">
+              <Sparkles className="w-4 h-4 text-white/80" />
               Start free — no card required
               <ArrowRight className="w-4 h-4 text-white/60" />
             </button>

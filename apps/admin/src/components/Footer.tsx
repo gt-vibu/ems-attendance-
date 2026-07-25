@@ -26,9 +26,9 @@ export default function Footer() {
 
           <button
             onClick={scrollToDemo}
-            className="px-6 py-3 rounded-full bg-[var(--color-premium-ink)] text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 hover:opacity-90 transition-opacity cursor-pointer shadow-md"
+            className="px-6 py-3 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-colors cursor-pointer shadow-md"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#5FBFA0]" />
+            <Sparkles className="w-3.5 h-3.5 text-white/80" />
             Try Live Simulator
           </button>
         </div>

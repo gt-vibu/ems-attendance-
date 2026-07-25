@@ -110,7 +110,7 @@ export default function TestimonialCarousel() {
   }, [activeIndex]);
 
   return (
-    <section id="testimonials" className="py-24 md:py-32 bg-[var(--color-premium-ink)] overflow-hidden select-none">
+    <section id="testimonials" className="py-24 md:py-32 bg-[var(--color-premium-surface-alt)] overflow-hidden select-none">
 
       {/* Header Row */}
       <motion.div
@@ -121,21 +121,21 @@ export default function TestimonialCarousel() {
         className="max-w-7xl mx-auto px-6 mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6"
       >
         <div>
-          <span className="text-xs text-[#5FBFA0] font-bold block uppercase tracking-widest mb-1">
+          <span className="text-xs text-[var(--color-premium-accent-2)] font-bold block uppercase tracking-widest mb-1">
             Trusted by real operators
           </span>
-          <h2 className="font-display font-semibold text-3xl md:text-5xl text-white tracking-tight leading-[1.1]">
+          <h2 className="font-display font-semibold text-3xl md:text-5xl text-[var(--color-premium-ink)] tracking-tight leading-[1.1]">
             What <span className="italic text-gradient">operators</span> say
           </h2>
         </div>
 
-        <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl">
-          <div className="flex gap-0.5 text-[#D9A94C]">
+        <div className="flex items-center gap-2 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] px-4 py-2 rounded-2xl">
+          <div className="flex gap-0.5 text-[var(--color-premium-warning)]">
             {[...Array(5)].map((_, i) => (
               <Star key={i} className="w-4 h-4 fill-current" />
             ))}
           </div>
-          <span className="text-xs font-bold text-white tracking-wide">
+          <span className="text-xs font-bold text-[var(--color-premium-ink)] tracking-wide">
             4.9 / 5 average rating
           </span>
         </div>
@@ -148,13 +148,13 @@ export default function TestimonialCarousel() {
         <div className="absolute inset-y-0 left-4 right-4 md:left-12 md:right-12 flex items-center justify-between z-20 pointer-events-none">
           <button
             onClick={handlePrev}
-            className="w-12 h-12 rounded-full border border-white/15 bg-[var(--color-premium-ink)]/80 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 transition-colors cursor-pointer pointer-events-auto shadow-lg"
+            className="w-12 h-12 rounded-full border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)]/90 backdrop-blur-md flex items-center justify-center text-[var(--color-premium-ink)] hover:bg-[var(--color-premium-surface)] transition-colors cursor-pointer pointer-events-auto shadow-lg"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={handleNext}
-            className="w-12 h-12 rounded-full border border-white/15 bg-[var(--color-premium-ink)]/80 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/10 transition-colors cursor-pointer pointer-events-auto shadow-lg"
+            className="w-12 h-12 rounded-full border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)]/90 backdrop-blur-md flex items-center justify-center text-[var(--color-premium-ink)] hover:bg-[var(--color-premium-surface)] transition-colors cursor-pointer pointer-events-auto shadow-lg"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -179,7 +179,7 @@ export default function TestimonialCarousel() {
                 className="w-[427.5px] shrink-0 bg-white/[0.04] border border-white/10 rounded-3xl p-8 flex flex-col justify-between h-[230px] shadow-lg"
               >
                 <div>
-                  <Quote className="w-5 h-5 text-[#5FBFA0] mb-4 opacity-70" />
+                  <Quote className="w-5 h-5 text-[var(--color-premium-accent-2)] mb-4 opacity-70" />
                   <p className="font-sans text-xs text-white/85 leading-relaxed font-medium line-clamp-3">
                     "{item.quote}"
                   </p>
@@ -187,7 +187,7 @@ export default function TestimonialCarousel() {
 
                 <div className="flex justify-between items-end border-t border-white/10 pt-4 mt-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-[#5FBFA0]">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-[var(--color-premium-accent-2)]">
                       {item.avatar}
                     </div>
                     <div>
@@ -195,7 +195,7 @@ export default function TestimonialCarousel() {
                       <p className="text-[10px] font-sans text-white/50">{item.role}</p>
                     </div>
                   </div>
-                  <span className="text-[9px] font-bold text-[#5FBFA0] uppercase tracking-wide">
+                  <span className="text-[9px] font-bold text-[var(--color-premium-accent-2)] uppercase tracking-wide">
                     {item.feature}
                   </span>
                 </div>

@@ -34,16 +34,19 @@ export default function PricingSection() {
         transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         className="flex flex-col md:flex-row gap-8 justify-end max-w-5xl ml-auto"
       >
-        {/* Card 1: Team — dark accent card for contrast */}
-        <div className="card-3d w-full md:w-[420px] bg-[var(--color-premium-ink)] rounded-[32px] px-8 md:px-10 py-10 text-white flex flex-col justify-between relative overflow-hidden" style={{ boxShadow: 'var(--shadow-elevation-2)' }}>
-          <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-[#0F6E5B]/20 blur-2xl" />
+        {/* Card 1: Team — solid brand-blue card for contrast against the
+            page's dark surfaces (previously used --color-premium-ink as a
+            fixed "always dark" background, which breaks once ink itself
+            becomes the light theme-text color under .landing-dark). */}
+        <div className="card-3d w-full md:w-[420px] bg-[var(--color-premium-accent)] rounded-[32px] px-8 md:px-10 py-10 text-white flex flex-col justify-between relative overflow-hidden" style={{ boxShadow: 'var(--shadow-elevation-2)' }}>
+          <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-[var(--color-premium-accent-2)]/25 blur-2xl" />
           <div className="absolute top-6 right-6 opacity-10">
             <Zap className="w-20 h-20" />
           </div>
 
           <div className="space-y-6 z-10">
             <div>
-              <span className="text-[10px] text-[#5FBFA0] font-bold tracking-widest uppercase">Team</span>
+              <span className="text-[10px] text-white/70 font-bold tracking-widest uppercase">Team</span>
               <h3 className="text-[26px] font-display font-semibold text-white mt-1">Team</h3>
             </div>
 
@@ -53,20 +56,20 @@ export default function PricingSection() {
               <p>Offline-first geofence log replication.</p>
             </div>
 
-            <div className="pt-4 border-t border-white/10">
+            <div className="pt-4 border-t border-white/15">
               <div className="flex items-baseline gap-1">
                 <span className="text-4xl font-display font-semibold text-white">$4</span>
-                <span className="text-sm font-sans text-white/60">/ employee / month</span>
+                <span className="text-sm font-sans text-white/70">/ employee / month</span>
               </div>
-              <span className="text-[11px] text-white/50 block mt-1 font-medium">Billed monthly</span>
+              <span className="text-[11px] text-white/60 block mt-1 font-medium">Billed monthly</span>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 mt-8 z-10">
-            <a href="#interactive-demo-panel" className="w-full py-3 px-6 rounded-full bg-[#5FBFA0] hover:bg-[#78CDB2] text-[var(--color-premium-ink)] font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer text-center shadow-lg">
+            <a href="#interactive-demo-panel" className="w-full py-3 px-6 rounded-full bg-white hover:bg-white/90 text-[var(--color-premium-accent)] font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer text-center shadow-lg">
               Start Free Trial
             </a>
-            <a href="#interactive-demo-panel" className="w-full py-3 px-6 rounded-full bg-white/10 hover:bg-white/15 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer text-center border border-white/10">
+            <a href="#interactive-demo-panel" className="w-full py-3 px-6 rounded-full bg-white/10 hover:bg-white/15 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer text-center border border-white/15">
               See Pricing Details
             </a>
           </div>
@@ -100,7 +103,7 @@ export default function PricingSection() {
           </div>
 
           <div className="flex flex-col mt-8 z-10">
-            <a href="#interactive-demo-panel" className="w-full py-3.5 px-6 rounded-full bg-[var(--color-premium-ink)] hover:opacity-90 text-white font-bold text-xs uppercase tracking-wider transition-opacity cursor-pointer text-center shadow-lg">
+            <a href="#interactive-demo-panel" className="w-full py-3.5 px-6 rounded-full bg-[var(--color-premium-accent)] hover:bg-[var(--color-premium-accent-hover)] text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer text-center shadow-lg">
               Book a Call
             </a>
           </div>

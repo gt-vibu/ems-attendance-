@@ -96,6 +96,45 @@
   box-shadow: var(--shadow-elevation-2);
 }
 
+/* Scoped dark theme for the public marketing landing page ONLY — applied
+   via a `.landing-dark` wrapper class around App.tsx's root, never by
+   changing the global --color-premium-* values directly. Login.tsx,
+   ForgotPassword.tsx, ResetPassword.tsx, and EmployeeLogin.tsx also read
+   --color-premium-*, and must stay exactly as they are today — a global
+   token flip would silently dark-theme those pages too. The blue/purple
+   brand accents are kept intact, just tuned slightly brighter for
+   legibility against a dark background. */
+.landing-dark {
+  --color-premium-bg: #0A0E17;
+  --color-premium-surface: #10151F;
+  --color-premium-surface-alt: #161C29;
+  --color-premium-border: #232B3D;
+  --color-premium-ink: #F1F5F9;
+  --color-premium-muted: #8B98AF;
+  --color-premium-accent: #2563EB;
+  --color-premium-accent-hover: #3B82F6;
+  --color-premium-accent-soft: rgba(37, 99, 235, 0.16);
+  --color-premium-accent-2: #8B5CF6;
+  --color-premium-accent-2-soft: rgba(139, 92, 246, 0.16);
+  --color-premium-gold: #8B5CF6;
+  --color-premium-gold-soft: rgba(139, 92, 246, 0.16);
+  --color-premium-success: #22C55E;
+  --color-premium-success-soft: rgba(34, 197, 94, 0.14);
+  --color-premium-warning: #F59E0B;
+  --color-premium-warning-soft: rgba(245, 158, 11, 0.14);
+  --color-premium-danger: #EF4444;
+  --color-premium-danger-soft: rgba(239, 68, 68, 0.14);
+  --color-premium-info: #3B82F6;
+  --color-premium-info-soft: rgba(59, 130, 246, 0.14);
+  --shadow-elevation-1: 0px 1px 3px rgba(0, 0, 0, 0.3), 0px 10px 24px rgba(0, 0, 0, 0.25);
+  --shadow-elevation-2: 0px 4px 16px rgba(0, 0, 0, 0.35), 0px 24px 48px rgba(0, 0, 0, 0.4);
+  --shadow-elevation-3: 0px 32px 64px rgba(0, 0, 0, 0.55);
+}
+.landing-dark .glass-panel-heavy {
+  background: rgba(10, 14, 23, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 @keyframes slow-rotate {
   from {
     transform: rotate(0deg);

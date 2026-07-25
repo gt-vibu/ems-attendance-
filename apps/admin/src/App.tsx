@@ -17,6 +17,9 @@ import ProcessSteps from './components/ProcessSteps';
 import DemoPanel from './components/DemoPanel';
 import PricingSection from './components/PricingSection';
 import FeatureGrid from './components/FeatureGrid';
+import ProductShowcase from './components/ProductShowcase';
+import BenefitsStats from './components/BenefitsStats';
+import ScrollStory from './components/ScrollStory';
 import TestimonialCarousel from './components/TestimonialCarousel';
 import PartnerSection from './components/PartnerSection';
 import Footer from './components/Footer';
@@ -25,11 +28,11 @@ import BottomNav from './components/BottomNav';
 
 const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
-// One-time entrance animations as each section scrolls into view — the
-// page itself is static (no pinned backgrounds, no continuous loops, no
-// scroll-linked parallax); `viewport: { once: true }` means each of these
-// plays once and then just sits there. Several distinct variants so
-// different sections don't all move identically.
+// One-time entrance animations as each normal-flow section scrolls into
+// view (Pricing, Testimonials, Final CTA, Footer, and the mobile/reduced-
+// motion fallback for the pinned ScrollStory sections above them).
+// `viewport: { once: true }` means each of these plays once and then just
+// sits there — no continuous loops, no scroll-linked parallax on this tier.
 const revealUp = (delay = 0) => ({
   initial: { opacity: 0, y: 28 },
   whileInView: { opacity: 1, y: 0 },
@@ -73,14 +76,15 @@ const SESSION_LABELS: Record<string, string> = {
   ABSENT: 'Absent',
 };
 
+// Kept in sync with DemoPanel.tsx's stateColorMap/badgeColor.
 const SESSION_DOT_COLOR: Record<string, string> = {
   NOT_STARTED: '#64748B',
-  PENDING_VERIFICATION: '#D97706',
-  ACTIVE: '#16A34A',
+  PENDING_VERIFICATION: '#F59E0B',
+  ACTIVE: '#22C55E',
   ON_BREAK: '#2563EB',
-  NEEDS_REVIEW: '#D97706',
-  CLOSED: '#16A34A',
-  REJECTED: '#DC2626',
+  NEEDS_REVIEW: '#F59E0B',
+  CLOSED: '#22C55E',
+  REJECTED: '#EF4444',
   ABSENT: '#64748B',
 };
 
@@ -124,10 +128,10 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen premium-mesh-bg text-[var(--color-premium-ink)] font-sans antialiased">
+    <div className="landing-dark min-h-screen premium-mesh-bg text-[var(--color-premium-ink)] font-sans antialiased">
 
-      {/* HEADER BAR — a plain sticky nav (glass-panel-heavy: white/90% +
-          blur), not pinned over any background scene. */}
+      {/* HEADER BAR — a plain sticky nav (glass-panel-heavy: dark/75% +
+          blur under .landing-dark), not pinned over any background scene. */}
       <header className="sticky top-0 z-30 glass-panel-heavy">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center text-xs select-none">
           <span className="font-display font-semibold text-xl md:text-2xl text-[var(--color-premium-ink)] tracking-tight">
@@ -146,75 +150,97 @@ export default function App() {
         </div>
       </header>
 
-      {/* HERO — a normal (non-sticky, non-pinned) section. Copy on the left,
-          a static product preview on the right instead of a 3D scene. */}
-      <section className="max-w-7xl mx-auto px-6 pt-16 pb-20 md:pt-24 md:pb-28 grid md:grid-cols-2 gap-12 items-center">
-        <motion.div {...revealFromLeft()} className="space-y-8 text-center md:text-left">
-          <div className="space-y-4">
-            <span className="text-xs text-[var(--color-premium-accent)] font-bold uppercase tracking-widest">
-              Attendance you can prove
-            </span>
-
-            <h1 className="font-display font-semibold text-[38px] md:text-[46px] leading-[1.1] text-[var(--color-premium-ink)] tracking-tight">
-              Know who's on the clock, <span className="text-gradient">and where.</span>
-            </h1>
-          </div>
-
-          <div className="space-y-5 text-sm md:text-base text-[var(--color-premium-muted)] leading-relaxed font-medium">
-            <p>
-              Smart Teams verifies every check-in against geofence, device, and confidence signals — so "present" actually means present.
-            </p>
-            <p>
-              Every state change — check-in, break, anomaly, correction, approval — is a versioned, auditable transition, not a status field someone can quietly edit.
-            </p>
-            <p className="inline-block text-xs font-bold text-[var(--color-premium-accent)] bg-[var(--color-premium-accent-soft)] rounded-full px-4 py-1.5">
-              Plans start free for up to 10 employees
-            </p>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center md:justify-start items-center">
-            <button
-              onClick={scrollToDemo}
-              className="w-full sm:w-auto bg-[var(--color-premium-accent)] text-white rounded-full px-8 py-3.5 font-bold text-xs uppercase tracking-wider transition-colors hover:bg-[var(--color-premium-accent-hover)] cursor-pointer"
-            >
-              Try live demo
-            </button>
-
-            <button
-              onClick={scrollToHow}
-              className="w-full sm:w-auto bg-white text-[var(--color-premium-ink)] rounded-full px-8 py-3.5 font-bold text-xs uppercase tracking-wider shadow-sm border border-[var(--color-premium-border)] transition-colors hover:bg-[var(--color-premium-surface-alt)] cursor-pointer"
-            >
-              See how it works
-            </button>
-          </div>
-
-          <div className="flex justify-center md:justify-start">
-            <div className="inline-flex items-center gap-2.5 bg-white border border-[var(--color-premium-border)] rounded-full px-5 py-2 shadow-sm">
-              <span className="relative flex h-2 w-2">
-                <span
-                  className="absolute inline-flex h-full w-full animate-ping motion-reduce:animate-none rounded-full opacity-60"
-                  style={{ backgroundColor: SESSION_DOT_COLOR[session] || '#64748B' }}
-                />
-                <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: SESSION_DOT_COLOR[session] || '#64748B' }} />
+      {/* HERO — pinned/cinematic on desktop (ScrollStory), a normal
+          section on mobile/reduced-motion. */}
+      <ScrollStory>
+        <section className="max-w-7xl mx-auto px-6 grid md:grid-cols-2 gap-12 items-center">
+          <motion.div {...revealFromLeft()} className="space-y-8 text-center md:text-left">
+            <div className="space-y-4">
+              <span className="text-xs text-[var(--color-premium-accent)] font-bold uppercase tracking-widest">
+                Attendance you can prove
               </span>
-              <span className="text-[11px] font-semibold text-[var(--color-premium-muted)]">
-                Live demo status: <span className="text-[var(--color-premium-ink)]">{SESSION_LABELS[session] || session}</span>
-              </span>
+
+              <h1 className="font-display font-semibold text-[38px] md:text-[46px] leading-[1.1] text-[var(--color-premium-ink)] tracking-tight">
+                Know who's on the clock, <span className="text-gradient">and where.</span>
+              </h1>
             </div>
-          </div>
-        </motion.div>
 
-        <motion.div {...revealFromRight(0.1)}>
-          <HeroPreview />
-        </motion.div>
-      </section>
+            <div className="space-y-5 text-sm md:text-base text-[var(--color-premium-muted)] leading-relaxed font-medium">
+              <p>
+                Smart Teams verifies every check-in against geofence, device, and confidence signals — so "present" actually means present.
+              </p>
+              <p>
+                Every state change — check-in, break, anomaly, correction, approval — is a versioned, auditable transition, not a status field someone can quietly edit.
+              </p>
+              <p className="inline-block text-xs font-bold text-[var(--color-premium-accent)] bg-[var(--color-premium-accent-soft)] rounded-full px-4 py-1.5">
+                Plans start free for up to 10 employees
+              </p>
+            </div>
 
-      {/* STATE FLOW — static grid replacing the previous 3D orbit. */}
-      <motion.section {...revealScaleUp()} className="py-16 md:py-20">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center md:justify-start items-center">
+              <button
+                onClick={scrollToDemo}
+                className="w-full sm:w-auto bg-[var(--color-premium-accent)] text-white rounded-full px-8 py-3.5 font-bold text-xs uppercase tracking-wider transition-colors hover:bg-[var(--color-premium-accent-hover)] cursor-pointer"
+              >
+                Try live demo
+              </button>
+
+              <button
+                onClick={scrollToHow}
+                className="w-full sm:w-auto bg-[var(--color-premium-surface)] text-[var(--color-premium-ink)] rounded-full px-8 py-3.5 font-bold text-xs uppercase tracking-wider shadow-sm border border-[var(--color-premium-border)] transition-colors hover:bg-[var(--color-premium-surface-alt)] cursor-pointer"
+              >
+                See how it works
+              </button>
+            </div>
+
+            <div className="flex justify-center md:justify-start">
+              <div className="inline-flex items-center gap-2.5 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-full px-5 py-2 shadow-sm">
+                <span className="relative flex h-2 w-2">
+                  <span
+                    className="absolute inline-flex h-full w-full animate-ping motion-reduce:animate-none rounded-full opacity-60"
+                    style={{ backgroundColor: SESSION_DOT_COLOR[session] || '#64748B' }}
+                  />
+                  <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: SESSION_DOT_COLOR[session] || '#64748B' }} />
+                </span>
+                <span className="text-[11px] font-semibold text-[var(--color-premium-muted)]">
+                  Live demo status: <span className="text-[var(--color-premium-ink)]">{SESSION_LABELS[session] || session}</span>
+                </span>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div {...revealFromRight(0.1)}>
+            <HeroPreview />
+          </motion.div>
+        </section>
+      </ScrollStory>
+
+      {/* PRODUCT OVERVIEW — the platform's core state machine, pinned. */}
+      <ScrollStory>
         <StateFlowStrip />
-      </motion.section>
+      </ScrollStory>
 
-      {/* INTERACTIVE DEMO PANEL */}
+      {/* KEY FEATURES — pinned. */}
+      <ScrollStory>
+        <div id="features">
+          <FeatureGrid />
+        </div>
+      </ScrollStory>
+
+      {/* PRODUCT SHOWCASE — pinned. */}
+      <ScrollStory>
+        <ProductShowcase />
+      </ScrollStory>
+
+      {/* BENEFITS — honest, product-capability stats, pinned (last of the
+          cinematic sequence). */}
+      <ScrollStory>
+        <BenefitsStats />
+      </ScrollStory>
+
+      {/* INTERACTIVE DEMO PANEL — deliberately NOT pinned: it's something
+          people click through at their own pace, and an auto-advancing
+          scroll transition would risk yanking it away mid-interaction. */}
       <section className="py-12">
         <DemoPanel />
       </section>
@@ -257,12 +283,7 @@ export default function App() {
         </motion.div>
       </section>
 
-      {/* FEATURE GRID */}
-      <section id="features">
-        <FeatureGrid />
-      </section>
-
-      {/* HOW IT WORKS — static step flow replacing the previous 3D path. */}
+      {/* HOW IT WORKS */}
       <motion.section {...revealFromLeft()} id="how-it-works" className="py-20 px-6 max-w-7xl mx-auto scroll-mt-28">
         <ProcessSteps />
       </motion.section>
