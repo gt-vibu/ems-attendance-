@@ -490,28 +490,56 @@ export default function AttendanceTimeline({
             <div className="text-center py-8 text-xs text-[var(--color-nexus-muted)]">No days match the selected filter.</div>
           ) : visibleDays.map((day) => {
             const lateEarly = lateEarlyLabel(day);
+            const kindLabel = STATUS_OPTIONS.find((o) => o.kind === day.kind)?.label || day.kind;
             return (
-              <div key={day.key} className="flex items-center gap-3 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-3 py-3">
-                <div className="w-12 shrink-0 text-center">
-                  <span className="block text-[11px] font-bold text-[var(--color-nexus-ink)]">{day.isToday ? 'Today' : DAY_SHORT[day.d.getDay()]}</span>
-                  <span className={`mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold ${day.isToday ? 'bg-[var(--color-nexus-primary)] text-white' : 'text-[var(--color-nexus-muted)]'}`}>{day.d.getDate()}</span>
+              <div key={day.key} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)]">
+                {/* Desktop/tablet row — fixed-width columns + the
+                    absolute-positioned hour-axis pill. Hidden below `sm`
+                    where those fixed widths (w-12+flex-1(min 120)+w-32+w-28)
+                    sum wider than the viewport and force the whole card to
+                    scroll sideways. */}
+                <div className="hidden sm:flex items-center gap-3 px-3 py-3">
+                  <div className="w-12 shrink-0 text-center">
+                    <span className="block text-[11px] font-bold text-[var(--color-nexus-ink)]">{day.isToday ? 'Today' : DAY_SHORT[day.d.getDay()]}</span>
+                    <span className={`mt-0.5 inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold ${day.isToday ? 'bg-[var(--color-nexus-primary)] text-white' : 'text-[var(--color-nexus-muted)]'}`}>{day.d.getDate()}</span>
+                  </div>
+                  <div className="relative flex-1 h-8 min-w-[120px]">
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-[var(--color-nexus-border)]" />
+                    {renderPill(day)}
+                  </div>
+                  <div className="w-32 shrink-0 text-right">
+                    {day.checkIn ? (
+                      <>
+                        <span className="block text-[11px] font-bold text-[var(--color-nexus-ink)]">{fmtTime(new Date(day.checkIn.createdAt))}</span>
+                        {lateEarly && <span className={`block text-[9px] font-bold ${lateEarly.danger ? 'text-[var(--color-nexus-warning)]' : 'text-[var(--color-nexus-secondary)]'}`}>{lateEarly.text}</span>}
+                      </>
+                    ) : (
+                      <span className="block text-[11px] text-[var(--color-nexus-muted)]">—</span>
+                    )}
+                  </div>
+                  <div className="w-28 shrink-0 text-right">
+                    <span className="block text-[11px] font-mono text-[var(--color-nexus-muted)]">{hoursWorkedLabel(day)}</span>
+                  </div>
                 </div>
-                <div className="relative flex-1 h-8 min-w-[120px]">
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full bg-[var(--color-nexus-border)]" />
-                  {renderPill(day)}
-                </div>
-                <div className="w-32 shrink-0 text-right">
-                  {day.checkIn ? (
-                    <>
-                      <span className="block text-[11px] font-bold text-[var(--color-nexus-ink)]">{fmtTime(new Date(day.checkIn.createdAt))}</span>
-                      {lateEarly && <span className={`block text-[9px] font-bold ${lateEarly.danger ? 'text-[var(--color-nexus-warning)]' : 'text-[var(--color-nexus-secondary)]'}`}>{lateEarly.text}</span>}
-                    </>
-                  ) : (
-                    <span className="block text-[11px] text-[var(--color-nexus-muted)]">—</span>
-                  )}
-                </div>
-                <div className="w-28 shrink-0 text-right">
-                  <span className="block text-[11px] font-mono text-[var(--color-nexus-muted)]">{hoursWorkedLabel(day)}</span>
+
+                {/* Mobile row — stacked, no fixed-width columns and no
+                    absolute-position pill, so it can never be wider than the
+                    viewport. */}
+                <div className="sm:hidden px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold ${day.isToday ? 'bg-[var(--color-nexus-primary)] text-white' : 'text-[var(--color-nexus-muted)]'}`}>{day.d.getDate()}</span>
+                      <span className="text-[11px] font-bold text-[var(--color-nexus-ink)] truncate">{day.isToday ? 'Today' : DAY_NAMES[day.d.getDay()]}</span>
+                    </div>
+                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-[var(--color-nexus-muted)]">{kindLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-1.5">
+                    <span className="text-[11px] text-[var(--color-nexus-ink)]">
+                      {day.checkIn ? `${fmtTime(new Date(day.checkIn.createdAt))}${day.checkOut ? ` – ${fmtTime(new Date(day.checkOut.createdAt))}` : ''}` : '—'}
+                    </span>
+                    <span className="text-[11px] font-mono text-[var(--color-nexus-muted)]">{hoursWorkedLabel(day)}</span>
+                  </div>
+                  {lateEarly && <span className={`block text-[9px] font-bold mt-1 ${lateEarly.danger ? 'text-[var(--color-nexus-warning)]' : 'text-[var(--color-nexus-secondary)]'}`}>{lateEarly.text}</span>}
                 </div>
               </div>
             );
@@ -548,9 +576,10 @@ export default function AttendanceTimeline({
         </div>
       )}
 
-      {/* Hour ruler — only meaningful against the list view's timeline pills */}
+      {/* Hour ruler — only meaningful against the desktop list view's
+          absolute-positioned timeline pills, which are hidden below `sm`. */}
       {viewMode === 'list' && (
-        <div className="flex items-center gap-3 px-3">
+        <div className="hidden sm:flex items-center gap-3 px-3">
           <div className="w-12 shrink-0" />
           <div className="relative flex-1 min-w-[120px] flex justify-between text-[9px] font-mono text-[var(--color-nexus-muted)]">
             {rulerHours.map((mins) => (
