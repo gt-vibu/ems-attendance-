@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, X, LogOut, Building2, Search, MoreHorizontal, type LucideIcon } from 'lucide-react';
+import { X, LogOut, Building2, Search, MoreHorizontal, type LucideIcon } from 'lucide-react';
 import PageChrome from './PageChrome';
 import NotificationBell from './NotificationBell';
 
@@ -118,7 +118,10 @@ export default function PortalShell({
         <SidebarContent />
       </aside>
 
-      {/* Mobile drawer — full nav list, opened via hamburger or bottom-nav overflow */}
+      {/* Mobile drawer — full nav list, opened via the bottom-nav "More"
+          button. There used to also be a header hamburger that opened this
+          same drawer — a second, redundant entry point to the identical
+          menu — removed so mobile has exactly one way in. */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
@@ -134,9 +137,6 @@ export default function PortalShell({
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-4 md:px-6 h-14 flex justify-between items-center gap-4 sticky top-0 z-40">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => setMobileOpen(true)} className="md:hidden text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] shrink-0">
-              <Menu size={22} />
-            </button>
             <div className="min-w-0">
               <h1 className="font-sans font-bold text-lg md:text-xl text-[var(--color-nexus-ink)] tracking-tight truncate">{title}</h1>
               {subtitle && <p className="hidden sm:block text-xs text-[var(--color-nexus-muted)] truncate mt-0.5">{subtitle}</p>}
@@ -193,6 +193,17 @@ export default function PortalShell({
             <span className="text-[10px] font-semibold">More</span>
           </button>
         )}
+        {/* Sign Out lives here too, always — the hamburger used to be the
+            only mobile way to reach it, and a nav list with 4 or fewer items
+            (no "More") would otherwise leave no way to sign out on mobile
+            at all. */}
+        <button
+          onClick={onLogout}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[var(--color-nexus-muted)]"
+        >
+          <LogOut size={20} />
+          <span className="text-[10px] font-semibold">Sign Out</span>
+        </button>
       </nav>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -169,6 +169,12 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [encashReason, setEncashReason] = useState('');
   const [encashSubmitting, setEncashSubmitting] = useState(false);
   const [encashMessage, setEncashMessage] = useState('');
+  // Drives the "Management Dashboard" link below — a role name like
+  // 'manager'/'hr' doesn't by itself mean this person was actually granted
+  // any admin privilege (a custom role could hold the title with zero
+  // delegated access), so this checks the real thing instead of guessing
+  // from the role string.
+  const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
 
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
@@ -258,6 +264,14 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     setSelectedOptionalHolidayIds((optionalJson.holidays || []).filter((holiday: any) => holiday.selected).map((holiday: any) => holiday.id));
     return optionalJson;
   };
+
+  useEffect(() => {
+    fetch('/api/tenant/my-privileges', { headers: authHeaders })
+      .then((r) => r.json())
+      .then((d) => { if (d.privileges) setMyPrivileges(d.privileges); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -848,7 +862,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               <div className="w-full bg-[var(--color-nexus-border)] rounded-full h-1.5 overflow-hidden">
                 <motion.div initial={{ width: 0 }} animate={{ width: `${budgetUsedPct}%` }} transition={{ duration: 0.6 }} className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`} />
               </div>
-              {activeBreak ? (
+              {activeBreak && (
                 <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
                   <div>
                     <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">On Break ({activeBreak.breakType})</span>
@@ -857,10 +871,6 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   </div>
                   <button onClick={handleEndBreak} disabled={breakBusy} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Ending…' : 'Resume Work'}</button>
                 </div>
-              ) : (
-                <button onClick={() => setShowTakeBreakModal(true)} className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2">
-                  <Coffee size={16} /> Take a Break
-                </button>
               )}
               {breaksToday.length > 0 && (
                 <div className="space-y-1.5">
@@ -910,9 +920,14 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                     </div>
                   </div>
                 ) : (
-                  <button onClick={() => setShowCheckoutConfirm(true)} disabled={!!activeBreak} title={activeBreak ? 'Resume work before checking out' : undefined} className="w-full bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(226,69,69,0.3)]">
-                    {activeBreak ? 'Resume Work To Check Out' : 'Check Out'}
-                  </button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => setShowTakeBreakModal(true)} disabled={!!activeBreak} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                      <Coffee size={16} /> Take a Break
+                    </button>
+                    <button onClick={() => setShowCheckoutConfirm(true)} disabled={!!activeBreak} title={activeBreak ? 'Resume work before checking out' : undefined} className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(226,69,69,0.3)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                      <LogOut size={16} /> Check Out
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -921,20 +936,41 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           {/* Take-a-Break popup — the type/note form used to sit permanently
               on screen; now it only appears once "Take a Break" is pressed,
               same modal chrome used elsewhere in this file (Apply Leave,
-              correction request). */}
+              correction request). Also surfaces the remaining/used budget
+              and today's breaks-so-far here, so the decision to go on break
+              is made with that context in view, not just the bare form. */}
           {showTakeBreakModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowTakeBreakModal(false)}>
               <div className="nexus-card rounded-3xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-1">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Take a Break</h2>
                   <button type="button" onClick={() => setShowTakeBreakModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1">
                     <X size={18} />
                   </button>
                 </div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-mono text-[var(--color-nexus-muted)] uppercase tracking-wider">Daily budget</span>
+                  <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{remainingMins}m left of {budgetMins}m</span>
+                </div>
+                <div className="w-full bg-[var(--color-nexus-border)] rounded-full h-1.5 overflow-hidden mb-4">
+                  <div className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`} style={{ width: `${budgetUsedPct}%` }} />
+                </div>
+                {breakBreakdown.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {breakBreakdown.map(([type, mins]) => (
+                      <span key={type} className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]">
+                        {type}: <strong className="text-[var(--color-nexus-ink)]">{mins}m</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="space-y-3">
-                  <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
-                    <option value="Lunch">Lunch</option><option value="Tea">Tea / Coffee</option><option value="Personal">Personal</option><option value="Meeting">Meeting</option><option value="General">General</option>
-                  </select>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1.5">Break Type</label>
+                    <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
+                      <option value="Lunch">Lunch</option><option value="Tea">Tea / Coffee</option><option value="Personal">Personal</option><option value="Meeting">Meeting</option><option value="General">General</option>
+                    </select>
+                  </div>
                   <input
                     value={breakNote}
                     onChange={e => setBreakNote(e.target.value)}
@@ -1071,7 +1107,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               into Teams-style separate destinations instead of one long
               scroll. */}
 
-          {user.role !== 'employee' && user.role !== 'intern' && (
+          {user.role !== 'employee' && user.role !== 'intern' && (myPrivileges === 'ALL' || myPrivileges.length > 0) && (
             <button onClick={() => navigate('/dashboard')} className={`${tile} w-full text-left flex items-center justify-between gap-4`}>
               <div>
                 <span className="block font-bold text-[var(--color-nexus-ink)]">Management Dashboard</span>
