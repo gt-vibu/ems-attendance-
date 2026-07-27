@@ -25,6 +25,9 @@ export interface User {
   // Which identity check this employee completed enrollment with — 'face'
   // or 'webauthn' — or undefined if neither yet.
   verificationMethod?: 'face' | 'webauthn';
+  // Super-admin-controlled: whether this tenant's admin can reset an
+  // employee's registered device / see the Device Approvals queue.
+  deviceChangeEnabled?: boolean;
 }
 
 export function useAuth() {

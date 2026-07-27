@@ -2739,7 +2739,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck, visible: hasAnyPrivilege('tenant.config.manage') },
                     { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
                     { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
-                    { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: hasAnyPrivilege('settings.edit') },
+                    { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: user.deviceChangeEnabled !== false && hasAnyPrivilege('settings.edit') },
                     // Notifications and Org Chart are informational/personal
                     // rather than tied to a specific management privilege —
                     // visible to anyone who can reach Administration at all.

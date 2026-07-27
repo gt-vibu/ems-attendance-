@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
 
@@ -323,6 +323,9 @@ router.post('/api/tenant/employees/:id/reset-device', authenticate, async (req: 
   try {
     if (!await hasPrivilege(req.user, 'employee.resetDevice')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'device_change')) {
+      return res.status(403).json({ error: 'Device change requests are not enabled for your organization.' });
     }
 
     const employeeId = parseInt(req.params.id, 10);

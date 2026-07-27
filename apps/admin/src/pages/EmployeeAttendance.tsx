@@ -10,6 +10,7 @@ import { describeCameraError } from '../lib/cameraError';
 import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
+import { getDeviceFingerprint } from '../lib/deviceId';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 
@@ -116,15 +117,6 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   // resubmit can reuse it without repeating the Wi-Fi step.
   const ipOverrideRef = useRef<string>('');
 
-  // Device fingerprint helper
-  const getDeviceFingerprint = () => {
-    let deviceId = localStorage.getItem('device_fingerprint');
-    if (!deviceId) {
-      deviceId = 'device_' + Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('device_fingerprint', deviceId);
-    }
-    return deviceId;
-  };
 
   const [queuedCount, setQueuedCount] = useState(0);
 
@@ -1013,8 +1005,8 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
                 verificationMethod === 'face'), with a "camera not working"
                 rescue that falls through to the WebAuthn block below. */}
             {step === 'identity' && user.verificationMethod === 'face' && !faceCameraBroken && (
-              <div className="py-6 text-center space-y-5">
-                <div className="relative w-40 h-40 mx-auto rounded-full overflow-hidden bg-[var(--color-nexus-ink)] border-2 border-[var(--color-nexus-border)]">
+              <div className="py-6 text-center space-y-6">
+                <div className="relative w-48 h-48 min-[375px]:w-56 min-[375px]:h-56 sm:w-60 sm:h-60 mx-auto rounded-full overflow-hidden bg-[var(--color-nexus-ink)] border-2 border-[var(--color-nexus-border)]">
                   <video
                     ref={faceVideoRef}
                     autoPlay

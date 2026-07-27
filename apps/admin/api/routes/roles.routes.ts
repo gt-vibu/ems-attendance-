@@ -15,7 +15,18 @@ export const router = Router();
 // left in a broken state (see FeatureCatalogGrid.tsx) — e.g. resolving
 // break-violation alerts with the ability to even receive them revoked.
 router.get('/api/tenant/feature-catalog', authenticate, async (req: any, res: any) => {
-  res.json({ catalog: FEATURE_CATALOG, dependencies: FEATURE_DEPENDENCIES });
+  // 'settings.edit' (Devices category) is the only catalog entry gated by a
+  // platform toggle today — when a tenant's super admin has turned off
+  // 'device_change', it must not be offered to delegate at all, not just
+  // fail silently when used (see PLATFORM_FEATURES['device_change'] in
+  // rbac.ts, and the same gate on the underlying routes).
+  const deviceChangeAllowed = !req.user.tenantId || await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'device_change');
+  const catalog = deviceChangeAllowed
+    ? FEATURE_CATALOG
+    : FEATURE_CATALOG
+        .map((c) => ({ ...c, features: c.features.filter((f) => f.key !== 'settings.edit') }))
+        .filter((c) => c.features.length > 0);
+  res.json({ catalog, dependencies: FEATURE_DEPENDENCIES });
 });
 
 // A caller's own effective privileges — lets the frontend know which

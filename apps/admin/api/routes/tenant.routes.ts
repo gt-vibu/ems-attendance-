@@ -14,7 +14,7 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, getScopedBranchIds } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, getScopedBranchIds, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
@@ -617,6 +617,9 @@ router.get('/api/tenant/device-requests', authenticate, async (req: any, res: an
       if (!await hasPrivilege(req.user, 'settings.edit')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
+      if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'device_change')) {
+        return res.status(403).json({ error: 'Device change requests are not enabled for your organization.' });
+      }
       const requests = await db.select({
         id: schema.deviceChangeRequests.id,
         status: schema.deviceChangeRequests.status,
@@ -647,6 +650,9 @@ router.post('/api/tenant/device-requests/action', authenticate, async (req: any,
     try {
       if (!await hasPrivilege(req.user, 'settings.edit')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+      }
+      if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'device_change')) {
+        return res.status(403).json({ error: 'Device change requests are not enabled for your organization.' });
       }
       const { requestId, action } = req.body; // action: 'approve' | 'reject'
       

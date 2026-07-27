@@ -59,7 +59,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   }, []);
 
   const canTerminate = myPrivileges === 'ALL' || myPrivileges.includes('employee.terminate');
-  const canResetDevice = myPrivileges === 'ALL' || myPrivileges.includes('employee.resetDevice');
+  const canResetDevice = user.deviceChangeEnabled !== false && (myPrivileges === 'ALL' || myPrivileges.includes('employee.resetDevice'));
 
   const resetDevice = async (emp: Employee) => {
     if (!window.confirm(`Clear ${emp.name}'s registered device? They will need to register a new one before they can clock in again.`)) return;

@@ -19,6 +19,7 @@ export const PLATFORM_FEATURES = [
   { key: 'webhooks', label: 'Webhooks & Integrations', description: 'Outbound webhook subscriptions for external integrations.' },
   { key: 'service_accounts', label: 'API Keys (Service Accounts)', description: 'Machine-to-machine API key issuance.' },
   { key: 'custom_rbac', label: 'Custom Roles', description: 'Creating custom roles beyond the built-in ones.' },
+  { key: 'device_change', label: 'Device Change Requests', description: 'Lets an admin reset an employee\'s registered device (Employee Directory) and exposes the Device Approvals queue. When disabled for a tenant, this is hidden entirely from that tenant\'s admin — no employee at that company can be routed through a device-change flow.' },
 ] as const;
 
 // Keys that predate this whitelist (the original, never-enforced
