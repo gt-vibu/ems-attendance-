@@ -5,6 +5,7 @@ import { User } from '../lib/auth';
 import FloatingOrbs from '../components/FloatingOrbs';
 import { ensureFaceServiceReady } from '../lib/faceClient';
 import { describeCameraError } from '../lib/cameraError';
+import { getDeviceFingerprint } from '../lib/deviceId';
 
 // Each phase's duration is implicitly frameCount * CAPTURE_INTERVAL_MS — kept
 // in lockstep with the frame counts the face-service's geometry thresholds
@@ -185,8 +186,7 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
     setSubmitting(true);
     setError('');
     try {
-      const deviceId = localStorage.getItem('device_fingerprint') || globalThis.crypto.randomUUID();
-      localStorage.setItem('device_fingerprint', deviceId);
+      const deviceId = getDeviceFingerprint();
 
       const token = localStorage.getItem('auth_token');
       const res = await fetch('/api/face/enroll', {

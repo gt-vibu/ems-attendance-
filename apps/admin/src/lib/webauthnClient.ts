@@ -1,15 +1,12 @@
 import { startRegistration, startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
+import { getDeviceFingerprint } from './deviceId';
 
 function authHeaders(): HeadersInit {
   const token = localStorage.getItem('auth_token');
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
-export function getOrCreateDeviceId(): string {
-  const deviceId = localStorage.getItem('device_fingerprint') || globalThis.crypto.randomUUID();
-  localStorage.setItem('device_fingerprint', deviceId);
-  return deviceId;
-}
+export const getOrCreateDeviceId = getDeviceFingerprint;
 
 // A WebAuthn ceremony (create/get) never resolves to an HTTP response — the
 // browser itself throws a DOMException when the user cancels, the device has

@@ -8,6 +8,7 @@ import { GOOGLE_CLIENT_ID, loginWithGoogleCredential } from '../lib/googleAuth';
 import PageChrome from '../components/PageChrome';
 import AuroraField from '../three/AuroraField';
 import AnimatedLogo from '../components/AnimatedLogo';
+import { getDeviceFingerprint } from '../lib/deviceId';
 
 export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void }) {
   const [searchParams] = useSearchParams();
@@ -27,16 +28,6 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
   const [showNewPassword, setShowNewPassword] = useState(false);
 
   const navigate = useNavigate();
-
-  // Get or create unique device ID
-  const getDeviceFingerprint = () => {
-    let deviceId = localStorage.getItem('device_fingerprint');
-    if (!deviceId) {
-      deviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('device_fingerprint', deviceId);
-    }
-    return deviceId;
-  };
 
   // Prefill email and password from URL
   useEffect(() => {

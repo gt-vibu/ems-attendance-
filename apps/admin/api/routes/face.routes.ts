@@ -167,25 +167,29 @@ router.post('/api/face/verify-step', authenticate, async (req: any, res: any) =>
 // server-side (keyed by user) so /api/face/verify has something
 // authoritative to check the capture burst against.
 router.get('/api/face/challenge', authenticate, async (req: any, res: any) => {
-  if (!(await ensureFaceFeatureEnabled(req, res))) return;
+  try {
+    if (!(await ensureFaceFeatureEnabled(req, res))) return;
 
-  const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
-  const user = usersList[0];
+    const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
+    const user = usersList[0];
 
-  let pool = [...DAILY_CHALLENGE_ACTIONS];
-  if (user?.kycActionLog && typeof user.kycActionLog === 'object') {
-    const actionLog = user.kycActionLog as Record<string, any>;
-    const verifiedOnly = DAILY_CHALLENGE_ACTIONS.filter(a => actionLog[a]?.verified === true);
-    if (verifiedOnly.length > 0) pool = verifiedOnly;
+    let pool = [...DAILY_CHALLENGE_ACTIONS];
+    if (user?.kycActionLog && typeof user.kycActionLog === 'object') {
+      const actionLog = user.kycActionLog as Record<string, any>;
+      const verifiedOnly = DAILY_CHALLENGE_ACTIONS.filter(a => actionLog[a]?.verified === true);
+      if (verifiedOnly.length > 0) pool = verifiedOnly;
+    }
+
+    const selected: string[] = [];
+    for (let i = 0; i < DAILY_CHALLENGE_ACTION_COUNT && pool.length > 0; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      selected.push(pool.splice(idx, 1)[0]);
+    }
+    pendingChallenges.set(req.user.userId, { actions: selected, issuedAt: Date.now() });
+    res.json({ challenge: selected });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-
-  const selected: string[] = [];
-  for (let i = 0; i < DAILY_CHALLENGE_ACTION_COUNT && pool.length > 0; i++) {
-    const idx = Math.floor(Math.random() * pool.length);
-    selected.push(pool.splice(idx, 1)[0]);
-  }
-  pendingChallenges.set(req.user.userId, { actions: selected, issuedAt: Date.now() });
-  res.json({ challenge: selected });
 });
 
 // Daily attendance identity check. Two modes:

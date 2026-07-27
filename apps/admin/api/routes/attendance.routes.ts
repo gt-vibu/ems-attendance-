@@ -26,6 +26,7 @@ import { computeAttendancePercent, getHierarchyAlertRecipients } from '../servic
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
 import { getEffectiveShift } from '../services/shiftOverrides';
 import { resolveEffectivePolicy, computeLateness, computeExpectedCheckout, computeDayOutcome } from '../services/attendancePolicy';
+import { withLock } from '../services/locks';
 
 export const router = Router();
 
@@ -119,6 +120,10 @@ router.get('/api/attendance/mine', authenticate, async (req: any, res: any) => {
   // check-in still goes through the full authoritative /api/attendance path.
 router.post('/api/attendance/checkout', authenticate, async (req: any, res: any) => {
     try {
+      // Same per-user lock as POST /api/attendance — this "quick checkout"
+      // reads-then-inserts against the same attendanceLogs row a concurrent
+      // check-in/checkout could be racing.
+      await withLock(`attendance:${req.user.userId}`, async () => {
       const usersList = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId));
       if (usersList.length === 0) {
         return res.status(404).json({ error: 'User not found' });
@@ -179,6 +184,7 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
       });
 
       res.json({ success: true, log: log[0] });
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -265,6 +271,10 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
   // writer.
 router.post('/api/attendance', authenticate, async (req: any, res: any) => {
     try {
+      // Serializes this whole read-check-in/out-then-insert flow per user so
+      // a double-tap or two open tabs can't both read "no active check-in
+      // yet" and both insert — see api/services/locks.ts.
+      await withLock(`attendance:${req.user.userId}`, async () => {
       const { token, deviceId, lat, lng, simulatedIp, clientTimestamp, explanation, mode, wfhReason } = req.body;
       // Defaults to 'office' — omitting `mode` entirely (every pre-existing
       // client does) preserves the exact original behavior below unchanged.
@@ -331,17 +341,27 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       }
 
       // --- 2. Device Pinning verification ---
+      // A mismatch here means "checking in from a different browser/device
+      // than last time," which is exactly what happens switching browsers or
+      // getting a new phone — not itself proof of fraud (identity is still
+      // independently verified via the WebAuthn identity-pass check above,
+      // and location/Wi-Fi checks below). Self-service re-pin to the new
+      // device rather than hard-blocking the whole check-in on a manager's
+      // approval, mirroring the same policy change in finalizeLogin
+      // (api/auth/session.ts). Still recorded to the audit ledger so an
+      // admin can see the switch happened, just non-blocking.
       if (user.registeredDeviceId && user.registeredDeviceId !== deviceId) {
         await logToAuditLedger({
           tenantId: user.tenantId,
           actorId: user.id,
           actorName: user.name,
-          action: 'FRAUD_DEVICE_MISMATCH',
+          action: 'DEVICE_AUTO_SWITCHED',
           ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
           deviceInfo: req.headers['user-agent'] || '',
-          details: { registeredDeviceId: user.registeredDeviceId, attemptedDeviceId: deviceId }
+          details: { previousDeviceId: user.registeredDeviceId, newDeviceId: deviceId }
         });
-        return res.status(403).json({ error: 'Access denied: Registered device mismatch.' });
+        await db.update(schema.users).set({ registeredDeviceId: deviceId }).where(eq(schema.users.id, user.id));
+        user.registeredDeviceId = deviceId;
       }
 
       // Fetch Tenant Rules
@@ -657,6 +677,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       });
 
       res.json({ success: true, log: log[0], pendingApproval });
+      });
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ error: err.message });

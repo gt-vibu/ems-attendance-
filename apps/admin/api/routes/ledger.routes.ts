@@ -79,10 +79,15 @@ router.get('/api/tenant/ledger', authenticate, async (req: any, res: any) => {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
 
+      // Display-only list — capped so the payload/scan cost doesn't grow
+      // unbounded as the ledger accumulates over weeks of use. The
+      // integrity-verification endpoint below intentionally reads the full
+      // table instead, since hash-chain verification needs every block.
       const ledger = await db.select()
         .from(schema.auditLedger)
         .where(eq(schema.auditLedger.tenantId, req.user.tenantId || 1))
-        .orderBy(desc(schema.auditLedger.timestamp));
+        .orderBy(desc(schema.auditLedger.timestamp))
+        .limit(2000);
 
       res.json({ ledger });
     } catch (err: any) {

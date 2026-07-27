@@ -340,6 +340,8 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, Number(requestId))).limit(1);
     if (requestRows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
     const leaveRequest = requestRows[0];
+    if (leaveRequest.tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Leave request not found.' });
+    if (leaveRequest.status !== 'pending') return res.status(400).json({ error: 'This request has already been decided.' });
     const [updated] = await db.update(schema.leaveRequests).set({
       status: action === 'approve' ? 'approved' : 'rejected',
       reviewedByUserId: req.user.userId,

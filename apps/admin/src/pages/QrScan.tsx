@@ -6,6 +6,7 @@ import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import { describeCameraError } from '../lib/cameraError';
 import { verifyThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
+import { getDeviceFingerprint } from '../lib/deviceId';
 
 type Step = 'scanning' | 'validating' | 'identity' | 'gps' | 'submitting' | 'success' | 'error';
 
@@ -54,15 +55,6 @@ export default function QrScan({ user }: { user: User }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scanFrameRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  const getDeviceFingerprint = () => {
-    let deviceId = localStorage.getItem('device_fingerprint');
-    if (!deviceId) {
-      deviceId = 'device_' + Math.random().toString(36).substring(2, 15);
-      localStorage.setItem('device_fingerprint', deviceId);
-    }
-    return deviceId;
-  };
 
   const stopCamera = useCallback(() => {
     if (scanFrameRef.current) cancelAnimationFrame(scanFrameRef.current);

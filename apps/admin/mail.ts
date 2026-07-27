@@ -136,7 +136,14 @@
           attachments: attachments?.map((a) => ({
             filename: a.filename,
             content: Buffer.from(a.content).toString('base64'),
-            type: a.contentType,
+            // SendGrid's `type` must be a bare MIME type — no `; charset=...`
+            // or other parameters. Some callers (e.g. sendLeaveDecisionEmail's
+            // .ics attachment) set contentType to a full Content-Type value
+            // like 'text/calendar; charset=utf-8; method=PUBLISH' for
+            // nodemailer's SMTP path, which accepts that form fine. Strip to
+            // just the MIME type here so SendGrid doesn't reject the whole
+            // send with "attachment type cannot contain ';'".
+            type: a.contentType.split(';')[0].trim(),
             disposition: 'attachment',
           })),
         });

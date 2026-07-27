@@ -43,42 +43,30 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
   // Device Pinning Check (for anyone who can clock in — every role except
   // the two admin tiers, who manage the org but don't themselves check in
   // via the biometric/GPS flow).
+  //
+  // A device-ID mismatch here just means "logging in from a different
+  // browser/device than last time" — not proof of fraud. It self-service
+  // re-pins to the new device immediately rather than blocking the login on
+  // a manager's approval: the pending-approval flow this used to go through
+  // made switching browsers/tabs (or a legitimate new phone) painful for
+  // ordinary employees, and login itself carries no attendance-fraud risk —
+  // that's independently and more strictly enforced at actual check-in time
+  // (see the device pinning check in attendance.routes.ts, which still hard
+  // -blocks a mismatch there). A notification still goes to the tenant so
+  // device switches stay visible, just non-blocking.
   const isClockInRole = user.role !== 'super_admin' && user.role !== 'tenant_admin';
   if (isClockInRole && deviceId) {
     if (user.registeredDeviceId && user.registeredDeviceId !== deviceId) {
-      const pendingRequest = await db.select().from(schema.deviceChangeRequests).where(
-        and(
-          eq(schema.deviceChangeRequests.userId, user.id),
-          eq(schema.deviceChangeRequests.status, 'pending')
-        )
-      );
+      await db.update(schema.users)
+        .set({ registeredDeviceId: deviceId })
+        .where(eq(schema.users.id, user.id));
+      user.registeredDeviceId = deviceId;
 
-      if (pendingRequest.length === 0) {
-        await db.insert(schema.deviceChangeRequests).values({
-          userId: user.id,
-          tenantId: user.tenantId || 1,
-          oldDeviceId: user.registeredDeviceId,
-          newDeviceId: deviceId,
-          status: 'pending'
-        });
-
-        await db.update(schema.users)
-          .set({ deviceApprovalPending: true })
-          .where(eq(schema.users.id, user.id));
-
-        await db.insert(schema.notifications).values({
-          userId: user.tenantId,
-          title: 'Device Change Request',
-          message: `${user.name} is attempting to log in from a new device. Approval required.`
-        });
-      }
-
-      return {
-        ok: false, status: 403, body: {
-          error: 'device_change_pending',
-          message: 'This device is unauthorized. A device migration request has been submitted to your administrator.'
-        }
-      };
+      await db.insert(schema.notifications).values({
+        userId: user.tenantId,
+        title: 'Device Changed',
+        message: `${user.name} logged in from a new device/browser. Their registered device was updated automatically.`
+      });
     }
 
     if (!user.registeredDeviceId) {
@@ -117,6 +105,10 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
       // otherwise) — see PLATFORM_FEATURES['face_recognition'] in rbac.ts.
       faceRecognitionEnabled: isPlatformFeatureAllowed(tenant, 'face_recognition'),
       verificationMethod: user.verificationMethod || null,
+      // Super-admin-controlled: whether this tenant's admin can reset an
+      // employee's registered device / see the Device Approvals queue at
+      // all — see PLATFORM_FEATURES['device_change'] in rbac.ts.
+      deviceChangeEnabled: isPlatformFeatureAllowed(tenant, 'device_change'),
     }
   };
 }
