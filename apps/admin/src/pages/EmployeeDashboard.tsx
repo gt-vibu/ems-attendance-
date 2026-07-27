@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -141,6 +141,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [remainingMins, setRemainingMins] = useState(60);
   const [checkingOut, setCheckingOut] = useState(false);
   const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
+  // Controls the "Take a Break" popup — the type/note form used to be
+  // permanently visible whenever there was no active break; now it only
+  // appears once this button is pressed.
+  const [showTakeBreakModal, setShowTakeBreakModal] = useState(false);
   // In-flight guard for start/end break: a break action first waits on a GPS
   // fix (which can be slow on mobile), so without this the button gives no
   // feedback and invites repeated taps that fire concurrent, racing requests.
@@ -326,7 +330,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   }, [leaveData]);
 
   useEffect(() => {
-    if (tab !== 'leave-pay') return;
+    if (tab !== 'leave') return;
     refreshOptionalHolidayData().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -416,6 +420,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       if (!r.ok) throw new Error(d.error);
       setActiveBreak(d.session);
       setBreakNote('');
+      setShowTakeBreakModal(false);
     } catch (err: any) { setError(err.message || 'Failed to start break'); }
     finally { setBreakBusy(false); }
   };
@@ -714,11 +719,14 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const navItems: PortalNavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'attendance', label: 'My Attendance', icon: Clock, count: attendanceHistory.length || undefined },
-    ...(todayState === 'checked_in' ? [{ id: 'breaks', label: 'Breaks & Checkout', icon: Coffee } as PortalNavItem] : []),
     { id: 'earnings', label: 'Earnings', icon: Wallet },
-    { id: 'leave-pay', label: 'Leave & Payroll', icon: Banknote, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
+    { id: 'leave', label: 'Leave', icon: CalendarDays, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
+    { id: 'payroll', label: 'Payroll', icon: Banknote },
     { id: 'requests', label: 'My Requests', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
+    { id: 'team', label: 'Team', icon: Users },
+    { id: 'announcements', label: 'Announcements', icon: Megaphone },
+    { id: 'activity', label: 'Activity', icon: History },
   ];
   const titleFor = navItems.find(n => n.id === tab)?.label || 'Overview';
 
@@ -826,11 +834,118 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               ) : null}
             </div>
           )}
+          {/* Breaks & Checkout — used to be a tile that navigated to a
+              separate tab; now it renders in place, in this same
+              quick-actions slot, on both mobile and desktop. The "Checked
+              In / Hours Worked" strip that used to sit here was dropped —
+              it duplicated the status-tile row further down this page. */}
           {todayState === 'checked_in' && (
-            <button onClick={() => setTab('breaks')} className={`${tile} w-full !bg-[var(--color-nexus-secondary)] text-white flex items-center gap-4 text-left`}>
-              <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center shrink-0 float-c"><Coffee size={24} /></div>
-              <div><span className="block font-bold">Breaks & Checkout</span><span className="block text-[11px] text-white/80 mt-0.5">Manage breaks or check out for the day</span></div>
-            </button>
+            <div className="nexus-card rounded-3xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Break Management</h3>
+                <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{remainingMins}m left of {budgetMins}m</span>
+              </div>
+              <div className="w-full bg-[var(--color-nexus-border)] rounded-full h-1.5 overflow-hidden">
+                <motion.div initial={{ width: 0 }} animate={{ width: `${budgetUsedPct}%` }} transition={{ duration: 0.6 }} className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`} />
+              </div>
+              {activeBreak ? (
+                <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
+                  <div>
+                    <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">On Break ({activeBreak.breakType})</span>
+                    <span className="text-2xl font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">{breakTimer}</span>
+                    {activeBreak.note && <span className="text-[11px] text-[var(--color-nexus-muted)] mt-1 block italic">"{activeBreak.note}"</span>}
+                  </div>
+                  <button onClick={handleEndBreak} disabled={breakBusy} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Ending…' : 'Resume Work'}</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowTakeBreakModal(true)} className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2">
+                  <Coffee size={16} /> Take a Break
+                </button>
+              )}
+              {breaksToday.length > 0 && (
+                <div className="space-y-1.5">
+                  {breaksToday.map((b) => (
+                    <div key={b.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
+                      <div className="min-w-0">
+                        <span className="text-[var(--color-nexus-ink)]">{b.breakType}</span>
+                        {b.note && <span className="text-[10px] text-[var(--color-nexus-muted)] italic ml-2 truncate">"{b.note}"</span>}
+                      </div>
+                      <span className="text-[var(--color-nexus-muted)] shrink-0 ml-2">{new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{b.endTime ? ` – ${new Date(b.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' – ongoing'}</span>
+                      {b.isViolation && <span className="text-[var(--color-nexus-error)] text-[9px] uppercase font-bold shrink-0 ml-2">Over budget</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {breakBreakdown.length > 0 && (
+                <div className="pt-4 border-t border-[var(--color-nexus-border)] flex flex-wrap gap-2">
+                  {breakBreakdown.map(([type, mins]) => (
+                    <span key={type} className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]">
+                      {type}: <strong className="text-[var(--color-nexus-ink)]">{mins}m</strong>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-2">
+                {showCheckoutConfirm ? (
+                  <div className="space-y-4">
+                    <p className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Confirm Check Out</p>
+                    <div className="grid grid-cols-2 gap-3 text-center">
+                      <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl p-3">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Hours Worked</span>
+                        <span className="block text-lg font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{hoursWorked || '—'}</span>
+                      </div>
+                      <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl p-3">
+                        <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Break Time</span>
+                        <span className="block text-lg font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{totalBreakMinsToday}m</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => setShowCheckoutConfirm(false)} disabled={checkingOut} className="flex-1 border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50">
+                        Cancel
+                      </button>
+                      <button onClick={handleCheckout} disabled={checkingOut} className="flex-1 bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                        {checkingOut ? 'Checking Out...' : 'Confirm Check Out'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowCheckoutConfirm(true)} disabled={!!activeBreak} title={activeBreak ? 'Resume work before checking out' : undefined} className="w-full bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(226,69,69,0.3)]">
+                    {activeBreak ? 'Resume Work To Check Out' : 'Check Out'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Take-a-Break popup — the type/note form used to sit permanently
+              on screen; now it only appears once "Take a Break" is pressed,
+              same modal chrome used elsewhere in this file (Apply Leave,
+              correction request). */}
+          {showTakeBreakModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowTakeBreakModal(false)}>
+              <div className="nexus-card rounded-3xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Take a Break</h2>
+                  <button type="button" onClick={() => setShowTakeBreakModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1">
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
+                    <option value="Lunch">Lunch</option><option value="Tea">Tea / Coffee</option><option value="Personal">Personal</option><option value="Meeting">Meeting</option><option value="General">General</option>
+                  </select>
+                  <input
+                    value={breakNote}
+                    onChange={e => setBreakNote(e.target.value)}
+                    maxLength={280}
+                    placeholder="Optional note (e.g. client call)"
+                    className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
+                  />
+                  <button onClick={handleStartBreak} disabled={breakBusy} className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Locating…' : 'Go on Break'}</button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Hero stat row — Attendance This Month (solid blue "hero" card,
@@ -846,7 +961,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               <span className="block text-[28px] leading-tight font-bold mt-2">{attendanceThisMonth.presentDays} days present</span>
               <span className="block text-xs text-white/80 mt-1">out of {attendanceThisMonth.workingDaysSoFar} working days so far</span>
             </div>
-            <button onClick={() => setTab('leave-pay')} className="text-left nexus-card p-5">
+            <button onClick={() => setTab('payroll')} className="text-left nexus-card p-5">
               <span className="block text-xs font-medium text-[var(--color-nexus-muted)]">Upcoming Payslip</span>
               <span className="block text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-2">
                 {payrollData?.summary ? `₹${Math.round(payrollData.summary.monthlyNet).toLocaleString()}` : '—'}
@@ -855,7 +970,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 {payrollData?.summary ? `${new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · net pay` : 'Payroll not configured yet'}
               </span>
             </button>
-            <button onClick={() => setTab('leave-pay')} className="text-left nexus-card p-5">
+            <button onClick={() => setTab('leave')} className="text-left nexus-card p-5">
               <span className="block text-xs font-medium text-[var(--color-nexus-muted)]">Leave Balance</span>
               <span className="block text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-2">
                 {leaveData?.balances?.length ? `${leaveBalanceTotal} days` : '—'}
@@ -926,25 +1041,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             })()}
           </div>
 
-          {/* Personal attendance timeline — available to every clock-in role
-              (employee, manager, HR, GM, custom staff roles) as an Overview
-              option; tenant_admin/super_admin never reach this page at all
-              (canClockIn() in AdminApp.tsx routes them to /dashboard instead),
-              so no extra role check is needed here. */}
-          <AttendanceTimeline
-            attendanceHistory={attendanceHistory}
-            leaveRequests={leaveData?.requests || []}
-            holidays={allHolidays}
-            todayState={todayState}
-            todayPending={todayPending}
-            checkInTime={checkInTime}
-            hoursWorked={hoursWorked}
-            onMarkAttendance={() => navigate('/employee/attendance?mode=office')}
-            authHeaders={authHeaders}
-          />
-
           <div className="grid md:grid-cols-2 gap-4">
-            <button onClick={() => setTab('leave-pay')} className={`${tile} text-left flex items-center gap-4`}>
+            <button onClick={() => setTab('leave')} className={`${tile} text-left flex items-center gap-4`}>
               <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
                 <CalendarDays size={22} className="text-[var(--color-nexus-primary)]" />
               </div>
@@ -955,7 +1053,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 </span>
               </div>
             </button>
-            <button onClick={() => setTab('leave-pay')} className={`${tile} text-left flex items-center gap-4`}>
+            <button onClick={() => setTab('payroll')} className={`${tile} text-left flex items-center gap-4`}>
               <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-secondary-container)] flex items-center justify-center shrink-0">
                 <Banknote size={22} className="text-[var(--color-nexus-secondary)]" />
               </div>
@@ -968,70 +1066,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </button>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-4">
-            <div className="nexus-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Megaphone size={16} className="text-[var(--color-nexus-primary)]" />
-                <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Announcements</h2>
-              </div>
-              {upcomingHolidays.length === 0 ? (
-                <p className="text-sm text-[var(--color-nexus-muted)]">No upcoming holidays on the company calendar yet.</p>
-              ) : (
-                <div className="divide-y divide-[var(--color-nexus-border)]">
-                  {upcomingHolidays.map((holiday: any) => (
-                    <div key={holiday.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                      <div className="shrink-0 rounded-lg bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] text-[11px] font-bold px-2.5 py-1.5 text-center leading-tight">
-                        {new Date(`${holiday.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="block font-bold text-sm text-[var(--color-nexus-ink)] truncate">{holiday.name}</span>
-                        <span className="block text-xs text-[var(--color-nexus-muted)] mt-0.5">Company holiday</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="nexus-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Users size={16} className="text-[var(--color-nexus-secondary)]" />
-                <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Your Team</h2>
-              </div>
-              {!myTeam || (!myTeam.manager && myTeam.colleagues.length === 0) ? (
-                <p className="text-sm text-[var(--color-nexus-muted)]">No team members are linked to your profile yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {myTeam.manager && (
-                    <>
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 shrink-0 rounded-full bg-[var(--color-nexus-secondary)] text-white flex items-center justify-center text-xs font-bold">
-                          {(myTeam.manager.name || '?').split(' ').filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join('')}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block font-bold text-sm text-[var(--color-nexus-ink)] truncate">{myTeam.manager.name}</span>
-                          <span className="block text-xs text-[var(--color-nexus-muted)] truncate">{myTeam.manager.designation || 'Engineering Manager'}</span>
-                        </div>
-                      </div>
-                      <div className="border-t border-[var(--color-nexus-border)]" />
-                    </>
-                  )}
-                  <div className="space-y-2.5">
-                    {myTeam.colleagues.map((colleague: any, i: number) => (
-                      <div key={colleague.id} className="flex items-center gap-2.5">
-                        <div className={`w-7 h-7 shrink-0 rounded-full ${['bg-sky-500', 'bg-orange-500', 'bg-violet-500', 'bg-emerald-500', 'bg-pink-500'][i % 5]} text-white flex items-center justify-center text-[10px] font-bold`}>
-                          {(colleague.name || '?').split(' ').filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join('')}
-                        </div>
-                        <span className="text-sm text-[var(--color-nexus-ink)] truncate">{colleague.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <ShiftSwapWidget colleagues={myTeam?.colleagues || []} />
-          <MyActivityPanel />
+          {/* Announcements, Your Team, and Activity used to live here — moved
+              to their own tabs (see below) as part of splitting Overview
+              into Teams-style separate destinations instead of one long
+              scroll. */}
 
           {user.role !== 'employee' && user.role !== 'intern' && (
             <button onClick={() => navigate('/dashboard')} className={`${tile} w-full text-left flex items-center justify-between gap-4`}>
@@ -1045,10 +1083,99 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         </div>
       )}
 
-      {/* MY ATTENDANCE — the day-by-day timeline itself now lives on
-          Overview (see above); this tab keeps the full tabular history. */}
+      {/* TEAM — "Your Team" + shift-swap, extracted off Overview into its
+          own destination (was ~40 lines inline there). */}
+      {tab === 'team' && (
+        <div className="space-y-6">
+          <div className="nexus-card p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Users size={16} className="text-[var(--color-nexus-secondary)]" />
+              <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Your Team</h2>
+            </div>
+            {!myTeam || (!myTeam.manager && myTeam.colleagues.length === 0) ? (
+              <p className="text-sm text-[var(--color-nexus-muted)]">No team members are linked to your profile yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {myTeam.manager && (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 shrink-0 rounded-full bg-[var(--color-nexus-secondary)] text-white flex items-center justify-center text-xs font-bold">
+                        {(myTeam.manager.name || '?').split(' ').filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join('')}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="block font-bold text-sm text-[var(--color-nexus-ink)] truncate">{myTeam.manager.name}</span>
+                        <span className="block text-xs text-[var(--color-nexus-muted)] truncate">{myTeam.manager.designation || 'Engineering Manager'}</span>
+                      </div>
+                    </div>
+                    <div className="border-t border-[var(--color-nexus-border)]" />
+                  </>
+                )}
+                <div className="space-y-2.5">
+                  {myTeam.colleagues.map((colleague: any, i: number) => (
+                    <div key={colleague.id} className="flex items-center gap-2.5">
+                      <div className={`w-7 h-7 shrink-0 rounded-full ${['bg-sky-500', 'bg-orange-500', 'bg-violet-500', 'bg-emerald-500', 'bg-pink-500'][i % 5]} text-white flex items-center justify-center text-[10px] font-bold`}>
+                        {(colleague.name || '?').split(' ').filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join('')}
+                      </div>
+                      <span className="text-sm text-[var(--color-nexus-ink)] truncate">{colleague.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <ShiftSwapWidget colleagues={myTeam?.colleagues || []} />
+        </div>
+      )}
+
+      {/* ANNOUNCEMENTS — extracted off Overview into its own destination. */}
+      {tab === 'announcements' && (
+        <div className="nexus-card p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Megaphone size={16} className="text-[var(--color-nexus-primary)]" />
+            <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Announcements</h2>
+          </div>
+          {upcomingHolidays.length === 0 ? (
+            <p className="text-sm text-[var(--color-nexus-muted)]">No upcoming holidays on the company calendar yet.</p>
+          ) : (
+            <div className="divide-y divide-[var(--color-nexus-border)]">
+              {upcomingHolidays.map((holiday: any) => (
+                <div key={holiday.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="shrink-0 rounded-lg bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] text-[11px] font-bold px-2.5 py-1.5 text-center leading-tight">
+                    {new Date(`${holiday.date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block font-bold text-sm text-[var(--color-nexus-ink)] truncate">{holiday.name}</span>
+                    <span className="block text-xs text-[var(--color-nexus-muted)] mt-0.5">Company holiday</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ACTIVITY — extracted off Overview into its own destination. */}
+      {tab === 'activity' && <MyActivityPanel />}
+
+      {/* MY ATTENDANCE — the day-by-day timeline used to live on Overview;
+          moved here (a) because it's the natural home next to the monthly
+          calendar/history below, and (b) removing it was the single biggest
+          length reduction for the Overview tab on mobile. */}
       {tab === 'attendance' && (
         <div className="space-y-6">
+          <AttendanceTimeline
+            attendanceHistory={attendanceHistory}
+            leaveRequests={leaveData?.requests || []}
+            holidays={allHolidays}
+            todayState={todayState}
+            todayPending={todayPending}
+            checkInTime={checkInTime}
+            hoursWorked={hoursWorked}
+            onMarkAttendance={() => navigate('/employee/attendance?mode=office')}
+            authHeaders={authHeaders}
+          />
+
           {/* Stat row — counts derived from the same attendanceCalendarCells
               already computed for the calendar below (current visible
               month), matching the reference's attendance-history stat strip.
@@ -1131,124 +1258,15 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         </div>
       )}
 
-      {/* BREAKS & CHECKOUT */}
-      {tab === 'breaks' && todayState === 'checked_in' && (
-        <div className="space-y-6">
-          {/* Today's summary strip — check-in time, live hours worked, and
-              total break time used, none of which were visible on this page
-              before (only the break budget bar was). */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="nexus-card rounded-2xl p-4 text-center">
-              <Clock size={16} className="mx-auto mb-1.5 text-[var(--color-nexus-muted)]" />
-              <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Checked In</span>
-              <span className="block text-sm font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{checkInTime ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-            </div>
-            <div className="nexus-card rounded-2xl p-4 text-center">
-              <CheckCircle2 size={16} className="mx-auto mb-1.5 text-[var(--color-nexus-muted)]" />
-              <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Hours Worked</span>
-              <span className="block text-sm font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{hoursWorked || '—'}</span>
-            </div>
-            <div className="nexus-card rounded-2xl p-4 text-center">
-              <Coffee size={16} className="mx-auto mb-1.5 text-[var(--color-nexus-muted)]" />
-              <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Break Time Used</span>
-              <span className="block text-sm font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{totalBreakMinsToday}m</span>
-            </div>
-          </div>
-
-          <div className="nexus-card rounded-3xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Break Management</h3>
-              <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{remainingMins}m left of {budgetMins}m</span>
-            </div>
-            <div className="w-full bg-[var(--color-nexus-border)] rounded-full h-1.5 mb-4 overflow-hidden">
-              <motion.div initial={{ width: 0 }} animate={{ width: `${budgetUsedPct}%` }} transition={{ duration: 0.6 }} className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`} />
-            </div>
-            {activeBreak ? (
-              <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
-                <div>
-                  <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">On Break ({activeBreak.breakType})</span>
-                  <span className="text-2xl font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">{breakTimer}</span>
-                  {activeBreak.note && <span className="text-[11px] text-[var(--color-nexus-muted)] mt-1 block italic">"{activeBreak.note}"</span>}
-                </div>
-                <button onClick={handleEndBreak} disabled={breakBusy} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Ending…' : 'Resume Work'}</button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <select value={breakType} onChange={e => setBreakType(e.target.value)} className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
-                  <option value="Lunch">Lunch</option><option value="Tea">Tea / Coffee</option><option value="Personal">Personal</option><option value="Meeting">Meeting</option><option value="General">General</option>
-                </select>
-                <input
-                  value={breakNote}
-                  onChange={e => setBreakNote(e.target.value)}
-                  maxLength={280}
-                  placeholder="Optional note (e.g. client call)"
-                  className="w-full bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                />
-                <button onClick={handleStartBreak} disabled={breakBusy} className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all shadow-[0_4px_15px_rgba(37,99,235,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">{breakBusy ? 'Locating…' : 'Go on Break'}</button>
-              </div>
-            )}
-            {breaksToday.length > 0 && (
-              <div className="mt-4 space-y-1.5">
-                {breaksToday.map((b) => (
-                  <div key={b.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
-                    <div className="min-w-0">
-                      <span className="text-[var(--color-nexus-ink)]">{b.breakType}</span>
-                      {b.note && <span className="text-[10px] text-[var(--color-nexus-muted)] italic ml-2 truncate">"{b.note}"</span>}
-                    </div>
-                    <span className="text-[var(--color-nexus-muted)] shrink-0 ml-2">{new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{b.endTime ? ` – ${new Date(b.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' – ongoing'}</span>
-                    {b.isViolation && <span className="text-[var(--color-nexus-error)] text-[9px] uppercase font-bold shrink-0 ml-2">Over budget</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {/* Per-type breakdown — a flat list of entries doesn't answer
-                "where did my break time actually go today" at a glance. */}
-            {breakBreakdown.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-[var(--color-nexus-border)] flex flex-wrap gap-2">
-                {breakBreakdown.map(([type, mins]) => (
-                  <span key={type} className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]">
-                    {type}: <strong className="text-[var(--color-nexus-ink)]">{mins}m</strong>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="nexus-card rounded-3xl p-6">
-            {showCheckoutConfirm ? (
-              <div className="space-y-4">
-                <p className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Confirm Check Out</p>
-                <div className="grid grid-cols-2 gap-3 text-center">
-                  <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl p-3">
-                    <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Hours Worked</span>
-                    <span className="block text-lg font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{hoursWorked || '—'}</span>
-                  </div>
-                  <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl p-3">
-                    <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Break Time</span>
-                    <span className="block text-lg font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5">{totalBreakMinsToday}m</span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => setShowCheckoutConfirm(false)} disabled={checkingOut} className="flex-1 border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50">
-                    Cancel
-                  </button>
-                  <button onClick={handleCheckout} disabled={checkingOut} className="flex-1 bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-3.5 font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                    {checkingOut ? 'Checking Out...' : 'Confirm Check Out'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setShowCheckoutConfirm(true)} disabled={!!activeBreak} title={activeBreak ? 'Resume work before checking out' : undefined} className="w-full bg-[var(--color-nexus-error)] hover:brightness-110 text-white rounded-xl py-4 font-bold text-sm uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_4px_15px_rgba(226,69,69,0.3)]">
-                {activeBreak ? 'Resume Work To Check Out' : 'Check Out'}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {tab === 'earnings' && <EarningsBreakdown token={token} />}
 
-      {tab === 'leave-pay' && (
+      {/* LEAVE — split off the old combined "Leave & Payroll" tab, which
+          interleaved two unrelated concerns in one long stack (the
+          "placement of options" the client flagged as unprofessional).
+          Leave Tracker/Apply/History/Optional-Holidays/Encash live here;
+          Payroll Breakup/Payslips/Documents moved to their own 'payroll'
+          tab below. */}
+      {tab === 'leave' && (
         <div className="space-y-6">
           {/* Two-column layout — request-related (balances + Apply Leave) on
               the left, history on the right, matching the Nexus reference's
@@ -1435,99 +1453,43 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="nexus-card rounded-3xl p-6">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <div>
-                  <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Optional Holidays</h2>
-                  <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1">Choose the holidays you want to reserve from the company calendar.</p>
-                </div>
-                <span className="text-[10px] uppercase font-bold text-[var(--color-nexus-primary)]">
-                  {selectedOptionalHolidayIds.length}/{optionalHolidayData?.limit ?? leaveData?.optionalHolidayLimit ?? 0}
-                </span>
+          <div className="nexus-card rounded-3xl p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Optional Holidays</h2>
+                <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1">Choose the holidays you want to reserve from the company calendar.</p>
               </div>
-              {!optionalHolidayData || optionalHolidayData.holidays.length === 0 ? (
-                <p className="text-sm text-[var(--color-nexus-muted)]">No holidays are available to choose yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                    {optionalHolidayData.holidays.map((holiday: any) => (
-                      <label key={holiday.id} className="flex items-start gap-3 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedOptionalHolidayIds.includes(holiday.id)}
-                          onChange={() => handleOptionalHolidayToggle(holiday.id)}
-                          className="mt-1"
-                        />
-                        <div>
-                          <span className="block font-bold text-[var(--color-nexus-ink)]">{holiday.name}</span>
-                          <span className="block text-[11px] text-[var(--color-nexus-muted)]">{holiday.date}</span>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="flex justify-end">
-                    <button type="button" onClick={handleSaveOptionalHolidays} disabled={optionalHolidaySaving} className="bg-[var(--color-nexus-secondary)] hover:brightness-110 text-white rounded-xl px-5 py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50">
-                      {optionalHolidaySaving ? 'Saving...' : 'Save Optional Holidays'}
-                    </button>
-                  </div>
-                </div>
-              )}
+              <span className="text-[10px] uppercase font-bold text-[var(--color-nexus-primary)]">
+                {selectedOptionalHolidayIds.length}/{optionalHolidayData?.limit ?? leaveData?.optionalHolidayLimit ?? 0}
+              </span>
             </div>
-            <div className="nexus-card rounded-3xl p-6">
-              <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payroll Breakup</h2>
-              {!payrollData?.summary ? (
-                <p className="text-sm text-[var(--color-nexus-muted)]">Payroll structure has not been configured yet.</p>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--color-nexus-muted)]">Annual CTC</span>
-                    <span className="font-bold text-[var(--color-nexus-ink)]">{Math.round(payrollData.summary.annualCtc).toLocaleString()}</span>
-                  </div>
-
-                  <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
-                    <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-success-text)] tracking-wider mb-2">Earnings</span>
-                    <div className="space-y-1.5">
-                      {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'earning').map((component: any) => (
-                        <div key={component.id || component.componentName} className="flex items-center justify-between text-[11px]">
-                          <span className="text-[var(--color-nexus-muted)]">{component.componentName}</span>
-                          <span className="font-mono text-[var(--color-nexus-ink)]">{Math.round(component.monthlyAmount).toLocaleString()}/mo</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
-                    <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-error)] tracking-wider mb-2">Deductions</span>
-                    <div className="space-y-1.5">
-                      {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'deduction').map((component: any) => (
-                        <div key={component.id || component.componentName} className="flex items-center justify-between text-[11px]">
-                          <span className="text-[var(--color-nexus-muted)]">{component.componentName}</span>
-                          <span className="font-mono text-[var(--color-nexus-error)]">{Math.round(component.monthlyAmount).toLocaleString()}/mo</span>
-                        </div>
-                      ))}
-                      {payrollData.summary.leaveDeduction > 0 && (
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-[var(--color-nexus-muted)]">Unpaid Leave</span>
-                          <span className="font-mono text-[var(--color-nexus-error)]">{Math.round(payrollData.summary.leaveDeduction).toLocaleString()}</span>
-                        </div>
-                      )}
-                      {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'deduction').length === 0 && payrollData.summary.leaveDeduction <= 0 && (
-                        <p className="text-[11px] text-[var(--color-nexus-muted)]">No deductions this period.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] p-4 flex items-center justify-between">
-                    <div>
-                      <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-secondary)] tracking-wider">Net Pay (Monthly)</span>
-                      <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">Gross {Math.round(payrollData.summary.monthlyGross).toLocaleString()}</span>
-                    </div>
-                    <span className="text-xl font-bold text-[var(--color-nexus-secondary)]">{Math.round(payrollData.summary.monthlyNet).toLocaleString()}</span>
-                  </div>
+            {!optionalHolidayData || optionalHolidayData.holidays.length === 0 ? (
+              <p className="text-sm text-[var(--color-nexus-muted)]">No holidays are available to choose yet.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                  {optionalHolidayData.holidays.map((holiday: any) => (
+                    <label key={holiday.id} className="flex items-start gap-3 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedOptionalHolidayIds.includes(holiday.id)}
+                        onChange={() => handleOptionalHolidayToggle(holiday.id)}
+                        className="mt-1"
+                      />
+                      <div>
+                        <span className="block font-bold text-[var(--color-nexus-ink)]">{holiday.name}</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)]">{holiday.date}</span>
+                      </div>
+                    </label>
+                  ))}
                 </div>
-              )}
-            </div>
+                <div className="flex justify-end">
+                  <button type="button" onClick={handleSaveOptionalHolidays} disabled={optionalHolidaySaving} className="bg-[var(--color-nexus-secondary)] hover:brightness-110 text-white rounded-xl px-5 py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50">
+                    {optionalHolidaySaving ? 'Saving...' : 'Save Optional Holidays'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {(leaveData?.balances || []).some((b: any) => b.encashmentEnabled) && (
@@ -1555,6 +1517,67 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               {encashMessage && <p className="mt-3 text-xs text-[var(--color-nexus-muted)]">{encashMessage}</p>}
             </div>
           )}
+        </div>
+      )}
+
+      {/* PAYROLL — split off the old combined "Leave & Payroll" tab; see the
+          comment above the 'leave' tab for why. */}
+      {tab === 'payroll' && (
+        <div className="space-y-6">
+          <div className="nexus-card rounded-3xl p-6">
+            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payroll Breakup</h2>
+            {!payrollData?.summary ? (
+              <p className="text-sm text-[var(--color-nexus-muted)]">Payroll structure has not been configured yet.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[var(--color-nexus-muted)]">Annual CTC</span>
+                  <span className="font-bold text-[var(--color-nexus-ink)]">{Math.round(payrollData.summary.annualCtc).toLocaleString()}</span>
+                </div>
+
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                  <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-success-text)] tracking-wider mb-2">Earnings</span>
+                  <div className="space-y-1.5">
+                    {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'earning').map((component: any) => (
+                      <div key={component.id || component.componentName} className="flex items-center justify-between text-[11px]">
+                        <span className="text-[var(--color-nexus-muted)]">{component.componentName}</span>
+                        <span className="font-mono text-[var(--color-nexus-ink)]">{Math.round(component.monthlyAmount).toLocaleString()}/mo</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                  <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-error)] tracking-wider mb-2">Deductions</span>
+                  <div className="space-y-1.5">
+                    {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'deduction').map((component: any) => (
+                      <div key={component.id || component.componentName} className="flex items-center justify-between text-[11px]">
+                        <span className="text-[var(--color-nexus-muted)]">{component.componentName}</span>
+                        <span className="font-mono text-[var(--color-nexus-error)]">{Math.round(component.monthlyAmount).toLocaleString()}/mo</span>
+                      </div>
+                    ))}
+                    {payrollData.summary.leaveDeduction > 0 && (
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[var(--color-nexus-muted)]">Unpaid Leave</span>
+                        <span className="font-mono text-[var(--color-nexus-error)]">{Math.round(payrollData.summary.leaveDeduction).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'deduction').length === 0 && payrollData.summary.leaveDeduction <= 0 && (
+                      <p className="text-[11px] text-[var(--color-nexus-muted)]">No deductions this period.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] p-4 flex items-center justify-between">
+                  <div>
+                    <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-secondary)] tracking-wider">Net Pay (Monthly)</span>
+                    <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">Gross {Math.round(payrollData.summary.monthlyGross).toLocaleString()}</span>
+                  </div>
+                  <span className="text-xl font-bold text-[var(--color-nexus-secondary)]">{Math.round(payrollData.summary.monthlyNet).toLocaleString()}</span>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="grid lg:grid-cols-3 gap-4">
             <div className="nexus-card p-5 bg-[var(--color-nexus-primary-container)] text-white lg:col-span-1">
