@@ -15,7 +15,7 @@ import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToke
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
-import { issueNewSession, finalizeLogin } from '../auth/session';
+import { issueNewSession, finalizeLogin, buildSessionUser } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
@@ -260,6 +260,28 @@ router.post('/api/auth/google', authLimiter, async (req: any, res: any) => {
       const result = await finalizeLogin(usersList[0], deviceId);
       if (result.ok === false) return res.status(result.status).json(result.body);
       res.json({ token: result.token, user: result.user });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Re-computes the same tenant-level feature flags login returns
+  // (faceRecognitionEnabled, deviceChangeEnabled, kycEnabled, ...) from
+  // current DB state, so a change a super admin/tenant admin makes mid-day
+  // (e.g. turning on face_recognition) reaches an already-logged-in user
+  // without forcing them to sign out and back in — see the call sites in
+  // EmployeeAttendance.tsx and RegisterDevice.tsx.
+router.get('/api/auth/session', authenticate, async (req: any, res: any) => {
+    try {
+      const rows = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId)).limit(1);
+      if (rows.length === 0) return res.status(404).json({ error: 'User not found.' });
+      const user = rows[0];
+      let tenant: any = null;
+      if (user.tenantId) {
+        const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1);
+        tenant = tenantRows[0] || null;
+      }
+      res.json({ user: buildSessionUser(user, tenant) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

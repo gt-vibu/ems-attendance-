@@ -23,6 +23,23 @@ export async function issueNewSession(user: any) {
   });
 }
 
+// The session-shaped view of a user sent to the frontend — tenant-level
+// feature flags (faceRecognitionEnabled, deviceChangeEnabled, kycEnabled,
+// branchSetupCompleted) computed fresh from `tenant` each call. Shared by
+// finalizeLogin (login) and GET /api/auth/session (mid-session refresh) so
+// the two can never drift apart on what fields a "user" response contains.
+export function buildSessionUser(user: any, tenant: any) {
+  return {
+    id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId,
+    isKycCompleted: user.isKycCompleted,
+    kycEnabled: tenant ? tenant.kycEnabled !== false : true,
+    branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
+    faceRecognitionEnabled: isPlatformFeatureAllowed(tenant, 'face_recognition'),
+    verificationMethod: user.verificationMethod || null,
+    deviceChangeEnabled: isPlatformFeatureAllowed(tenant, 'device_change'),
+  };
+}
+
 // Shared tail of a successful authentication (password login and Google
 // Sign-In both end here): tenant-suspension check, device-pinning, and JWT
 // issuance. Factored out so the two routes can't silently drift apart on
@@ -92,23 +109,9 @@ export async function finalizeLogin(user: any, deviceId: string | undefined):
   return {
     ok: true,
     token,
-    user: {
-      id: user.id, uid: user.uid, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId,
-      isKycCompleted: user.isKycCompleted,
-      // Frontend needs these to decide the post-login redirect: skip the KYC
-      // wizard entirely when the company has turned it off, and only ever
-      // send a tenant_admin to the branch-setup wizard, and only once.
-      kycEnabled: tenant ? tenant.kycEnabled !== false : true,
-      branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
-      // Whether this tenant has opted into camera-based face recognition as
-      // the primary identity check (WebAuthn stays the default/fallback
-      // otherwise) — see PLATFORM_FEATURES['face_recognition'] in rbac.ts.
-      faceRecognitionEnabled: isPlatformFeatureAllowed(tenant, 'face_recognition'),
-      verificationMethod: user.verificationMethod || null,
-      // Super-admin-controlled: whether this tenant's admin can reset an
-      // employee's registered device / see the Device Approvals queue at
-      // all — see PLATFORM_FEATURES['device_change'] in rbac.ts.
-      deviceChangeEnabled: isPlatformFeatureAllowed(tenant, 'device_change'),
-    }
+    // Frontend needs kycEnabled/branchSetupCompleted to decide the
+    // post-login redirect (skip the KYC wizard when the company has turned
+    // it off; only ever send a tenant_admin to branch setup, once).
+    user: buildSessionUser(user, tenant),
   };
 }

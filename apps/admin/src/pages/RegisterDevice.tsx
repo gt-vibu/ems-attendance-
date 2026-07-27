@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { User } from '../lib/auth';
@@ -16,6 +16,18 @@ export default function RegisterDevice({ user, updateSession }: { user: User, up
   // onUseDeviceInstead), never as a competing chooser shown upfront.
   const [forceDeviceVerification, setForceDeviceVerification] = useState(false);
   const navigate = useNavigate();
+
+  // faceRecognitionEnabled was cached at login — refresh it here too, so an
+  // employee who logged in before a tenant admin turned face_recognition on
+  // still lands on Face Enrollment instead of stale WebAuthn registration.
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    fetch('/api/auth/session', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.user) updateSession({ ...user, ...d.user }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const supported = browserSupportsWebAuthn();
 

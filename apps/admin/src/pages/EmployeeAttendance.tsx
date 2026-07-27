@@ -26,7 +26,7 @@ interface WfhEligibility {
   homeLocation: { latitude: number; longitude: number; address: string | null } | null;
 }
 
-export default function EmployeeAttendance({ user, onLogout }: { user: User, onLogout: () => void }) {
+export default function EmployeeAttendance({ user, onLogout, updateSession }: { user: User, onLogout: () => void, updateSession: (u: User) => void }) {
   const [step, setStep] = useState<Step>('ready');
   const [loading, setLoading] = useState(true);
   // What "Mark Attendance" should do once pressed on the 'ready' screen —
@@ -117,6 +117,19 @@ export default function EmployeeAttendance({ user, onLogout }: { user: User, onL
   // resubmit can reuse it without repeating the Wi-Fi step.
   const ipOverrideRef = useRef<string>('');
 
+
+  // faceRecognitionEnabled/verificationMethod were cached at login time —
+  // if a tenant admin turns face_recognition on/off mid-day, an already
+  // logged-in employee wouldn't see the change until signing out and back
+  // in. Refresh once on mount so the identity step below always reflects
+  // the tenant's current setting.
+  useEffect(() => {
+    fetch('/api/auth/session', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.user) updateSession({ ...user, ...d.user }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [queuedCount, setQueuedCount] = useState(0);
 

@@ -161,7 +161,7 @@ export default function AdminApp() {
             !user ? <Navigate to="/employee/login" />
             : !canClockIn(user.role) ? <Navigate to="/employee/login" />
             : deviceRegistrationRequired(user) ? <Navigate to="/employee/register-device" />
-            : <EmployeeAttendance user={user} onLogout={logout} />
+            : <EmployeeAttendance user={user} onLogout={logout} updateSession={updateSession} />
           } />
           {/* Old post-check-in page folded into the new dashboard's Breaks &
               Checkout section — keep the route as a redirect so any bookmark
