@@ -36,8 +36,19 @@ export interface AttendanceTimelineProps {
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// Local calendar date, NOT toISOString().slice(0, 10) — that converts to
+// UTC first, so for any timezone ahead of UTC (e.g. IST, +5:30) local
+// midnight at the start of a day serializes to the PREVIOUS day's date
+// (local midnight Monday IST = 18:30 UTC Sunday). Every weekDay cell here
+// is built from local date arithmetic (startOfDay/setDate below), so its
+// key must be read back out the same way, or a real Monday check-in ends
+// up keyed to match the Tuesday cell instead — exactly the "Monday shows
+// absent, Tuesday shows present" bug this fixes.
 function dateKey(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 function startOfDay(d: Date) {
   const c = new Date(d);
@@ -357,7 +368,7 @@ export default function AttendanceTimeline({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `attendance_${weekDays[0].toISOString().slice(0, 10)}_to_${weekDays[6].toISOString().slice(0, 10)}.csv`;
+    a.download = `attendance_${dateKey(weekDays[0])}_to_${dateKey(weekDays[6])}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
