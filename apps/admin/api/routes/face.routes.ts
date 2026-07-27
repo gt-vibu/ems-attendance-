@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { signToken, signShortLivedToken } from '../../jwt';
 import { authenticate } from '../middleware/authenticate';
-import { isPlatformFeatureAllowedForTenant } from '../auth/rbac';
+import { isFaceIdEnabledForTenantId } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { IDENTITY_PASS_PURPOSE, IDENTITY_PASS_TTL } from '../services/webauthn';
 import {
@@ -20,13 +20,12 @@ import {
 
 export const router = Router();
 
-// Gate: a tenant must opt into the 'face_recognition' platform feature
-// before any of these routes do anything — consistent with every other
-// module in this app (device_identity, wfh, qr_attendance, ...) being an
-// explicit super-admin whitelist entry, never a hardcoded default.
+// Gate: a tenant must opt into the 'face_recognition' platform feature AND
+// have the tenant admin's own faceIdEnabled switch on (isFaceIdEnabledForTenantId
+// combines both — see rbac.ts) before any of these routes do anything.
 async function ensureFaceFeatureEnabled(req: any, res: any): Promise<boolean> {
   const tenantId = req.user?.tenantId;
-  if (!tenantId || !(await isPlatformFeatureAllowedForTenant(tenantId, 'face_recognition'))) {
+  if (!tenantId || !(await isFaceIdEnabledForTenantId(tenantId))) {
     res.status(403).json({ error: 'Face recognition is not enabled for your organization.' });
     return false;
   }

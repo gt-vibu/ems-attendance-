@@ -67,6 +67,17 @@ export const tenants = pgTable('tenants', {
   // KYC toggle never persist.
   kycEnabled: boolean('kyc_enabled').default(true),
   branchSetupCompleted: boolean('branch_setup_completed').default(false),
+  // Tenant admin's own on/off switch for face recognition as the primary
+  // identity check — distinct from PLATFORM_FEATURES['face_recognition']
+  // in rbac.ts, which is the super-admin plan-level allow-list. Deliberately
+  // no default (stays NULL until an admin explicitly toggles it): a plain
+  // `false` default would have silently turned OFF face recognition for
+  // every tenant that already had it working via an unrestricted platform
+  // allow-list. NULL means "no explicit choice yet — defer to whatever the
+  // platform allows," preserving today's behavior for everyone; true/false
+  // only takes over once the admin actually uses the new toggle (see
+  // buildSessionUser() in session.ts).
+  faceIdEnabled: boolean('face_id_enabled'),
   // Company-wide announcement shown on both the admin and employee
   // dashboards — plain text, admin-editable, gated behind the
   // 'tenant.policy.manage' privilege (see featureCatalog.ts). Null/empty

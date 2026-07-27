@@ -46,6 +46,9 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS overtime_payroll_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    // No DEFAULT — stays NULL ("no explicit admin choice yet, defer to the
+    // platform allow-list") for every existing row. See schema.ts.
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS face_id_enabled BOOLEAN;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS arrival_policy TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS working_hours_policy TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}

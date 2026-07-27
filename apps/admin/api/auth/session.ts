@@ -4,7 +4,7 @@ import { db, schema } from '../../db';
 import { signToken, verifyToken } from '../../jwt';
 import { logger } from '../../logger';
 import { sendEmail, sendPasswordResetEmail } from '../../mail.js';
-import { isPlatformFeatureAllowed } from './rbac';
+import { isPlatformFeatureAllowed, isFaceIdEnabledForTenant } from './rbac';
 
 // Unconditionally establishes a brand-new session for `user`, overwriting any
 // existing activeSessionId. Used by finalizeLogin (after its own
@@ -34,7 +34,7 @@ export function buildSessionUser(user: any, tenant: any) {
     isKycCompleted: user.isKycCompleted,
     kycEnabled: tenant ? tenant.kycEnabled !== false : true,
     branchSetupCompleted: tenant ? !!tenant.branchSetupCompleted : true,
-    faceRecognitionEnabled: isPlatformFeatureAllowed(tenant, 'face_recognition'),
+    faceRecognitionEnabled: isFaceIdEnabledForTenant(tenant),
     verificationMethod: user.verificationMethod || null,
     deviceChangeEnabled: isPlatformFeatureAllowed(tenant, 'device_change'),
   };

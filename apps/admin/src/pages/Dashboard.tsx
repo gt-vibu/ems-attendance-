@@ -208,6 +208,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     wfhRequireReason, setWfhRequireReason, wfhLateLoginGraceMins, setWfhLateLoginGraceMins,
     documentsEnabled, setDocumentsEnabled, passwordExpiryDays, setPasswordExpiryDays,
     idleTimeoutMinutes, setIdleTimeoutMinutes, attendanceRetentionMonths, setAttendanceRetentionMonths,
+    faceIdEnabled, setFaceIdEnabled, faceRecognitionEffective,
     toggleWfhRole, toggleWfhWeekday, toggleWeekendDay, hydrateFromConfig,
     handleSaveConfig, handleGetCurrentLocation,
   } = useTenantConfig(token, setLoading, setError, setSuccess);
@@ -3177,6 +3178,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         <input type="checkbox" checked={documentsEnabled} onChange={e => setDocumentsEnabled(e.target.checked)} className="w-4 h-4 rounded border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] focus:ring-[var(--color-nexus-primary)]/30" />
                         <span className="text-xs font-semibold text-[var(--color-nexus-ink)]">Enable employee document storage (offer letters, contracts, ID proof, certificates)</span>
                       </label>
+                      <div className="md:col-span-2">
+                        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                          <input type="checkbox" checked={faceIdEnabled === true || (faceIdEnabled === null && faceRecognitionEffective)} onChange={e => setFaceIdEnabled(e.target.checked)} className="w-4 h-4 rounded border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] focus:ring-[var(--color-nexus-primary)]/30" />
+                          <span className="text-xs font-semibold text-[var(--color-nexus-ink)]">Require Face ID as the primary check-in method (device/fingerprint stays the fallback if the camera fails)</span>
+                        </label>
+                        <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1.5 pl-[26px]">
+                          {faceRecognitionEffective ? 'Currently active for your employees.' : 'Currently off — employees verify with their device.'} Changing this asks every employee to re-verify their identity at their next check-in.
+                        </p>
+                      </div>
                       <div>
                         <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Password Expiry (Days)</label>
                         <input

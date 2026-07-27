@@ -46,6 +46,26 @@ export async function isPlatformFeatureAllowedForTenant(tenantId: number, key: s
   return isPlatformFeatureAllowed(rows[0] as any, key);
 }
 
+// Whether face recognition actually applies for this tenant — combines the
+// platform-level allow-list above with the tenant admin's own faceIdEnabled
+// switch (see schema.ts / config.routes.ts's POST /api/tenant/config/update).
+// tenant.faceIdEnabled is NULL until an admin explicitly chooses, in which
+// case this defers to the platform decision (preserves pre-existing
+// behavior for every tenant that never touches the new toggle); an
+// explicit `false` always wins regardless of plan. Single source of truth
+// shared by buildSessionUser() (session.ts), the config effective-status
+// display, and ensureFaceFeatureEnabled() (face.routes.ts) so they can't
+// drift apart on what "enabled" means.
+export function isFaceIdEnabledForTenant(tenant: { featuresAllowed?: unknown; faceIdEnabled?: boolean | null } | null | undefined): boolean {
+  if (tenant?.faceIdEnabled === false) return false;
+  return isPlatformFeatureAllowed(tenant, 'face_recognition');
+}
+
+export async function isFaceIdEnabledForTenantId(tenantId: number): Promise<boolean> {
+  const rows = await db.select({ featuresAllowed: schema.tenants.featuresAllowed, faceIdEnabled: schema.tenants.faceIdEnabled }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  return isFaceIdEnabledForTenant(rows[0] as any);
+}
+
 // Role defaults are now fully tenant-editable (see role_privilege_defaults /
 // the Role Permissions UI) — this is a live DB read, not a hardcoded
 // role-name switch. Returns [] for a role with no configured row yet

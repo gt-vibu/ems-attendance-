@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAuth, User } from './lib/auth';
 
@@ -95,6 +95,24 @@ function QrDeepLink({ user }: { user: User | null }) {
 
 export default function AdminApp() {
   const { user, loading, login, logout, updateSession } = useAuth();
+
+  // Route guards below (deviceRegistrationRequired, landingPathFor) decide
+  // where to send a clock-in-role user using whatever was cached in
+  // localStorage at their last login — isKycCompleted/faceRecognitionEnabled
+  // included. If a tenant admin changes the identity-check method (or a
+  // super admin changes the platform plan) while this person is already
+  // signed in, that cached snapshot goes stale and the route guards keep
+  // making the OLD decision until a fresh login. Refresh once per app load
+  // so a change reaches them within this session instead of requiring one.
+  useEffect(() => {
+    if (!user || !canClockIn(user.role)) return;
+    const token = localStorage.getItem('auth_token');
+    fetch('/api/auth/session', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.user) updateSession({ ...user, ...d.user }); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center font-mono text-xs uppercase tracking-widest text-slate-500">Loading Secure Environment...</div>;
 

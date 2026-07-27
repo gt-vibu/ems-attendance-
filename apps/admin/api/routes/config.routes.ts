@@ -14,7 +14,7 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, isFaceIdEnabledForTenant } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
@@ -30,7 +30,13 @@ router.get('/api/tenant/config', authenticate, async (req: any, res: any) => {
       if (tenant.length === 0) {
         return res.status(404).json({ error: 'Tenant config not found' });
       }
-      res.json({ tenant: tenant[0] });
+      // faceRecognitionEffective mirrors buildSessionUser()'s resolution
+      // (explicit false always wins; otherwise the platform allow-list
+      // decides) — lets the admin UI show what's actually happening for
+      // employees right now even before faceIdEnabled has ever been
+      // explicitly set.
+      const faceRecognitionEffective = isFaceIdEnabledForTenant(tenant[0] as any);
+      res.json({ tenant: { ...tenant[0], faceRecognitionEffective } });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -50,19 +56,20 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
         wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
         arrivalPolicy, workingHoursPolicy, requiredWorkingMins, hybridMaxCheckoutTime, overtimePayrollEnabled,
         wfhEnabled, wfhAllowedRoles, wfhMaxDaysPerMonth, wfhAllowedWeekdays, wfhRadiusMeters, wfhApprovalRequired, wfhRequireReason, wfhLateLoginGraceMins,
-        kycEnabled, documentsEnabled, passwordExpiryDays, idleTimeoutMinutes, attendanceRetentionMonths,
+        kycEnabled, documentsEnabled, passwordExpiryDays, idleTimeoutMinutes, attendanceRetentionMonths, faceIdEnabled,
       } = req.body;
 
       // Platform layer: a tenant admin can only turn a module ON if the
       // super admin's plan for this tenant allows it at all — turning it
       // OFF is always allowed regardless (never block someone from
       // disabling something). See isPlatformFeatureAllowed() in rbac.ts.
-      const tenantRow = (await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      const tenantRow = (await db.select({ featuresAllowed: schema.tenants.featuresAllowed, faceIdEnabled: schema.tenants.faceIdEnabled }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
       const modulesToggledOn: Array<[boolean | undefined, string, string]> = [
         [kycEnabled, 'kyc', 'Device Identity Check'],
         [documentsEnabled, 'documents', 'Document Storage'],
         [wifiCheckEnabled, 'wifi_lock', 'Corporate Wi-Fi IP Security'],
         [wfhEnabled, 'wfh', 'Work From Home'],
+        [faceIdEnabled, 'face_recognition', 'Face Recognition Check-in'],
       ];
       for (const [turningOn, platformKey, label] of modulesToggledOn) {
         if (turningOn === true && !isPlatformFeatureAllowed(tenantRow as any, platformKey)) {
@@ -113,11 +120,41 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       if (wfhRequireReason !== undefined) updates.wfhRequireReason = !!wfhRequireReason;
       if (wfhLateLoginGraceMins !== undefined) updates.wfhLateLoginGraceMins = wfhLateLoginGraceMins === '' || wfhLateLoginGraceMins === null ? null : parseInt(wfhLateLoginGraceMins);
 
+      // Face ID: an explicit true/false (not just "leave as inherited")
+      // actually changes which identity check employees are asked for —
+      // see buildSessionUser() in session.ts. Only treat it as a real
+      // change (triggering the reset below) when the caller sent a boolean
+      // that differs from the current stored value.
+      const faceIdChanged = typeof faceIdEnabled === 'boolean' && faceIdEnabled !== tenantRow?.faceIdEnabled;
+      if (typeof faceIdEnabled === 'boolean') updates.faceIdEnabled = faceIdEnabled;
+
       await db.update(schema.tenants)
         .set(updates)
         .where(eq(schema.tenants.id, req.user.tenantId));
 
-      res.json({ success: true });
+      // Switching the tenant's identity-check method doesn't do anything
+      // for employees who already finished enrollment under the OLD
+      // method — they'd stay stuck on it indefinitely with no way to move
+      // to the new one (this was the actual bug behind "fingerprint stuck
+      // as default, admin can't change it"). Force everyone who can clock
+      // in back through enrollment so they land on whichever method is now
+      // active; tenant_admin/super_admin never enroll at all, so they're
+      // excluded.
+      if (faceIdChanged) {
+        const clockInUsers = await db.select({ id: schema.users.id }).from(schema.users).where(and(
+          eq(schema.users.tenantId, req.user.tenantId),
+          sql`${schema.users.role} NOT IN ('tenant_admin', 'super_admin')`
+        ));
+        const clockInUserIds = clockInUsers.map((u) => u.id);
+        if (clockInUserIds.length > 0) {
+          await db.delete(schema.webauthnCredentials).where(inArray(schema.webauthnCredentials.userId, clockInUserIds));
+          await db.update(schema.users)
+            .set({ isKycCompleted: false, verificationMethod: null, registeredDeviceId: null, deviceApprovalPending: false, faceEmbeddings: null, kycActionLog: null })
+            .where(inArray(schema.users.id, clockInUserIds));
+        }
+      }
+
+      res.json({ success: true, requiresReEnrollment: faceIdChanged });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

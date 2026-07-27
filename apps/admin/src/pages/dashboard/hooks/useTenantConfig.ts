@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 export const WEEKDAY_OPTIONS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -65,6 +65,20 @@ export function useTenantConfig(
   const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState('0');
   const [attendanceRetentionMonths, setAttendanceRetentionMonths] = useState('0');
 
+  // Tri-state: null = admin has never explicitly chosen — defers to
+  // whatever the platform plan allows (faceRecognitionEffective below shows
+  // what that currently resolves to). true/false = an explicit choice, set
+  // the moment the admin actually touches the checkbox. Kept as boolean|null
+  // (not coerced with !!) specifically so an untouched save doesn't
+  // accidentally send `false` and silently disable something that was
+  // working via inherited platform access — see config.routes.ts.
+  const [faceIdEnabled, setFaceIdEnabled] = useState<boolean | null>(null);
+  const [faceRecognitionEffective, setFaceRecognitionEffective] = useState(false);
+  // Last value confirmed as saved/loaded from the server — compared against
+  // on submit so the "everyone must re-verify" warning only fires when this
+  // field is actually being changed, not on every unrelated form save.
+  const lastSavedFaceIdEnabled = useRef<boolean | null>(null);
+
   const toggleWfhRole = (role: string) => {
     setWfhAllowedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
   };
@@ -112,10 +126,25 @@ export function useTenantConfig(
     setPasswordExpiryDays(tenant.passwordExpiryDays != null ? tenant.passwordExpiryDays.toString() : '0');
     setIdleTimeoutMinutes(tenant.idleTimeoutMinutes != null ? tenant.idleTimeoutMinutes.toString() : '0');
     setAttendanceRetentionMonths(tenant.attendanceRetentionMonths != null ? tenant.attendanceRetentionMonths.toString() : '0');
+
+    const resolvedFaceIdEnabled = tenant.faceIdEnabled === true ? true : tenant.faceIdEnabled === false ? false : null;
+    setFaceIdEnabled(resolvedFaceIdEnabled);
+    lastSavedFaceIdEnabled.current = resolvedFaceIdEnabled;
+    setFaceRecognitionEffective(!!tenant.faceRecognitionEffective);
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (faceIdEnabled !== lastSavedFaceIdEnabled.current) {
+      const proceed = window.confirm(
+        faceIdEnabled
+          ? 'Turning Face ID on will require every employee to re-verify their identity (via face) the next time they check in — their current device registration will be cleared. Continue?'
+          : 'Turning Face ID off will require every employee to re-verify their identity (via device) the next time they check in. Continue?'
+      );
+      if (!proceed) return;
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
@@ -158,12 +187,19 @@ export function useTenantConfig(
           passwordExpiryDays: parseInt(passwordExpiryDays || '0', 10),
           idleTimeoutMinutes: parseInt(idleTimeoutMinutes || '0', 10),
           attendanceRetentionMonths: parseInt(attendanceRetentionMonths || '0', 10),
+          faceIdEnabled,
         })
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save configuration');
-      setSuccess('Tenant boundary and network configuration saved successfully.');
+      lastSavedFaceIdEnabled.current = faceIdEnabled;
+      setFaceRecognitionEffective(faceIdEnabled === false ? false : faceIdEnabled === true || faceRecognitionEffective);
+      setSuccess(
+        data.requiresReEnrollment
+          ? 'Saved. Every employee will be asked to re-verify their identity (Face ID or device) the next time they check in.'
+          : 'Tenant boundary and network configuration saved successfully.'
+      );
 
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
@@ -220,6 +256,7 @@ export function useTenantConfig(
     passwordExpiryDays, setPasswordExpiryDays,
     idleTimeoutMinutes, setIdleTimeoutMinutes,
     attendanceRetentionMonths, setAttendanceRetentionMonths,
+    faceIdEnabled, setFaceIdEnabled, faceRecognitionEffective,
     toggleWfhRole,
     toggleWfhWeekday,
     toggleWeekendDay,
