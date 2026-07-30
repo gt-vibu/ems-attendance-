@@ -38,9 +38,9 @@ export const DrillDownModal: React.FC<DrillDownModalProps> = ({
             <div>
               <h3 className="text-base font-bold text-slate-900">{record.employeeName || 'Employee Record'}</h3>
               <p className="text-xs text-slate-500 flex items-center gap-2">
-                <span>ID: {record.employeeCode || record.employeeId || 'EMP-101'}</span>
+                <span>ID: {record.employeeCode || record.employeeId || '-'}</span>
                 <span>•</span>
-                <span>{record.department || 'Operations'}</span>
+                <span>{record.department || '-'}</span>
               </p>
             </div>
           </div>
@@ -58,7 +58,7 @@ export const DrillDownModal: React.FC<DrillDownModalProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Status</span>
             <span className="text-xs font-bold text-slate-800 mt-1 inline-flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              {record.attendanceStatus || record.status || 'Present'}
+              {record.attendanceStatus || record.status || '-'}
             </span>
           </div>
 
@@ -66,7 +66,7 @@ export const DrillDownModal: React.FC<DrillDownModalProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Check-In</span>
             <span className="text-xs font-bold text-slate-800 mt-1 flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-indigo-600" />
-              {record.checkInTime || record.checkIn || '09:00 AM'}
+              {record.checkInTime || record.checkIn || '-'}
             </span>
           </div>
 
@@ -74,21 +74,21 @@ export const DrillDownModal: React.FC<DrillDownModalProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Check-Out</span>
             <span className="text-xs font-bold text-slate-800 mt-1 flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-indigo-600" />
-              {record.checkOutTime || record.checkOut || '06:00 PM'}
+              {record.checkOutTime || record.checkOut || '-'}
             </span>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Net Work Hours</span>
             <span className="text-xs font-bold text-indigo-600 mt-1">
-              {record.workingHours || 8.5} hrs
+              {record.workingHours ? `${record.workingHours} hrs` : '-'}
             </span>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Verification</span>
             <span className="text-xs font-bold text-slate-800 mt-1">
-              {record.verificationMode || 'Face AI + GPS'}
+              {record.verificationMode || '-'}
             </span>
           </div>
 
@@ -96,24 +96,31 @@ export const DrillDownModal: React.FC<DrillDownModalProps> = ({
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Location / GPS</span>
             <span className="text-xs font-bold text-slate-800 mt-1 flex items-center gap-1 truncate">
               <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-              <span className="truncate">{record.branchName || record.location || 'Headquarters'}</span>
+              <span className="truncate">{record.branchName || record.location || '-'}</span>
             </span>
           </div>
         </div>
 
-        {/* Audit Log Verification Trail */}
+        {/* Audit trail — only ever shows what's actually on the record
+            (approval status + any notes/explanation attached to the
+            underlying attendance log), never a fabricated verification
+            claim. This used to unconditionally print "verified via
+            encrypted JWT... geofence matched within 12 meters" for every
+            record regardless of what actually happened. */}
         <div className="p-3.5 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-indigo-950">
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              Cryptographic Audit Trail
+              Record Detail
             </span>
-            <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-mono font-semibold">
-              VERIFIED LOG
-            </span>
+            {record.approvalStatus && (
+              <span className="text-[10px] bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-mono font-semibold uppercase">
+                {record.approvalStatus}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-slate-600 leading-relaxed">
-            Record verified on device via encrypted JWT token. Geofence radius matched within 12 meters of assigned office location.
+            {record.notes && record.notes !== '-' ? record.notes : 'No additional notes on this record.'}
           </p>
         </div>
 

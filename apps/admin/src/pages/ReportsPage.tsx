@@ -171,6 +171,10 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
   const [wfhOnly, setWfhOnly] = useState<boolean>(false);
   const [lateOnly, setLateOnly] = useState<boolean>(false);
   const [overtimeOnly, setOvertimeOnly] = useState<boolean>(false);
+  // "Only Issues" — late/absent/pending-checkout-verification/regularized
+  // days only, so a manager can scan just what needs attention instead of
+  // the full roster. See EXCEPTION_STATUSES in services/reportData.ts.
+  const [exceptionsOnly, setExceptionsOnly] = useState<boolean>(false);
 
   // Data State
   const [reportData, setReportData] = useState<any>(null);
@@ -360,7 +364,8 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
         search,
         wfh: String(wfhOnly),
         late: String(lateOnly),
-        overtime: String(overtimeOnly)
+        overtime: String(overtimeOnly),
+        exceptions: String(exceptionsOnly)
       });
 
       const res = await fetch(`/api/reports/data?${params.toString()}`, {
@@ -397,7 +402,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
 
   useEffect(() => {
     fetchReportData();
-  }, [activeCategory, startDate, endDate, department, branchId, status, wfhOnly, lateOnly, overtimeOnly]);
+  }, [activeCategory, startDate, endDate, department, branchId, status, wfhOnly, lateOnly, overtimeOnly, exceptionsOnly]);
 
   // Extract unique departments from report rows
   useEffect(() => {
@@ -487,6 +492,38 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Server-generated file download (real .pdf / .xlsx, not the browser
+  // print-to-PDF below) — same filters as what's on screen, built by
+  // services/reportFileExport.ts. Also the one that gets an audit-ledger
+  // entry ("who exported what report, when").
+  const [downloadingFormat, setDownloadingFormat] = useState<'pdf' | 'xlsx' | null>(null);
+  const downloadServerFile = async (format: 'pdf' | 'xlsx') => {
+    setDownloadingFormat(format);
+    try {
+      const params = new URLSearchParams({
+        type: activeCategory === 'builder' ? 'attendance' : activeCategory,
+        startDate, endDate, department, branchId, status, search,
+        wfh: String(wfhOnly), late: String(lateOnly), overtime: String(overtimeOnly), exceptions: String(exceptionsOnly),
+        format,
+      });
+      const res = await fetch(`/api/reports/export?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${companyName.replace(/\s+/g, '_')}_Report_${startDate}_to_${endDate}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download report:', err);
+    } finally {
+      setDownloadingFormat(null);
+    }
   };
 
   // Export Printable / PDF View respecting Dynamic Themes, Cover Page, and Custom Columns
@@ -766,10 +803,26 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
           </button>
           <button
             onClick={exportPDFPrint}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm"
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition"
           >
-            <Printer className="w-4 h-4" />
-            Print / PDF Report
+            <Printer className="w-4 h-4 text-slate-500" />
+            Print / Browser PDF
+          </button>
+          <button
+            onClick={() => downloadServerFile('pdf')}
+            disabled={downloadingFormat !== null}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm disabled:opacity-50"
+          >
+            <FileText className="w-4 h-4" />
+            {downloadingFormat === 'pdf' ? 'Generating...' : 'Download PDF'}
+          </button>
+          <button
+            onClick={() => downloadServerFile('xlsx')}
+            disabled={downloadingFormat !== null}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            {downloadingFormat === 'xlsx' ? 'Generating...' : 'Download Excel'}
           </button>
         </div>
       </div>
@@ -1103,6 +1156,16 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
                   className="rounded text-indigo-600 focus:ring-0"
                 />
                 <span>Overtime Only</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exceptionsOnly}
+                  onChange={(e) => setExceptionsOnly(e.target.checked)}
+                  className="rounded text-rose-600 focus:ring-0"
+                />
+                <span>Exceptions Only</span>
               </label>
 
               <div className="relative">

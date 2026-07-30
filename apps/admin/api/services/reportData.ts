@@ -34,7 +34,14 @@ export interface ReportFilters {
   wfhOnly?: boolean;
   lateOnly?: boolean;
   overtimeOnly?: boolean;
+  // "Only Issues" quick filter — late, absent, pending-checkout-verification,
+  // or a regularized (i.e. was flagged and corrected) day. Present-and-clean
+  // days are excluded so a manager can scan just what needs attention
+  // instead of the whole roster.
+  exceptionsOnly?: boolean;
 }
+
+const EXCEPTION_STATUSES: DayStatus[] = ['late', 'absent_pending_review', 'lop', 'pending_checkout_verification', 'regularized'];
 
 const STATUS_LABELS: Record<DayStatus, string> = {
   not_applicable: 'N/A',
@@ -207,6 +214,7 @@ async function buildAttendanceReport(
         const workedMinutes = dayLogs?.checkIn?.workedMinutes || 0;
 
         if (filters.status && filters.status !== 'ALL' && STATUS_LABELS[entry.status] !== filters.status) continue;
+        if (filters.exceptionsOnly && !EXCEPTION_STATUSES.includes(entry.status)) continue;
         if (filters.wfhOnly && !isWfh) continue;
         if (filters.lateOnly && lateMins <= 0) continue;
         if (filters.overtimeOnly && overtimeMins <= 0) continue;
