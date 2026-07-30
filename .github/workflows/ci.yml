@@ -41,6 +41,17 @@ jobs:
       # dependencies; low/moderate findings are common in transitive deps
       # and would make this too noisy to act on, so only the severities
       # worth blocking a merge over are enforced.
+      #
+      # GHSA-qwww-vcr4-c8h2 (react-router, high) is deliberately excluded via
+      # package.json's pnpm.auditConfig.ignoreCves, not silently ignored: the
+      # advisory is specific to React Router's RSC/framework server mode,
+      # which this app never uses (a Vite SPA on plain react-router-dom
+      # BrowserRouter/HashRouter, no @react-router/dev, no SSR/RSC). Fixing
+      # it properly means a major-version bump of react-router-dom (7.x ->
+      # 8.x) with real regression testing against the running app, not a
+      # forced pnpm override — tracked as follow-up work, not done blindly
+      # here. Every other high/critical finding (brace-expansion, postcss,
+      # esbuild, uuid, body-parser, tar) is patched via pnpm.overrides.
       - name: Dependency audit (high/critical)
         run: pnpm audit --audit-level=high
 
