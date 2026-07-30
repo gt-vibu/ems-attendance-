@@ -73,6 +73,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     icon: 'ScrollText',
     features: [
       { key: 'reports.view', label: 'View Reports & Audit Ledger', description: 'Access analytics, exports, and the immutable audit trail.' },
+      { key: 'reports.schedule', label: 'Schedule Recurring Reports', description: 'Set up a report to auto-generate and email on a daily, weekly, or monthly cadence.' },
     ],
   },
   {

@@ -31,6 +31,7 @@ const BranchSetupWizard = lazy(() => import('./pages/BranchSetupWizard'));
 const Branches = lazy(() => import('./pages/Branches'));
 const BranchDetail = lazy(() => import('./pages/BranchDetail'));
 const RolePermissions = lazy(() => import('./pages/RolePermissions'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const ApprovalRoutingPage = lazy(() => import('./pages/ApprovalRoutingPage'));
 const LeaveManagementPage = lazy(() => import('./pages/LeaveManagementPage'));
 const PayrollPage = lazy(() => import('./pages/PayrollPage'));
@@ -136,6 +137,7 @@ export default function AdminApp() {
           <Route path="/tenant/branches" element={user && canSeeDashboard(user.role) ? <Branches user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/branches/:id" element={user && canSeeDashboard(user.role) ? <BranchDetail user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/roles" element={user && canSeeDashboard(user.role) ? <RolePermissions user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/reports" element={user && canSeeDashboard(user.role) ? <ReportsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/approval-routing" element={user && canSeeDashboard(user.role) ? <ApprovalRoutingPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/leave" element={
             !user ? <Navigate to="/login" />

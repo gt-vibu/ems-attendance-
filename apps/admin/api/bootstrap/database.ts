@@ -883,6 +883,39 @@ export async function verifyAndSyncDatabase() {
     `);
 
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS report_saved_templates (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        name TEXT NOT NULL,
+        report_type TEXT NOT NULL,
+        filters JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS report_schedules (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        created_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        report_name TEXT NOT NULL,
+        report_type TEXT NOT NULL,
+        filters JSONB NOT NULL DEFAULT '{}',
+        frequency TEXT NOT NULL,
+        day_of_week INTEGER,
+        day_of_month INTEGER,
+        time_of_day TEXT NOT NULL DEFAULT '08:00',
+        recipients JSONB NOT NULL DEFAULT '[]',
+        format TEXT NOT NULL DEFAULT 'csv',
+        active BOOLEAN NOT NULL DEFAULT true,
+        last_run_at TIMESTAMP,
+        next_run_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS notification_templates (
         id SERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES tenants(id),

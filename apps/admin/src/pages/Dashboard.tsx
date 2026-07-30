@@ -39,7 +39,7 @@ import {
   LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell,
   ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine, Activity, Power, Play, ExternalLink, TrendingUp, CalendarDays, Banknote,
-  CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket,
+  CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket, BarChart2,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -2792,6 +2792,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
                     { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
                     { id: 'approval-routing', label: 'Approval Routing', icon: Users, navigateTo: '/tenant/approval-routing', visible: hasAnyPrivilege('approval_routing.manage') },
+                    { id: 'reports', label: 'Reports & Analytics', icon: BarChart2, navigateTo: '/tenant/reports', visible: hasAnyPrivilege('reports.view') },
                     { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: user.deviceChangeEnabled !== false && hasAnyPrivilege('settings.edit') },
                     // Notifications and Org Chart are informational/personal
                     // rather than tied to a specific management privilege —

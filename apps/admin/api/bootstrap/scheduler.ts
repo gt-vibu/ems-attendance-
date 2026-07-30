@@ -18,6 +18,7 @@ import { resolveEffectivePolicy } from '../services/attendancePolicy';
 import { resolveApprovers } from '../services/approvalRouting';
 import { localDateKey } from '../services/dateUtils';
 import { tenantDateKey, tenantParts } from '../services/tenantTime';
+import { registerReportSchedulerHandler, enqueueDueReportSchedules } from '../services/reportScheduler';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
@@ -36,6 +37,12 @@ export function runBackgroundScheduler() {
   // fixed hour — this dedupes so a user isn't processed twice in one day.
   // Cleared at midnight below.
   let missedCheckoutProcessed = new Set<string>();
+  let lastReportScheduleCheck = '';
+
+  // Register the queue job handler that actually executes a scheduled
+  // report (see services/reportScheduler.ts) — must happen before the poll
+  // loop below starts picking up jobs.
+  registerReportSchedulerHandler();
 
   // 0. Background job queue poll (services/queue) — runs only on this
   // (leader) instance, same guarantee every other job in this function
@@ -132,6 +139,20 @@ export function runBackgroundScheduler() {
 
       if (currentHour === 0 && currentMin === 0) {
         missedCheckoutProcessed = new Set<string>();
+      }
+
+      // --- Scheduled report deliveries (services/reportScheduler.ts) —
+      // checked once a minute, same cadence as everything else here; the
+      // schedule's own nextRunAt is what actually gates whether anything
+      // is due, this is just how often we look. ---
+      const thisMinuteKey = `${todayKey}:${currentHour}:${currentMin}`;
+      if (lastReportScheduleCheck !== thisMinuteKey) {
+        lastReportScheduleCheck = thisMinuteKey;
+        try {
+          await enqueueDueReportSchedules();
+        } catch (err) {
+          logger.error('scheduler: report schedule check failed', { error: (err as any)?.message });
+        }
       }
 
       // --- Auto-mark absentees (at 11:00 AM in EACH tenant's own timezone) ---

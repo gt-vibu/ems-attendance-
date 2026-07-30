@@ -568,6 +568,44 @@ export const backgroundJobs = pgTable('background_jobs', {
   completedAt: timestamp('completed_at'),
 });
 
+// Reports & Analytics — a saved filter configuration (report type + date
+// range/department/branch/etc.), so a user doesn't have to rebuild the same
+// filters every time. Replaces an earlier in-memory-only prototype (lost on
+// every server restart, inconsistent across replicas) with real persistence.
+export const reportSavedTemplates = pgTable('report_saved_templates', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  createdByUserId: integer('created_by_user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  reportType: text('report_type').notNull(), // 'attendance' | 'leave' | 'payroll' | 'employee' | ...
+  filters: jsonb('filters').notNull().default('{}'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// A recurring report delivery — actually executed (see services/
+// reportScheduler.ts registering a queue job handler + bootstrap/
+// scheduler.ts checking due schedules each tick), not just a config row
+// nothing reads. `nextRunAt` is the only mutable scheduling state; the
+// scheduler advances it after each successful enqueue.
+export const reportSchedules = pgTable('report_schedules', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  createdByUserId: integer('created_by_user_id').references(() => users.id).notNull(),
+  reportName: text('report_name').notNull(),
+  reportType: text('report_type').notNull(),
+  filters: jsonb('filters').notNull().default('{}'),
+  frequency: text('frequency').notNull(), // 'daily' | 'weekly' | 'monthly'
+  dayOfWeek: integer('day_of_week'), // 0=Sunday..6=Saturday, only for 'weekly'
+  dayOfMonth: integer('day_of_month'), // 1-28, only for 'monthly'
+  timeOfDay: text('time_of_day').notNull().default('08:00'), // 'HH:MM', tenant-local per tenants.timezone
+  recipients: jsonb('recipients').notNull().default('[]'), // string[] of email addresses
+  format: text('format').notNull().default('csv'), // 'csv' today — see reportScheduler.ts for why not pdf/excel yet
+  active: boolean('active').notNull().default(true),
+  lastRunAt: timestamp('last_run_at'),
+  nextRunAt: timestamp('next_run_at').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 // Manual, HR-controlled "close the books" action for a tenant's attendance
 // in a given month — never automatic, never reversed (a mistaken freeze is
 // corrected via a payroll adjustment later, not by unfreezing; see the
