@@ -6,6 +6,12 @@ export const tenants = pgTable('tenants', {
   name: text('name').notNull(),
   adminUid: text('admin_uid').notNull(),
   status: text('status').notNull().default('active'), // 'active' | 'suspended'
+  // IANA timezone the company actually operates in — every "what calendar
+  // day is this" computation (attendance day boundaries, absent-marking,
+  // payroll periods) should key off this, not the Node process's ambient
+  // local time (which on Render defaults to UTC unless overridden). See
+  // services/tenantTime.ts.
+  timezone: text('timezone').default('Asia/Kolkata'),
   wifiSsid: text('wifi_ssid'),
   officeIp: text('office_ip'), // Tenant registered corporate public IP address
   wifiCheckEnabled: boolean('wifi_check_enabled').default(false), // Explicit admin toggle — independent of whether officeIp happens to be filled in
@@ -17,6 +23,13 @@ export const tenants = pgTable('tenants', {
   shiftStart: text('shift_start').default('09:00'),
   shiftEnd: text('shift_end').default('18:00'),
   gracePeriodMins: integer('grace_period_mins').default(15),
+  // Missed-checkout verification (Phase 5 of the roadmap) -- how long past
+  // shift end to wait before treating a still-checked-in employee as a
+  // missed checkout, mirroring gracePeriodMins' role for late check-in.
+  // Only consulted when the 'missed_checkout_verification' platform
+  // feature is enabled for this tenant; the old fixed-23:59 auto-checkout
+  // stays exactly as-is otherwise.
+  checkoutGraceMins: integer('checkout_grace_mins').default(15),
   halfDayMins: integer('half_day_mins').default(240),
   weekendConfig: jsonb('weekend_config').default('["Saturday", "Sunday"]'),
   dailyBreakBudgetMins: integer('daily_break_budget_mins').default(60),
@@ -347,6 +360,11 @@ export const attendanceLogs = pgTable('attendance_logs', {
   isShortDay: boolean('is_short_day'),
   overtimeMinutes: real('overtime_minutes'),
   branchId: integer('branch_id').references(() => branches.id),
+  // Set true by the missed-checkout auto-checkout job (Phase 5 of the
+  // attendance/payroll roadmap) when it couldn't confirm the employee had
+  // actually left the premises — inert until that phase ships. See
+  // services/attendanceDayStatus.ts's 'pending_checkout_verification' status.
+  pendingVerification: boolean('pending_verification').default(false),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -411,6 +429,12 @@ export const holidays = pgTable('holidays', {
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   date: text('date').notNull(), // 'YYYY-MM-DD'
   name: text('name').notNull(),
+  // NULL = applies to everyone in the tenant (today's behavior, unchanged).
+  // Set either to scope this holiday to one branch/department instead —
+  // strict superset of the old tenant-wide-only model, so every existing
+  // row (both NULL) keeps working exactly as before.
+  branchId: integer('branch_id').references(() => branches.id),
+  department: text('department'), // matches users.department's flat string, not a normalized table
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -421,22 +445,57 @@ export const holidaysRelations = relations(holidays, ({ one }) => ({
   }),
 }));
 
+// Per-employee override on top of a holiday's branch/department scope —
+// e.g. exclude one person from a department-wide holiday, or include
+// someone outside the scoped branch. Extends the existing
+// optionalHolidayChoices pattern (which is "opt into an optional holiday")
+// rather than replacing it; this is the mandatory-holiday equivalent.
+export const holidayEmployeeOverrides = pgTable('holiday_employee_overrides', {
+  id: serial('id').primaryKey(),
+  holidayId: integer('holiday_id').references(() => holidays.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  included: boolean('included').notNull(), // true = force-include, false = force-exclude
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  holidayUserUnique: uniqueIndex('holiday_employee_overrides_holiday_user_unique').on(table.holidayId, table.userId),
+}));
+
 // Attendance correction / regularization requests — an employee flags a
-// missed check-in/out or wrong location, and whoever holds 'attendance.approve'
-// reviews it. Approving here does NOT silently rewrite the original
-// attendance_logs row (that would break the audit trail); it creates its own
-// resolvable record that shows up alongside the original for a reviewer.
+// missed check-in/out, wrong location, a verification failure (face/GPS/
+// biometric), or another reason their attendance doesn't reflect reality,
+// and whoever holds 'attendance.approve.corrections' (or the legacy
+// 'attendance.approve') reviews it. Approving here does NOT silently rewrite
+// the original attendance_logs row (that would break the audit trail) — it
+// goes through the same editAttendanceDay() service used by direct admin
+// edits and ticket resolution, which either approves the existing flagged
+// row in place or inserts a new one, always preserving history. appliedLogId
+// traces which attendance_logs row resulted, so the original request stays
+// linked to what actually changed.
 export const attendanceCorrections = pgTable('attendance_corrections', {
   id: serial('id').primaryKey(),
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   userId: integer('user_id').references(() => users.id).notNull(),
-  requestType: text('request_type').notNull(), // 'missed_checkin' | 'missed_checkout' | 'wrong_location' | 'other'
+  // 'missed_checkin' | 'missed_checkout' | 'marked_absent' | 'wrong_location' |
+  // 'face_recognition_failed' | 'gps_verification_failed' | 'biometric_issue' |
+  // 'business_travel' | 'wfh_verification_issue' | 'network_issue' | 'other'
+  requestType: text('request_type').notNull(),
   requestedDate: text('requested_date').notNull(), // 'YYYY-MM-DD'
   requestedTime: text('requested_time'), // 'HH:MM', optional
   reason: text('reason').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
   reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id),
   reviewedAt: timestamp('reviewed_at'),
+  reviewRemarks: text('review_remarks'),
+  // Optional supporting document — reuses the existing employeeDocuments
+  // upload/storage/feature-flag machinery (documents.routes.ts) rather than
+  // a second parallel file-storage system. Not a drizzle .references() here
+  // because employeeDocuments is declared later in this file (would be a
+  // forward reference at module-init time) — the FK itself is still created
+  // in the bootstrap SQL (see database.ts).
+  documentId: integer('document_id'),
+  // Set once approved — the attendance_logs row editAttendanceDay() touched,
+  // so the UI can show "this request became this attendance record."
+  appliedLogId: integer('applied_log_id').references(() => attendanceLogs.id),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -449,6 +508,84 @@ export const attendanceCorrectionsRelations = relations(attendanceCorrections, (
     fields: [attendanceCorrections.tenantId],
     references: [tenants.id],
   }),
+}));
+
+// Admin-configurable "who gets notified/approves for category X" routing —
+// generalizes services/escalation.ts's manager->GM->tenant_admin fallback
+// (previously only wired to support tickets) to every approval-notification
+// call site. No FK to a single "the" approver: a category can have several
+// scoped rules; the most specific scope wins, ties broken by priority. A
+// tenant with zero rows for a category keeps today's flat
+// getUsersWithPrivilege() fan-out — see services/approvalRouting.ts.
+export const approvalRoutingRules = pgTable('approval_routing_rules', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  category: text('category').notNull(), // 'leave' | 'attendance_correction' | 'wfh' | 'missed_checkout' | 'late_arrival'
+  scopeType: text('scope_type').notNull().default('all'), // 'all' | 'department' | 'branch' | 'team'
+  scopeId: integer('scope_id'), // branchId/teamId when scopeType needs one; department is matched by name via scopeValue
+  scopeValue: text('scope_value'), // department name, when scopeType = 'department'
+  approverType: text('approver_type').notNull(), // 'role' | 'specific_user' | 'reporting_manager'
+  approverValue: text('approver_value'), // role name or user id as string; null for 'reporting_manager'
+  priority: integer('priority').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Per-tenant override of a notification's subject/body — {{placeholder}}
+// interpolation. A tenant with no row for (eventType, channel) gets the
+// existing hardcoded string from the relevant send*Email/notifyUser call
+// site, unchanged — this table only ever overrides, never replaces the
+// fallback.
+export const notificationTemplates = pgTable('notification_templates', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  eventType: text('event_type').notNull(),
+  channel: text('channel').notNull().default('email'), // 'email' | 'push' | 'sms' (only 'email' actually wired today)
+  subject: text('subject'),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantEventChannelUnique: uniqueIndex('notification_templates_tenant_event_channel_unique').on(table.tenantId, table.eventType, table.channel),
+}));
+
+// Postgres-backed background job queue (see api/services/queue/) — email
+// sending, payroll recalculation, notification delivery, attendance
+// reconciliation, report generation, etc. run here instead of inline in a
+// request handler. Polled by the same leader-elected scheduler loop that
+// already runs the absent-marker/auto-checkout crons (runBackgroundScheduler
+// in bootstrap/scheduler.ts), so it's automatically single-instance-safe
+// across a multi-replica deployment with no extra plumbing.
+export const backgroundJobs = pgTable('background_jobs', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id),
+  jobType: text('job_type').notNull(),
+  payload: jsonb('payload').notNull().default('{}'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'done' | 'failed'
+  attempts: integer('attempts').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(3),
+  runAfter: timestamp('run_after').defaultNow(),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').defaultNow(),
+  completedAt: timestamp('completed_at'),
+});
+
+// Manual, HR-controlled "close the books" action for a tenant's attendance
+// in a given month — never automatic, never reversed (a mistaken freeze is
+// corrected via a payroll adjustment later, not by unfreezing; see the
+// roadmap plan, Phase 3/7). Once a period is frozen, any date inside it that
+// still resolves to 'absent_pending_review' (see services/
+// attendanceDayStatus.ts) with no approved correction becomes 'lop' —
+// nothing is written back to attendance_logs for this; it's a derived
+// status, computed by checking this table, exactly like 'absent' itself is
+// already a computed-not-stored state elsewhere in this codebase.
+export const attendanceFreezePeriods = pgTable('attendance_freeze_periods', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(),
+  frozenAt: timestamp('frozen_at').defaultNow(),
+  frozenByUserId: integer('frozen_by_user_id').references(() => users.id),
+}, (table) => ({
+  tenantPeriodUnique: uniqueIndex('attendance_freeze_periods_tenant_period_unique').on(table.tenantId, table.year, table.month),
 }));
 
 export const departmentsRelations = relations(departments, ({ one }) => ({
@@ -631,6 +768,9 @@ export const auditLedger = pgTable('audit_ledger', {
   deviceInfo: text('device_info'),
   details: jsonb('details'),
   hash: text('hash').notNull(),
+  // Correlates multiple log lines written during one HTTP request. Optional
+  // — most call sites don't pass it (see services/audit.ts).
+  requestId: text('request_id'),
 });
 
 export const auditLedgerRelations = relations(auditLedger, ({ one }) => ({
@@ -827,14 +967,49 @@ export const payrollRuns = pgTable('payroll_runs', {
   overtimeHours: real('overtime_hours').notNull().default(0),
   grossPay: real('gross_pay').notNull().default(0),
   leaveDeduction: real('leave_deduction').notNull().default(0),
+  // Attendance-driven payroll (Phase 6) — populated only for tenants that
+  // opted into 'payroll_attendance_driven'; both default 0 (no effect) for
+  // every tenant that hasn't. unpaidAbsenceDays is sourced ONLY from
+  // finalized LOP (attendance_freeze_periods), never a raw unresolved
+  // absence — see computeAttendanceDrivenPayrollInputs.
+  unpaidAbsenceDays: real('unpaid_absence_days').notNull().default(0),
+  lopDeduction: real('lop_deduction').notNull().default(0),
   overtimePay: real('overtime_pay').notNull().default(0),
   netPay: real('net_pay').notNull().default(0),
   breakdown: jsonb('breakdown'),
+  // draft -> preview -> generated -> approved -> processed -> paid -> locked
+  // (Phase 6/7) — was already a free-text column defaulting 'draft' but
+  // only ever actually set to 'generated'; the rest of the sequence is
+  // populated once Phase 7 (lock & adjustments) ships. Existing rows are
+  // unaffected either way.
   status: text('status').notNull().default('draft'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   userPeriodUnique: uniqueIndex('payroll_runs_user_period_unique').on(table.userId, table.year, table.month),
 }));
+
+// Once a payroll_runs row is locked (status = 'locked'), it is never
+// recalculated or overwritten — any attendance correction approved against
+// a date inside a locked period instead creates one of these instead of
+// silently changing what the employee was told they'd be paid. HR resolves
+// it explicitly (apply to next cycle, or a standalone adjustment payslip),
+// and every adjustment is itself an audit-logged, append-only record —
+// same "never silently rewrite history" principle as attendance_logs.
+export const payrollAdjustments = pgTable('payroll_adjustments', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  payrollRunId: integer('payroll_run_id').references(() => payrollRuns.id).notNull(),
+  sourceType: text('source_type').notNull(), // 'attendance_correction' | 'manual'
+  sourceId: integer('source_id'), // attendanceCorrections.id when sourceType is 'attendance_correction'
+  amountDelta: real('amount_delta').notNull(), // positive = owed to employee, negative = owed back
+  reason: text('reason').notNull(),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  status: text('status').notNull().default('pending'), // 'pending' | 'applied'
+  appliedToNextCycle: boolean('applied_to_next_cycle').notNull().default(false),
+  appliedAt: timestamp('applied_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 
 // Role-level default compensation template — "every Employee gets this CTC
 // + these components" — configured once per role name per tenant, mirroring

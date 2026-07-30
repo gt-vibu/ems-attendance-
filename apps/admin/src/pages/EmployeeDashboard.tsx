@@ -590,7 +590,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     attendanceHistory.forEach((log: any) => {
       if (log.type !== 'check_in' || log.status !== 'approved' || !log.createdAt) return;
       const d = new Date(log.createdAt);
-      const key = d.toISOString().slice(0, 10);
+      const key = attendanceDateKey(d);
       if (key.startsWith(monthKey)) presentDates.add(key);
     });
     let workingDaysSoFar = 0;
@@ -1364,15 +1364,41 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               </div>
 
               {leaveHistoryView === 'list' ? (
-                <DataTable
-                  data={leaveData?.requests || []}
-                  columns={leaveHistoryColumns}
-                  searchPlaceholder="Search by type or status..."
-                  globalFilterColumnIds={['leaveType', 'status']}
-                  pageSize={8}
-                  emptyMessage="No leave requests yet."
-                  renderRowDetail={(request: any) => request.reason ? <span><strong>Reason:</strong> {request.reason}</span> : null}
-                />
+                <>
+                  {/* Desktop/tablet: the full table. Hidden below md — same
+                      reasoning as EarningsBreakdown's daily table: a dense
+                      table that wide only works with room to breathe, and on
+                      a phone becomes an unreadable horizontal-scroll strip. */}
+                  <div className="hidden md:block">
+                    <DataTable
+                      data={leaveData?.requests || []}
+                      columns={leaveHistoryColumns}
+                      searchPlaceholder="Search by type or status..."
+                      globalFilterColumnIds={['leaveType', 'status']}
+                      pageSize={8}
+                      emptyMessage="No leave requests yet."
+                      renderRowDetail={(request: any) => request.reason ? <span><strong>Reason:</strong> {request.reason}</span> : null}
+                    />
+                  </div>
+
+                  {/* Mobile: same data, one stacked card per request. */}
+                  <div className="md:hidden space-y-3">
+                    {(leaveData?.requests || []).length === 0 ? (
+                      <div className="nexus-card rounded-2xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No leave requests yet.</div>
+                    ) : (leaveData?.requests || []).map((request: any) => (
+                      <div key={request.id} className="nexus-card rounded-2xl p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{request.leaveType}</span>
+                          <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'error' : 'warning'} dot>{request.status}</StatusPill>
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-[var(--color-nexus-muted)]">{request.startDate} to {request.endDate} · {request.totalDays} day(s)</p>
+                        {request.reason && (
+                          <p className="mt-1.5 text-[11px] text-[var(--color-nexus-ink)]"><strong>Reason:</strong> {request.reason}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <div>
                   <div className="flex items-center justify-between mb-3">

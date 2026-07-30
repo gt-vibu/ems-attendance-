@@ -5,7 +5,7 @@ import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FloatingOrbs from '../components/FloatingOrbs';
 import { verifyThisDevice, registerThisDevice, describeWebAuthnError } from '../lib/webauthnClient';
-import { verifyFace, describeFaceActionInstruction, FaceVerifyProgress } from '../lib/faceClient';
+import { verifyFace, ensureFaceServiceReady, describeFaceActionInstruction, FaceVerifyProgress } from '../lib/faceClient';
 import { describeCameraError } from '../lib/cameraError';
 import { queueAttendanceSubmit, flushAttendanceQueue, getQueuedAttendance } from '../lib/offlineQueue';
 import DateSelect from '../components/DateSelect';
@@ -101,6 +101,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
   const [correctionDate, setCorrectionDate] = useState('');
   const [correctionTime, setCorrectionTime] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
+  const [correctionFile, setCorrectionFile] = useState<File | null>(null);
   const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
   const [correctionSubmitted, setCorrectionSubmitted] = useState(false);
 
@@ -382,6 +383,17 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
     setFaceBusy(true);
     setError('');
     setFaceProgress({ phase: 'passive' });
+    // Pre-warm check, same as FaceEnrollment.tsx: on a free-tier host the
+    // service may have spun down from inactivity and take ~30-60s to reload
+    // its models. Surfacing that here, before the camera even opens, avoids
+    // the check-in flow silently hanging on a cold /api/face/verify call.
+    try {
+      await ensureFaceServiceReady();
+    } catch (err: any) {
+      setError(err.message || 'Face verification service is unavailable right now. Please wait a moment and try again.');
+      setFaceBusy(false);
+      return;
+    }
     try {
       let stream: MediaStream;
       try {
@@ -728,12 +740,32 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
     setLateSubmitting(false);
   };
 
+  const fileToBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read the selected file.'));
+    reader.readAsDataURL(file);
+  });
+
   const handleSubmitCorrection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!correctionType || !correctionDate || !correctionReason) return;
     setCorrectionSubmitting(true);
     setError('');
     try {
+      let documentId: number | undefined;
+      if (correctionFile) {
+        const fileBase64 = await fileToBase64(correctionFile);
+        const uploadRes = await fetch('/api/tenant/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ category: 'attendance_correction', fileName: correctionFile.name, mimeType: correctionFile.type || 'application/octet-stream', fileBase64 }),
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error || 'Failed to upload the attached file.');
+        documentId = uploadData.document.id;
+      }
+
       const res = await fetch('/api/attendance/corrections', {
         method: 'POST',
         headers: {
@@ -744,7 +776,8 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
           requestType: correctionType,
           requestedDate: correctionDate,
           requestedTime: correctionTime || undefined,
-          reason: correctionReason
+          reason: correctionReason,
+          documentId,
         })
       });
       const data = await res.json();
@@ -754,6 +787,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
       setCorrectionDate('');
       setCorrectionTime('');
       setCorrectionReason('');
+      setCorrectionFile(null);
       setTimeout(() => {
         setShowCorrectionModal(false);
         setCorrectionSubmitted(false);
@@ -1273,7 +1307,14 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
                       <option value="" disabled>Select an issue...</option>
                       <option value="missed_checkin">Missed Check-In</option>
                       <option value="missed_checkout">Missed Check-Out</option>
+                      <option value="marked_absent">Marked Absent (I Was Present)</option>
                       <option value="wrong_location">Wrong Location Flagged</option>
+                      <option value="face_recognition_failed">Face Recognition Failed</option>
+                      <option value="gps_verification_failed">GPS Verification Failed</option>
+                      <option value="biometric_issue">Biometric Issue</option>
+                      <option value="business_travel">Business Travel</option>
+                      <option value="wfh_verification_issue">Work From Home Verification Issue</option>
+                      <option value="network_issue">Network Issue</option>
                       <option value="other">Other</option>
                     </select>
                   </div>
@@ -1295,6 +1336,16 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
                       placeholder="e.g. Phone died at 9am, couldn't check in until I found a charger."
                       required
                     />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">Supporting Document (optional)</label>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={e => setCorrectionFile(e.target.files?.[0] || null)}
+                      className="w-full text-[11px] text-[var(--color-nexus-muted)] file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--color-nexus-surface-alt)] file:px-3 file:py-2 file:text-[10px] file:font-bold file:uppercase file:tracking-wider file:text-[var(--color-nexus-ink)]"
+                    />
+                    {correctionFile && <p className="mt-1 text-[10px] text-[var(--color-nexus-muted)]">{correctionFile.name}</p>}
                   </div>
                 </div>
                 {error && <p className="text-[var(--color-nexus-error)] text-[10px] mt-3">{error}</p>}

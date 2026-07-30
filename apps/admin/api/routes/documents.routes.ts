@@ -8,14 +8,14 @@ import { saveDocument, readDocument, deleteDocument } from '../services/document
 
 export const router = Router();
 
-const CATEGORIES = ['offer_letter', 'contract', 'id_proof', 'certificate', 'other'];
+const CATEGORIES = ['offer_letter', 'contract', 'id_proof', 'certificate', 'attendance_correction', 'other'];
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB — plenty for a scanned ID/contract PDF, small enough to keep base64-in-JSON upload practical
 
 // Gated two ways: the tenant admin's own on/off switch (documentsEnabled),
 // AND the platform layer above it (isPlatformFeatureAllowed 'documents') —
 // a super admin revoking the module for this tenant disables it immediately
 // even if the tenant admin left their own toggle on.
-async function documentsEnabledForTenant(tenantId: number): Promise<boolean> {
+export async function documentsEnabledForTenant(tenantId: number): Promise<boolean> {
   const rows = await db.select({ documentsEnabled: schema.tenants.documentsEnabled, featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
   return !!rows[0]?.documentsEnabled && isPlatformFeatureAllowed(rows[0] as any, 'documents');
 }

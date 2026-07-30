@@ -18,6 +18,7 @@ import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPriv
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
+import { resolveApprovers } from '../services/approvalRouting';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
 
@@ -164,7 +165,7 @@ router.post('/api/attendance/wfh/location-change-request', authenticate, async (
         details: { requestId: inserted[0].id, lat, lng }
       });
 
-      const approvers = await getUsersWithPrivilege(user.tenantId || 1, ['attendance.approve.wfh', 'attendance.approve']);
+      const approvers = await resolveApprovers(user.tenantId || 1, 'wfh', user.id, ['attendance.approve.wfh', 'attendance.approve']);
       for (const approver of approvers) {
         await sendWfhLocationChangeRequestEmail(approver.email, approver.name, user.name, geocoded?.address || `${lat}, ${lng}`, reason || '');
       }

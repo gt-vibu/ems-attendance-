@@ -15,6 +15,10 @@ import {
   NO_LEAVE_DAYS,
 } from './leavePayrollShared';
 import { computeEmployeeEarnings } from '../services/earnings';
+import { resolveMonthStatuses, computeAttendanceDrivenPayrollInputs } from '../services/attendanceDayStatus';
+import { isPlatformFeatureAllowed } from '../auth/rbac';
+import type { AttendanceDrivenInputs } from './leavePayrollShared';
+import { logToAuditLedger } from '../services/audit';
 
 export const router = Router();
 
@@ -28,6 +32,18 @@ async function resolveOvertimeHours(overtimePayrollEnabled: boolean, userId: num
   if (!overtimePayrollEnabled) return 0;
   const earnings = await computeEmployeeEarnings(userId, tenantId, year, month);
   return earnings.summary?.totalOvertimeHours || 0;
+}
+
+// Attendance-driven payroll (Phase 6) — same opt-in shape as overtime
+// above: every payroll number stays byte-for-byte identical to before this
+// feature existed unless the tenant explicitly enabled
+// 'payroll_attendance_driven'. Only applied to real per-employee payroll
+// views (mine/history/employee detail) — the tenant-wide overview and
+// role-default template views have no specific employee's attendance to
+// read, same reasoning that already applies to overtime there.
+async function resolveAttendanceDrivenInputs(tenant: any, userId: number, tenantId: number, year: number, month: number): Promise<AttendanceDrivenInputs | null> {
+  if (!isPlatformFeatureAllowed(tenant, 'payroll_attendance_driven')) return null;
+  return computeAttendanceDrivenPayrollInputs(tenantId, userId, year, month);
 }
 
 router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
@@ -69,7 +85,8 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
 
     const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
     const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
-    const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours);
+    const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], userId, tenantId, year, month);
+    const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
     res.json({ profile, components: effectiveComponents, summary, settings, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -118,15 +135,18 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     if (profile) {
       const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
       const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
-      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours);
+      const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], userId, tenantId, year, month);
+      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
       await db.insert(schema.payrollRuns).values({
         tenantId,
         userId,
         profileId: profile.id ?? null,
         year,
         month,
-        workingDays: Number(settings?.workingDaysPerMonth || 26),
+        workingDays: attendanceDriven ? attendanceDriven.workingDays : Number(settings?.workingDaysPerMonth || 26),
         approvedLeaveDays: leaveDays.totalDays,
+        unpaidAbsenceDays: summary.unpaidAbsenceDays,
+        lopDeduction: summary.lopDeduction,
         overtimeHours,
         grossPay: summary.monthlyGross,
         leaveDeduction: summary.leaveDeduction,
@@ -142,6 +162,92 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
       .orderBy(desc(schema.payrollRuns.year), desc(schema.payrollRuns.month));
 
     res.json({ history });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Locks a generated payroll run — one-way, per the roadmap's "never
+// silently modify historical payroll" principle. There is deliberately no
+// unlock endpoint: a mistaken lock is corrected by issuing a Payroll
+// Adjustment, same as any other post-lock change would be.
+router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.lock')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const runId = Number(req.params.runId);
+    const [run] = await db.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.id, runId)).limit(1);
+    if (!run || run.tenantId !== req.user.tenantId) {
+      return res.status(404).json({ error: 'Payroll run not found.' });
+    }
+    if (run.status === 'locked') {
+      return res.status(400).json({ error: 'This payroll run is already locked.' });
+    }
+    await db.update(schema.payrollRuns).set({ status: 'locked' }).where(eq(schema.payrollRuns.id, runId));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pending adjustments for an employee (or, with payroll.read, the whole
+// tenant) — created automatically when an attendance correction is
+// approved against a date inside an already-locked payroll run (see
+// review.routes.ts). HR applies each one explicitly rather than it
+// silently folding into a future number.
+router.get('/api/tenant/payroll/adjustments', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const rows = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdjustments.createdAt));
+    const withNames = await Promise.all(rows.map(async (r: any) => {
+      const u = await db.select({ name: schema.users.name }).from(schema.users).where(eq(schema.users.id, r.userId)).limit(1);
+      return { ...r, userName: u[0]?.name || 'Unknown' };
+    }));
+    res.json({ adjustments: withNames });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Marks an adjustment resolved — either "fold it into the next payroll
+// cycle" (the actual folding happens the next time /api/payroll/history
+// generates a run for that employee, which should read pending adjustments
+// for the prior period — left as a manual reconciliation step for now
+// rather than an automatic silent fold, consistent with "HR resolves it
+// explicitly") or a standalone acknowledgement that it was paid out another
+// way (an off-cycle adjustment payslip, handled outside this system).
+router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const id = Number(req.params.id);
+    const [adjustment] = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.id, id)).limit(1);
+    if (!adjustment || adjustment.tenantId !== req.user.tenantId) {
+      return res.status(404).json({ error: 'Adjustment not found.' });
+    }
+    if (adjustment.status === 'applied') {
+      return res.status(400).json({ error: 'This adjustment has already been applied.' });
+    }
+    const applyToNextCycle = !!req.body?.applyToNextCycle;
+    await db.update(schema.payrollAdjustments).set({
+      status: 'applied',
+      appliedToNextCycle: applyToNextCycle,
+      appliedAt: new Date(),
+    }).where(eq(schema.payrollAdjustments.id, id));
+
+    await logToAuditLedger({
+      tenantId: req.user.tenantId,
+      actorId: req.user.userId,
+      actorName: req.user.name,
+      action: 'PAYROLL_ADJUSTMENT_APPLIED',
+      details: { adjustmentId: id, subjectUserId: adjustment.userId, amountDelta: adjustment.amountDelta, applyToNextCycle },
+    });
+
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -444,8 +550,15 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
 
     const leaveDays = splitLeaveDaysForPayroll(leaveRows, policies, year, month);
     const overtimeHours = profile ? await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, req.user.tenantId, year, month) : 0;
-    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours) : null;
-    res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, period: { year, month }, source });
+    const attendanceDriven = profile ? await resolveAttendanceDrivenInputs(tenantRows[0], userId, req.user.tenantId, year, month) : null;
+    const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven) : null;
+    // Canonical per-day status (services/attendanceDayStatus.ts) — the
+    // single source of truth the calendar UI should render from instead of
+    // re-deriving status client-side from attendanceRows/leaveRows/holidays
+    // separately (see EmployeeDetailPanel.tsx, cut over to this in the same
+    // change that added this field).
+    const dayStatuses = Object.fromEntries(await resolveMonthStatuses(req.user.tenantId, userId, year, month));
+    res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, dayStatuses, period: { year, month }, source });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

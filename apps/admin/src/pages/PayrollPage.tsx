@@ -574,6 +574,9 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                             <div><span className="block text-[var(--color-nexus-muted)]">Gross</span><span className="font-bold text-[var(--color-nexus-secondary)]">{formatMoney(existingRow?.monthlyGross || 0)}</span></div>
                             <div><span className="block text-[var(--color-nexus-muted)]">Net</span><span className="font-bold text-[color:var(--color-nexus-success-text)]">{formatMoney(existingRow?.monthlyNet || 0)}</span></div>
                             <div><span className="block text-[var(--color-nexus-muted)]">Leave Cut</span><span className="font-bold text-[var(--color-nexus-error)]">{formatMoney(existingRow?.leaveDeduction || 0)}</span></div>
+                            {!!existingRow?.lopDeduction && (
+                              <div><span className="block text-[var(--color-nexus-muted)]">Loss of Pay</span><span className="font-bold text-[var(--color-nexus-error)]">{formatMoney(existingRow.lopDeduction)}</span></div>
+                            )}
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-2">

@@ -14,13 +14,19 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole } from '../auth/rbac';
+import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed } from '../auth/rbac';
 import { notifyUsers } from '../services/notifications';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
+import { editAttendanceDay } from '../services/recordEdits';
+import { readDocument } from '../services/documentStorage';
+import { documentsEnabledForTenant } from './documents.routes';
+import { resolveApprovers } from '../services/approvalRouting';
+import { isDateFrozen } from '../services/attendanceDayStatus';
+import { getEffectiveDailyRate } from './leavePayrollShared';
 
 export const router = Router();
 
@@ -163,18 +169,26 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const { date, name } = req.body;
+      const { date, name, branchId, department } = req.body;
       if (!date || !name) {
         return res.status(400).json({ error: 'date and name are required' });
       }
       const created = await db.insert(schema.holidays).values({
         tenantId: req.user.tenantId,
         date,
-        name
+        name,
+        branchId: branchId ? Number(branchId) : null,
+        department: department || null,
       }).returning();
-      // Notify every employee in the tenant — a declared holiday affects
-      // everyone's leave/attendance calendar.
-      const tenantUsers = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId));
+      // Notify affected employees only — a scoped holiday shouldn't spam
+      // the whole tenant with a branch/department calendar entry that
+      // doesn't apply to them.
+      const tenantUsers = branchId || department
+        ? await db.select({ id: schema.users.id }).from(schema.users).where(and(
+            eq(schema.users.tenantId, req.user.tenantId),
+            branchId ? eq(schema.users.branchId, Number(branchId)) : eq(schema.users.department, department),
+          ))
+        : await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId));
       await notifyUsers(
         tenantUsers.map((u) => u.id),
         'New holiday declared',
@@ -211,15 +225,47 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
 
   // Any authenticated staff member can request a correction on their own
   // attendance (missed check-in/out, wrong location flagged, etc.).
+// Every scenario the pilot flagged (marked absent while actually present,
+// forgot to check in/out, GPS/face/biometric verification failure, business
+// travel, WFH verification issue, generic network issue) maps to one of
+// these — 'other' is the catch-all for anything else.
+export const CORRECTION_REQUEST_TYPES = [
+  'missed_checkin', 'missed_checkout', 'marked_absent', 'wrong_location',
+  'face_recognition_failed', 'gps_verification_failed', 'biometric_issue',
+  'business_travel', 'wfh_verification_issue', 'network_issue', 'other',
+];
+
 router.post('/api/attendance/corrections', authenticate, async (req: any, res: any) => {
     try {
-      const { requestType, requestedDate, requestedTime, reason } = req.body;
+      const { requestType, requestedDate, requestedTime, reason, documentId } = req.body;
       if (!requestType || !requestedDate || !reason) {
         return res.status(400).json({ error: 'requestType, requestedDate, and reason are required' });
       }
-      const validTypes = ['missed_checkin', 'missed_checkout', 'wrong_location', 'other'];
-      if (!validTypes.includes(requestType)) {
+      if (!CORRECTION_REQUEST_TYPES.includes(requestType)) {
         return res.status(400).json({ error: 'Invalid requestType' });
+      }
+
+      // A frozen month is closed — regularizing a date inside it needs the
+      // explicit override privilege, not the normal submit-then-approve
+      // flow (see attendanceFreezePeriods / Phase 3 of the roadmap).
+      if (await isDateFrozen(req.user.tenantId, requestedDate) && !(await hasPrivilege(req.user, 'attendance.override_without_approval'))) {
+        return res.status(403).json({ error: `${requestedDate.slice(0, 7)} has already been closed for attendance. Contact HR for a payroll adjustment instead of a correction request.` });
+      }
+
+      // Optional supporting document — must already exist (uploaded via
+      // POST /api/tenant/documents, category 'attendance_correction') and
+      // belong to this same employee, so a request can't be submitted
+      // attaching someone else's file.
+      let verifiedDocumentId: number | null = null;
+      if (documentId != null) {
+        if (!(await documentsEnabledForTenant(req.user.tenantId))) {
+          return res.status(403).json({ error: 'Document attachments are not enabled for this organization.' });
+        }
+        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(documentId))).limit(1);
+        if (docRows.length === 0 || docRows[0].tenantId !== req.user.tenantId || docRows[0].userId !== req.user.userId) {
+          return res.status(400).json({ error: 'Invalid document attachment.' });
+        }
+        verifiedDocumentId = docRows[0].id;
       }
 
       const created = await db.insert(schema.attendanceCorrections).values({
@@ -228,7 +274,8 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
         requestType,
         requestedDate,
         requestedTime: requestedTime || null,
-        reason
+        reason,
+        documentId: verifiedDocumentId,
       }).returning();
 
       await logToAuditLedger({
@@ -239,8 +286,10 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
         details: { correctionId: created[0].id, requestType, requestedDate }
       });
 
-      // Notify whoever can actually approve corrections.
-      const approvers = await getUsersWithPrivilege(req.user.tenantId, ['attendance.approve.corrections', 'attendance.approve']);
+      // Notify whoever can actually approve corrections — routed via
+      // resolveApprovers (falls back to the flat privilege fan-out below
+      // when the tenant has no routing rules configured for this category).
+      const approvers = await resolveApprovers(req.user.tenantId, 'attendance_correction', req.user.userId, ['attendance.approve.corrections', 'attendance.approve']);
       for (const approver of approvers) {
         await sendManagerEscalationEmail(
           approver.email,
@@ -263,7 +312,42 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
       const list = await db.select().from(schema.attendanceCorrections)
         .where(eq(schema.attendanceCorrections.userId, req.user.userId))
         .orderBy(desc(schema.attendanceCorrections.createdAt));
-      res.json({ corrections: list });
+      const withAttachments = await Promise.all(list.map(async (c: any) => {
+        if (c.documentId == null) return { ...c, attachmentFileName: null };
+        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
+        return { ...c, attachmentFileName: docRows[0]?.fileName || null };
+      }));
+      res.json({ corrections: withAttachments });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Owner or an approver may download the supporting document attached to a
+  // request — deliberately scoped to this endpoint rather than widening
+  // documents.routes.ts's own access check, since holding
+  // 'attendance.approve.corrections' shouldn't imply general document access.
+router.get('/api/attendance/corrections/:id/attachment', authenticate, async (req: any, res: any) => {
+    try {
+      const rows = await db.select().from(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.id, parseInt(req.params.id, 10))).limit(1);
+      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId || !rows[0].documentId) {
+        return res.status(404).json({ error: 'No attachment found for this request.' });
+      }
+      const correction = rows[0];
+      const isOwner = correction.userId === req.user.userId;
+      const isApprover = await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve']);
+      if (!isOwner && !isApprover) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+      }
+      const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, correction.documentId)).limit(1);
+      if (docRows.length === 0) {
+        return res.status(404).json({ error: 'Attachment not found.' });
+      }
+      const doc = docRows[0];
+      const buffer = await readDocument(doc.storagePath);
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName.replace(/["\r\n]/g, '')}"`);
+      res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -282,7 +366,12 @@ router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) =
 
       const withNames = await Promise.all(list.map(async (c: any) => {
         const u = await db.select().from(schema.users).where(eq(schema.users.id, c.userId));
-        return { ...c, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
+        let attachmentFileName: string | null = null;
+        if (c.documentId != null) {
+          const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
+          attachmentFileName = docRows[0]?.fileName || null;
+        }
+        return { ...c, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '', attachmentFileName };
       }));
 
       res.json({ corrections: withNames });
@@ -296,7 +385,7 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
       if (!await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const { correctionId, action } = req.body; // 'approve' | 'reject'
+      const { correctionId, action, remarks } = req.body; // action: 'approve' | 'reject'
       if (!correctionId || !['approve', 'reject'].includes(action)) {
         return res.status(400).json({ error: 'correctionId and a valid action (approve|reject) are required' });
       }
@@ -314,11 +403,78 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
 
+      let appliedLogId: number | null = null;
+      if (action === 'approve') {
+        // Reuse the same safe mutation path direct admin edits and ticket
+        // resolution already use (services/recordEdits.ts) — it either
+        // approves the employee's existing (possibly flagged/rejected)
+        // check-in for that day in place, or inserts a new one if none
+        // exists, and never deletes/overwrites history. Only
+        // missed_checkin/missed_checkout carry an explicit time from the
+        // request; every other category just needs the day flipped to
+        // present using whatever check-in already exists (e.g. a
+        // face/GPS-flagged attempt) or a default time if there's truly none.
+        const result = await editAttendanceDay({
+          tenantId: req.user.tenantId,
+          targetUserId: correction.userId,
+          date: correction.requestedDate,
+          newStatus: 'present',
+          checkInTime: correction.requestType === 'missed_checkin' ? (correction.requestedTime || undefined) : undefined,
+          checkOutTime: correction.requestType === 'missed_checkout' ? (correction.requestedTime || undefined) : undefined,
+          editedByUserId: req.user.userId,
+          editedByName: req.user.name,
+          reason: `Attendance regularization approved (${correction.requestType.replace(/_/g, ' ')}): ${correction.reason}`,
+          ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+          deviceInfo: req.headers['user-agent'] || '',
+        });
+        appliedLogId = result.logId || null;
+
+        // If the corrected date falls inside an already-locked payroll run,
+        // that run is never recalculated (see payroll.routes.ts's lock
+        // endpoint) — so this correction needs a Payroll Adjustment or it
+        // would just be silently invisible to payroll. Only when the tenant
+        // opted into 'payroll_lock_adjustments'; without it, locking isn't
+        // available at all, so there's nothing to check.
+        const tenantRows = await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+        if (isPlatformFeatureAllowed(tenantRows[0] as any, 'payroll_lock_adjustments')) {
+          const [correctedYear, correctedMonth] = correction.requestedDate.split('-').map(Number);
+          const lockedRun = (await db.select().from(schema.payrollRuns).where(and(
+            eq(schema.payrollRuns.tenantId, req.user.tenantId),
+            eq(schema.payrollRuns.userId, correction.userId),
+            eq(schema.payrollRuns.year, correctedYear),
+            eq(schema.payrollRuns.month, correctedMonth),
+            eq(schema.payrollRuns.status, 'locked'),
+          )).limit(1))[0];
+          if (lockedRun) {
+            const dailyRate = await getEffectiveDailyRate(req.user.tenantId, correction.userId);
+            const [adjustment] = await db.insert(schema.payrollAdjustments).values({
+              tenantId: req.user.tenantId,
+              userId: correction.userId,
+              payrollRunId: lockedRun.id,
+              sourceType: 'attendance_correction',
+              sourceId: correction.id,
+              amountDelta: dailyRate,
+              reason: `Attendance regularization approved for ${correction.requestedDate} after ${correctedYear}-${String(correctedMonth).padStart(2, '0')} payroll was locked (${correction.requestType.replace(/_/g, ' ')}).`,
+              createdByUserId: req.user.userId,
+            }).returning();
+            await logToAuditLedger({
+              tenantId: req.user.tenantId,
+              actorId: req.user.userId,
+              actorName: req.user.name,
+              action: 'PAYROLL_ADJUSTMENT_CREATED',
+              details: { adjustmentId: adjustment.id, correctionId, subjectUserId: correction.userId, payrollRunId: lockedRun.id, amountDelta: dailyRate },
+            });
+          }
+        }
+      }
+
       await db.update(schema.attendanceCorrections)
         .set({
           status: action === 'approve' ? 'approved' : 'rejected',
           reviewedByUserId: req.user.userId,
-          reviewedAt: new Date()
+          reviewedAt: new Date(),
+          reviewRemarks: remarks || null,
+          appliedLogId,
         })
         .where(eq(schema.attendanceCorrections.id, correctionId));
 
@@ -327,7 +483,7 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         actorId: req.user.userId,
         actorName: req.user.name,
         action: action === 'approve' ? 'CORRECTION_APPROVED' : 'CORRECTION_REJECTED',
-        details: { correctionId, subjectUserId: correction.userId }
+        details: { correctionId, subjectUserId: correction.userId, remarks: remarks || null, appliedLogId }
       });
 
       dispatchWebhookEvent(req.user.tenantId, 'attendance.correction_resolved', { correctionId, subjectUserId: correction.userId, status: action === 'approve' ? 'approved' : 'rejected' });

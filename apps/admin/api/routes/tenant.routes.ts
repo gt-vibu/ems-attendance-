@@ -18,6 +18,7 @@ import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefault
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
+import { localDateKey } from '../services/dateUtils';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
 export const router = Router();
@@ -205,7 +206,7 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
         const lateCount = checkIns.filter((l: any) => isLateLog(l)).length;
 
         series.push({
-          date: dayStart.toISOString().slice(0, 10),
+          date: localDateKey(dayStart),
           presentCount: presentUserIds.size,
           latePercent: checkIns.length > 0 ? Math.round((lateCount / checkIns.length) * 100) : 0,
           attendancePercent: staffCount > 0 ? Math.round((presentUserIds.size / staffCount) * 100) : 0,

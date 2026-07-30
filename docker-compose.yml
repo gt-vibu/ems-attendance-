@@ -37,6 +37,11 @@ services:
       # these two overrides are the only difference from .env.
       SQL_HOST: postgres
       NODE_ENV: production
+      # Attendance day-boundary/absent-cutoff math runs off the container's
+      # local clock (no per-tenant timezone column yet) — set to the
+      # company's actual timezone in .env, or this silently defaults to the
+      # Dockerfile's Asia/Kolkata.
+      TZ: ${TZ:-Asia/Kolkata}
     ports:
       - "3000:3000"
     healthcheck:

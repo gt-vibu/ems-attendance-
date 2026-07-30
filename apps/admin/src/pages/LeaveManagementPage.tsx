@@ -106,6 +106,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const [holidaysLoading, setHolidaysLoading] = useState(true);
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
+  const [newHolidayDepartment, setNewHolidayDepartment] = useState('');
   const canManageHolidays = user.role === 'tenant_admin' || user.role === 'super_admin';
   const [encashmentRequests, setEncashmentRequests] = useState<any[]>([]);
   const [encashmentActioning, setEncashmentActioning] = useState<number | null>(null);
@@ -398,12 +399,13 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       const res = await fetch('/api/tenant/holidays', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ date: newHolidayDate, name: newHolidayName.trim() }),
+        body: JSON.stringify({ date: newHolidayDate, name: newHolidayName.trim(), department: newHolidayDepartment.trim() || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add holiday.');
       setNewHolidayDate('');
       setNewHolidayName('');
+      setNewHolidayDepartment('');
       setSuccess('Holiday added.');
       await refreshHolidays();
       setTimeout(() => setSuccess(''), 2500);
@@ -821,7 +823,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                   <span className="block text-[11px] text-[var(--color-nexus-muted)]">Viewing your reporting structure</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="flex rounded-full border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-1">
                   <button
                     type="button"
@@ -846,13 +848,13 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     <List size={14} />
                   </button>
                 </div>
-                <div className="relative">
+                <div className="relative w-full sm:w-36">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-nexus-muted)]" />
                   <input
                     value={teamSearch}
                     onChange={(e) => setTeamSearch(e.target.value)}
                     placeholder="Search"
-                    className="rounded-full border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] pl-8 pr-3 py-1.5 text-xs focus:outline-none w-36"
+                    className="w-full rounded-full border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] pl-8 pr-3 py-1.5 text-xs focus:outline-none"
                   />
                 </div>
               </div>
@@ -980,6 +982,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Holiday Name</label>
                   <input value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} placeholder="Independence Day" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                 </div>
+                <div className="flex-1">
+                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Department (optional)</label>
+                  <input value={newHolidayDepartment} onChange={(e) => setNewHolidayDepartment(e.target.value)} placeholder="Everyone" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                </div>
                 <button type="submit" disabled={saving} className="flex items-center justify-center gap-1.5 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
                   <Plus size={14} /> Add Holiday
                 </button>
@@ -1030,7 +1036,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               ) : (
                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                   {adjustments.map((a: any) => (
-                    <div key={a.id} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 flex justify-between items-start">
+                    <div key={a.id} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start">
                       <div>
                         <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">{a.employeeName}</h4>
                         <p className="text-xs text-[var(--color-nexus-muted)]">{a.employeeEmail}</p>
@@ -1041,7 +1047,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                         </div>
                         <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Adjusted by {a.adjustedByName} on {new Date(a.createdAt).toLocaleDateString()}</p>
                       </div>
-                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${a.adjustmentDays > 0 ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
+                      <span className={`shrink-0 self-start text-xs font-bold px-3 py-1 rounded-full ${a.adjustmentDays > 0 ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
                         {a.adjustmentDays > 0 ? `+${a.adjustmentDays}` : a.adjustmentDays} Days
                       </span>
                     </div>
@@ -1122,15 +1128,15 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               <p className="mb-4 text-xs text-[var(--color-nexus-muted)]">Approving deducts the days and records the payout amount at the current daily rate; it doesn't disburse funds automatically.</p>
               <div className="space-y-3">
                 {encashmentRequests.filter((r) => r.status === 'pending').map((r) => (
-                  <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div key={r.id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
                         <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.employeeName}</span>
                         <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]">{r.days} day(s) · {r.leaveType}</span>
                       </div>
                       {r.reason && <p className="text-xs text-[var(--color-nexus-muted)]">{r.reason}</p>}
                     </div>
-                    <div className="flex gap-2 shrink-0 ml-4">
+                    <div className="flex gap-2 shrink-0 sm:ml-4">
                       <button onClick={() => handleEncashmentAction(r.id, 'approve')} disabled={encashmentActioning === r.id} className="bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50">Approve</button>
                       <button onClick={() => handleEncashmentAction(r.id, 'reject')} disabled={encashmentActioning === r.id} className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50">Reject</button>
                     </div>

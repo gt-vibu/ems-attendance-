@@ -18,6 +18,7 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, getScopedBranchIds } from '../auth/rbac';
 import { editAttendanceDay } from '../services/recordEdits';
 import { raiseAttendanceAlert } from '../services/alerts';
+import { localDateKey } from '../services/dateUtils';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
@@ -493,7 +494,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       const branchRow = user.branchId
         ? (await db.select().from(schema.branches).where(eq(schema.branches.id, user.branchId)))[0] || null
         : null;
-      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const todayDateStr = localDateKey();
       const effectiveShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
       const effectivePolicy = resolveEffectivePolicy(tenant, branchRow, effectiveShift);
       const shiftStartStr = effectivePolicy.shiftStartStr;
@@ -827,3 +828,65 @@ router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: a
       res.status(500).json({ error: err.message });
     }
   });
+
+// Manual, one-way "close the books" for a month — see schema.ts's
+// attendanceFreezePeriods comment and services/attendanceDayStatus.ts.
+// There is deliberately no unfreeze endpoint: a mistaken freeze is
+// corrected via a payroll adjustment (Phase 7 of the roadmap), not by
+// reopening the period.
+router.post('/api/tenant/attendance/freeze', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'attendance.freeze')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    if (!await isPlatformFeatureAllowed({ featuresAllowed: (await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0]?.featuresAllowed }, 'attendance_freeze')) {
+      return res.status(403).json({ error: 'Attendance Freeze is not included in your organization\'s plan.' });
+    }
+
+    const year = parseInt(req.body?.year, 10);
+    const month = parseInt(req.body?.month, 10);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: 'A valid year and month (1-12) are required.' });
+    }
+
+    const existing = await db.select().from(schema.attendanceFreezePeriods).where(and(
+      eq(schema.attendanceFreezePeriods.tenantId, req.user.tenantId),
+      eq(schema.attendanceFreezePeriods.year, year),
+      eq(schema.attendanceFreezePeriods.month, month),
+    )).limit(1);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: `${year}-${String(month).padStart(2, '0')} is already frozen.` });
+    }
+
+    const [created] = await db.insert(schema.attendanceFreezePeriods).values({
+      tenantId: req.user.tenantId,
+      year,
+      month,
+      frozenByUserId: req.user.userId,
+    }).returning();
+
+    await logToAuditLedger({
+      tenantId: req.user.tenantId,
+      actorId: req.user.userId,
+      actorName: req.user.name,
+      action: 'ATTENDANCE_PERIOD_FROZEN',
+      details: { year, month },
+    });
+
+    res.json({ freezePeriod: created });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tenant/attendance/freeze', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'attendance.freeze')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const periods = await db.select().from(schema.attendanceFreezePeriods).where(eq(schema.attendanceFreezePeriods.tenantId, req.user.tenantId));
+    res.json({ periods });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});

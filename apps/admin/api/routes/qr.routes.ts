@@ -13,6 +13,7 @@ import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineM
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
+import { localDateKey } from '../services/dateUtils';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant, isPlatformFeatureAllowed } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
@@ -456,7 +457,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       // changes lateness math on the days it's active, not just the display.
       // Now shared with the office check-in flow via services/attendancePolicy.ts
       // instead of its own separate inline math.
-      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const todayDateStr = localDateKey();
       const qrShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
       const effectivePolicy = resolveEffectivePolicy(tenant, qrBranch, qrShift);
       const shiftStartStr = effectivePolicy.shiftStartStr;

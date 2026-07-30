@@ -13,6 +13,10 @@ export function useTenantConfig(
   setError: (v: string) => void,
   setSuccess: (v: string) => void,
 ) {
+  // IANA timezone the company actually operates in — every attendance day
+  // boundary/payroll period should key off this, not the server's own
+  // ambient local time. See apps/admin/api/services/tenantTime.ts.
+  const [timezone, setTimezone] = useState('Asia/Kolkata');
   const [wifiSsid, setWifiSsid] = useState('');
   const [officeIp, setOfficeIp] = useState('');
   const [wifiCheckEnabled, setWifiCheckEnabled] = useState(false);
@@ -93,6 +97,7 @@ export function useTenantConfig(
   // `.tenant` object — called by Dashboard's aggregate fetchTenantAdminData().
   const hydrateFromConfig = (tenant: any) => {
     if (!tenant) return;
+    setTimezone(tenant.timezone || 'Asia/Kolkata');
     setWifiSsid(tenant.wifiSsid || '');
     setOfficeIp(tenant.officeIp || '');
     setWifiCheckEnabled(!!tenant.wifiCheckEnabled);
@@ -157,6 +162,7 @@ export function useTenantConfig(
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
+          timezone,
           wifiSsid,
           officeIp,
           wifiCheckEnabled,
@@ -226,6 +232,7 @@ export function useTenantConfig(
   };
 
   return {
+    timezone, setTimezone,
     wifiSsid, setWifiSsid,
     officeIp, setOfficeIp,
     wifiCheckEnabled, setWifiCheckEnabled,

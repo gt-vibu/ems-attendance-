@@ -203,6 +203,14 @@ router.get('/api/face/challenge', authenticate, async (req: any, res: any) => {
 // authenticate/verify mints — the final POST /api/attendance submit doesn't
 // know or care which method produced it.
 router.post('/api/face/verify', authenticate, async (req: any, res: any) => {
+  // Cancel the downstream face-service call if the client disconnects (tab
+  // closed, navigated away) — without this, a slow/cold-starting face
+  // service kept running to completion server-side for no reason, since the
+  // response could never reach anyone. This does NOT write attendance either
+  // way (this route only mints a short-lived token), but it wastes a
+  // Render request and holds the request handler open pointlessly.
+  const clientAbort = new AbortController();
+  req.on('close', () => clientAbort.abort());
   try {
     if (!(await ensureFaceFeatureEnabled(req, res))) return;
 
@@ -228,7 +236,7 @@ router.post('/api/face/verify', authenticate, async (req: any, res: any) => {
     if (mode === 'photo') {
       let faceResult: any;
       try {
-        faceResult = await callFaceService('/verify', { images, challengeActions: [] });
+        faceResult = await callFaceService('/verify', { images, challengeActions: [] }, clientAbort.signal);
       } catch (faceErr: any) {
         return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
       }
@@ -281,7 +289,7 @@ router.post('/api/face/verify', authenticate, async (req: any, res: any) => {
 
     let faceResult: any;
     try {
-      faceResult = await callFaceService('/verify', { images, challengeActions: pending.actions });
+      faceResult = await callFaceService('/verify', { images, challengeActions: pending.actions }, clientAbort.signal);
     } catch (faceErr: any) {
       return res.status(503).json({ error: `Face verification service unavailable: ${faceErr.message}` });
     }

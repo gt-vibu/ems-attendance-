@@ -18,7 +18,12 @@ export type EmployeeDetailPanelProps = {
   onClose: () => void;
 };
 
-type DayStatus = 'present' | 'late' | 'half_day' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
+type DayStatus =
+  | 'present' | 'late' | 'half_day' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none'
+  // Resolver-only statuses (services/attendanceDayStatus.ts) — not
+  // producible by this component's own fallback derivation below, only by
+  // the server-computed `dayStatuses` map.
+  | 'regularized' | 'business_travel' | 'pending_checkout_verification' | 'paid_leave' | 'unpaid_leave' | 'not_applicable' | 'absent_pending_review' | 'lop' | 'not_yet_evaluated';
 
 type DayCell = {
   dateKey: string;
@@ -33,10 +38,19 @@ const STATUS_STYLES: Record<Exclude<DayStatus, 'none'>, string> = {
   late: 'bg-[var(--color-nexus-secondary-container)] border-[var(--color-nexus-secondary)]/40 text-[var(--color-nexus-secondary)]',
   half_day: 'bg-[var(--color-nexus-warning-soft)] border-[var(--color-nexus-warning)]/40 text-[var(--color-nexus-warning)]',
   leave: 'bg-[var(--color-nexus-secondary-container)] border-[var(--color-nexus-secondary)]/40 text-[var(--color-nexus-secondary)]',
+  paid_leave: 'bg-[var(--color-nexus-secondary-container)] border-[var(--color-nexus-secondary)]/40 text-[var(--color-nexus-secondary)]',
+  unpaid_leave: 'bg-[var(--color-nexus-warning-soft)] border-[var(--color-nexus-warning)]/40 text-[var(--color-nexus-warning)]',
   holiday: 'bg-[var(--color-nexus-info-soft)] border-[var(--color-nexus-info)]/40 text-[var(--color-nexus-info)]',
   weekend: 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]/70',
   absent: 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)]/30 text-[var(--color-nexus-error)]',
+  absent_pending_review: 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)]/30 text-[var(--color-nexus-error)]',
+  lop: 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)] text-[var(--color-nexus-error)] font-bold',
   future: 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]/50',
+  regularized: 'bg-[color:var(--color-nexus-success-text)]/15 border-[color:var(--color-nexus-success-text)]/40 text-[var(--color-nexus-success-text)]',
+  business_travel: 'bg-[var(--color-nexus-info-soft)] border-[var(--color-nexus-info)]/40 text-[var(--color-nexus-info)]',
+  pending_checkout_verification: 'bg-[var(--color-nexus-warning-soft)] border-[var(--color-nexus-warning)]/40 text-[var(--color-nexus-warning)]',
+  not_applicable: 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]/50',
+  not_yet_evaluated: 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]/70',
 };
 
 const STATUS_LABELS: Record<Exclude<DayStatus, 'none'>, string> = {
@@ -44,24 +58,52 @@ const STATUS_LABELS: Record<Exclude<DayStatus, 'none'>, string> = {
   late: 'Late',
   half_day: 'Half-day',
   leave: 'On Leave',
+  paid_leave: 'Paid Leave',
+  unpaid_leave: 'Unpaid Leave',
   holiday: 'Holiday',
   weekend: 'Weekend',
-  absent: 'Absent',
+  absent: 'Absent (Pending Review)',
+  absent_pending_review: 'Absent (Pending Review)',
+  lop: 'Loss of Pay',
   future: 'Upcoming',
+  regularized: 'Regularized',
+  business_travel: 'Business Travel',
+  pending_checkout_verification: 'Pending Checkout',
+  not_applicable: 'N/A',
+  not_yet_evaluated: 'In Progress',
 };
 
-const LEGEND: Array<{ status: Exclude<DayStatus, 'none' | 'future'>; label: string }> = [
+const LEGEND: Array<{ status: Exclude<DayStatus, 'none' | 'future' | 'not_applicable' | 'absent' | 'leave'>; label: string }> = [
   { status: 'present', label: 'Present' },
   { status: 'late', label: 'Late' },
   { status: 'half_day', label: 'Half-day' },
-  { status: 'leave', label: 'On Leave' },
+  { status: 'regularized', label: 'Regularized' },
+  { status: 'business_travel', label: 'Business Travel' },
+  { status: 'pending_checkout_verification', label: 'Pending Checkout' },
+  { status: 'paid_leave', label: 'Paid Leave' },
+  { status: 'unpaid_leave', label: 'Unpaid Leave' },
   { status: 'holiday', label: 'Holiday' },
   { status: 'weekend', label: 'Weekend' },
-  { status: 'absent', label: 'Absent' },
+  { status: 'absent_pending_review', label: 'Absent (Pending Review)' },
+  { status: 'lop', label: 'Loss of Pay' },
 ];
 
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// Local calendar date, NOT toISOString().slice(0, 10) — that converts to UTC
+// first, so for any timezone ahead of UTC (e.g. IST, +5:30) local midnight at
+// the start of a day serializes to the PREVIOUS day's date (local midnight
+// Monday IST = 18:30 UTC Sunday). Every calendar cell here is built from
+// local date arithmetic, so its key must be read back out the same way, or a
+// real Monday check-in ends up keyed to match the Tuesday cell instead. Same
+// fix as AttendanceTimeline.tsx's dateKey().
+function localDateKey(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const initials = (name: string) => (name || '').split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
@@ -79,7 +121,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
 
   // Temporary (dated) shift overrides — additive alongside the employee's
   // permanent shift (still changed via PUT /api/tenant/employees/:id).
-  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const todayISO = () => localDateKey(new Date());
   const [overrides, setOverrides] = useState<any[]>([]);
   const [overridesLoading, setOverridesLoading] = useState(true);
   const [shiftOptions, setShiftOptions] = useState<any[]>([]);
@@ -345,13 +387,22 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
   }, [userId, viewMonth]);
 
   const calendarDays: DayCell[] = useMemo(() => {
+    // Canonical source: the server-resolved per-day status (services/
+    // attendanceDayStatus.ts), returned alongside the payroll snapshot this
+    // panel already fetches — one precedence order shared with every other
+    // consumer, instead of this component re-deriving status from
+    // attendanceRows/leaveRows/holidays with its own (previously
+    // diverging) logic. Falls back to the old local derivation only if the
+    // server response is missing the field (e.g. a stale cached response).
+    const serverDayStatuses: Record<string, { status: DayStatus; holidayName?: string }> | undefined = payrollDetail?.dayStatuses;
+
     const attendanceRows: any[] = payrollDetail?.attendanceRows || [];
     const leaveRows: any[] = payrollDetail?.leaveRows || [];
 
     const byDate = new Map<string, { hasApproved: boolean; hasPending: boolean }>();
     attendanceRows.forEach((log: any) => {
       if (log.type !== 'check_in' || !log.createdAt) return;
-      const key = new Date(log.createdAt).toISOString().slice(0, 10);
+      const key = localDateKey(new Date(log.createdAt));
       const entry = byDate.get(key) || { hasApproved: false, hasPending: false };
       if (log.status === 'approved') entry.hasApproved = true;
       if (log.status === 'pending') entry.hasPending = true;
@@ -375,7 +426,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
     const totalCells = leadingBlanks + lastOfMonth.getDate();
     const trailingBlanks = (7 - (totalCells % 7)) % 7;
 
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = localDateKey(new Date());
     const days: DayCell[] = [];
 
     for (let i = 0; i < leadingBlanks; i++) {
@@ -384,7 +435,16 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
 
     for (let d = 1; d <= lastOfMonth.getDate(); d++) {
       const date = new Date(year, month, d);
-      const dateKey = date.toISOString().slice(0, 10);
+      const dateKey = localDateKey(date);
+
+      const serverEntry = serverDayStatuses?.[dateKey];
+      if (serverEntry) {
+        const status = serverEntry.status;
+        days.push({ dateKey, dayNum: d, inMonth: true, status, label: serverEntry.holidayName || STATUS_LABELS[status] });
+        continue;
+      }
+
+      // Fallback derivation — unchanged from before this cutover.
       const dow = date.getDay();
       const isWeekend = dow === 0 || dow === 6;
       const entry = byDate.get(dateKey);

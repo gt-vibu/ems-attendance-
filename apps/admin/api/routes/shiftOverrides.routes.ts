@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
+import { localDateKey } from '../services/dateUtils';
 
 export const router = Router();
 
@@ -123,7 +124,7 @@ router.get('/api/tenant/employees/:id/shift-overrides', authenticate, async (req
       ? await db.select().from(schema.shifts).where(eq(schema.shifts.tenantId, req.user.tenantId))
       : [];
     const shiftMap = new Map<number, any>(shiftsList.map((s: any) => [s.id, s]));
-    const todayDateStr = new Date().toISOString().slice(0, 10);
+    const todayDateStr = localDateKey();
 
     res.json({
       overrides: overrides.map((o: any) => ({
@@ -162,7 +163,7 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
     }
     const override = overrideRows[0];
 
-    const todayDateStr = new Date().toISOString().slice(0, 10);
+    const todayDateStr = localDateKey();
     if (override.endDate < todayDateStr) {
       return res.status(400).json({ error: 'This override has already expired and cannot be cancelled.' });
     }

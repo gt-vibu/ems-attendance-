@@ -23,6 +23,16 @@ RUN pnpm --filter @company/admin build
 
 WORKDIR /repo/apps/admin
 ENV NODE_ENV=production
+# All "which calendar day is this" logic (check-in/absent-marking day
+# boundaries, the 11:00 auto-absent cutoff) runs off the Node process's local
+# clock, since there's no per-tenant timezone column yet. Without this,
+# containers default to UTC — on Render that silently moves every day
+# boundary and the absent-marking cutoff by +5:30h relative to India, which
+# is what actually caused the "checked in Monday, but the day boundary/cutoff
+# didn't line up" pilot bug. Override at deploy time (docker run -e TZ=...,
+# or the TZ env var in render.yaml/docker-compose.yml) if the company isn't
+# in India.
+ENV TZ=Asia/Kolkata
 EXPOSE 3000
 
 CMD ["node", "dist/server.cjs"]

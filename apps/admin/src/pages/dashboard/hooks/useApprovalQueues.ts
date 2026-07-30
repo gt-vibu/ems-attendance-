@@ -31,7 +31,7 @@ export function useCorrections(token: string | null, { setLoading, setError, set
     }
   };
 
-  const handleResolveCorrection = async (correctionId: number, action: 'approve' | 'reject') => {
+  const handleResolveCorrection = async (correctionId: number, action: 'approve' | 'reject', remarks?: string) => {
     setLoading(true);
     setError('');
     try {
@@ -41,7 +41,7 @@ export function useCorrections(token: string | null, { setLoading, setError, set
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ correctionId, action })
+        body: JSON.stringify({ correctionId, action, remarks: remarks || undefined })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to resolve request');

@@ -10,6 +10,8 @@
 // an additive layer used by the request-logging middleware and the process-
 // level error handlers so operational logs are structured and queryable.
 
+import crypto from 'crypto';
+
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -36,12 +38,22 @@ export const logger = {
 // response finishes, with method, path, status code and latency in ms. Health
 // checks are logged at debug level (suppressed in production) so liveness/
 // readiness polling doesn't drown out real traffic. 5xx -> error, 4xx -> warn.
+//
+// Also stamps req.requestId — a per-request correlation id threaded through
+// to audit_ledger.request_id (see services/audit.ts) wherever a call site
+// passes it, so multiple audit rows from one request can be tied together.
+// Not force-plumbed into every existing logToAuditLedger call (that's a
+// large, low-value mechanical sweep for what's meant to be an optional,
+// best-effort correlation field) — new/touched call sites can adopt it
+// incrementally.
 export function requestLogger(req: any, res: any, next: any) {
+  req.requestId = req.headers['x-request-id'] || crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
   const start = process.hrtime.bigint();
   res.on('finish', () => {
     const durMs = Math.round(Number(process.hrtime.bigint() - start) / 1e6);
     const path = req.originalUrl || req.url;
-    const meta = { method: req.method, path, status: res.statusCode, durMs };
+    const meta = { method: req.method, path, status: res.statusCode, durMs, requestId: req.requestId };
     if (res.statusCode >= 500) logger.error('request', meta);
     else if (res.statusCode >= 400) logger.warn('request', meta);
     else if (typeof path === 'string' && path.startsWith('/api/health')) logger.debug('request', meta);

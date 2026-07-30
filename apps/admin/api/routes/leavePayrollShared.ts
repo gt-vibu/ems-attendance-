@@ -192,7 +192,18 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
   };
 }
 
-export function buildPayrollSummary(profile: any, components: any[], settings: any, leaveDays: LeaveDaysSplit, overtimeHours: number) {
+// Passed only when the tenant has opted into 'payroll_attendance_driven'
+// (Phase 6 of the roadmap) — replaces the flat settings.workingDaysPerMonth
+// divisor with a calendar-derived count for this specific employee/period,
+// and adds a Loss-of-Pay deduction sourced only from finalized (frozen,
+// still-unresolved) absences. Omitted entirely, buildPayrollSummary behaves
+// exactly as it always has — this is additive, not a replacement.
+export interface AttendanceDrivenInputs {
+  workingDays: number;
+  unpaidAbsenceDays: number;
+}
+
+export function buildPayrollSummary(profile: any, components: any[], settings: any, leaveDays: LeaveDaysSplit, overtimeHours: number, attendanceDriven?: AttendanceDrivenInputs | null) {
   const annualCtc = Number(profile?.annualCtc || 0);
   const annualBreakdown = components.map((component) => {
     const annualAmount = componentAnnualAmount(annualCtc, component);
@@ -208,7 +219,7 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const monthlyGross = annualEarnings / 12;
   const monthlyDeductions = annualDeductions / 12;
   const monthlyBaseNet = monthlyGross - monthlyDeductions;
-  const workingDays = Number(settings?.workingDaysPerMonth || 26);
+  const workingDays = attendanceDriven ? attendanceDriven.workingDays : Number(settings?.workingDaysPerMonth || 26);
   // Paid-leave days (0%-deduction policies) are free up to this monthly
   // quota; only the excess beyond it is charged, at excessLeavePenaltyPercent
   // — e.g. "your first 2 casual-leave days a month don't cost anything, a
@@ -222,9 +233,14 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const chargeableLeaveDays = leaveDays.chargeableDays + excessPaidDays * excessLeavePenaltyPercent;
   const dailyRate = workingDays > 0 ? monthlyBaseNet / workingDays : 0;
   const leaveDeduction = dailyRate * chargeableLeaveDays;
+  // Loss of Pay — only ever sourced from finalized (frozen) absences, never
+  // a raw unresolved one; see computeAttendanceDrivenPayrollInputs. Zero
+  // when attendanceDriven wasn't passed (the default, unchanged behavior).
+  const unpaidAbsenceDays = attendanceDriven?.unpaidAbsenceDays ?? 0;
+  const lopDeduction = dailyRate * unpaidAbsenceDays;
   const overtimeRate = Number(profile?.overtimeHourlyRate ?? settings?.overtimeHourlyRate ?? 0);
   const overtimePay = overtimeHours * overtimeRate;
-  const preStatutoryNet = monthlyBaseNet - leaveDeduction + overtimePay;
+  const preStatutoryNet = monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay;
 
   // Statutory deductions come out of pre-statutory net — they reduce actual
   // take-home pay, same as leave deductions do, so monthlyNet below is the
@@ -244,6 +260,8 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
     approvedLeaveDays: leaveDays.totalDays,
     chargeableLeaveDays,
     leaveDeduction,
+    unpaidAbsenceDays,
+    lopDeduction,
     overtimeHours,
     overtimeRate,
     overtimePay,

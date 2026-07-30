@@ -30,6 +30,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Attendance day boundaries and the 11:00 auto-absent cutoff run off
+      # this process's local clock (no per-tenant timezone column yet).
+      # Render containers default to UTC, which silently shifts both by the
+      # difference from the company's real timezone. Change this in the
+      # dashboard if the company isn't in India.
+      - key: TZ
+        value: Asia/Kolkata
       # JWT secret: generated once by Render and kept stable across deploys.
       - key: JWT_SECRET
         generateValue: true

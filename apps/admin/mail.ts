@@ -444,6 +444,37 @@
     await sendEmail({ to, subject, text, html });
   }
 
+  // Sent when the 11:00 AM auto-mark-absentees job (bootstrap/scheduler.ts)
+  // finds no approved check-in for someone — previously this only wrote an
+  // attendance_logs row + audit entry with nobody actually told, so an
+  // absence caused by e.g. a face-recognition/network issue could go
+  // unnoticed until payroll. Sent to the employee (so they know to submit a
+  // correction) and to their escalation assignee (manager/GM/tenant_admin).
+  export async function sendAutoAbsentAlertEmail(to: string, recipientName: string, employeeName: string, date: string, isSelf: boolean) {
+    const subject = isSelf
+      ? `You were marked Absent today`
+      : `Attendance Alert: ${employeeName} was marked Absent today`;
+    const html = `
+      <div style="${emailStyles}">
+        <div style="${containerStyles}">
+          <h2 style="${headerStyles}; color: #EF4444;">Marked Absent — No Check-In Detected</h2>
+          <p>Hello ${recipientName},</p>
+          <p>${isSelf
+            ? `No check-in was detected for you by 11:00 AM on ${date}, so today has been auto-marked Absent.`
+            : `No check-in was detected for <strong>${employeeName}</strong> by 11:00 AM on ${date}, so today has been auto-marked Absent.`}</p>
+          <p style="font-size: 13px; color: #475569;">${isSelf ? 'If this is a mistake — a network issue, GPS/face verification failure, or you were on business travel — submit an attendance correction request from your dashboard.' : 'If this is a mistake, they can submit an attendance correction request for your review, or you can edit the record directly.'}</p>
+          <div style="${footerStyles}">
+            <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    const text = isSelf
+      ? `Hello ${recipientName},\n\nNo check-in was detected for you by 11:00 AM on ${date}, so today has been auto-marked Absent. If this is a mistake, submit an attendance correction request.`
+      : `Hello ${recipientName},\n\nNo check-in was detected for ${employeeName} by 11:00 AM on ${date}, so today has been auto-marked Absent.`;
+    await sendEmail({ to, subject, text, html });
+  }
+
   // Sent when an employee tries to end a break outside the office geofence —
   // the break stays active server-side; this just notifies the employee and
   // the same role hierarchy as the low-attendance alert above.

@@ -18,7 +18,7 @@ export function useSelfService(token: string | null) {
   const [selfTodayPending, setSelfTodayPending] = useState(false);
   const [selfCorrections, setSelfCorrections] = useState<any[]>([]);
   const [showSelfCorrectionModal, setShowSelfCorrectionModal] = useState(false);
-  const [selfCorrectionType, setSelfCorrectionType] = useState('check_in');
+  const [selfCorrectionType, setSelfCorrectionType] = useState('missed_checkin');
   const [selfCorrectionDate, setSelfCorrectionDate] = useState('');
   const [selfCorrectionTime, setSelfCorrectionTime] = useState('');
   const [selfCorrectionReason, setSelfCorrectionReason] = useState('');
@@ -65,7 +65,7 @@ export function useSelfService(token: string | null) {
       }
 
       // Personal correction requests
-      const corrRes = await fetch('/api/attendance/my-corrections', {
+      const corrRes = await fetch('/api/attendance/corrections/mine', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (corrRes.ok) {
@@ -136,7 +136,7 @@ export function useSelfService(token: string | null) {
     if (!selfCorrectionDate || !selfCorrectionReason) return;
     setSelfCorrectionSubmitting(true);
     try {
-      const res = await fetch('/api/tenant/corrections/request', {
+      const res = await fetch('/api/attendance/corrections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({

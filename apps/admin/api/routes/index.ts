@@ -31,6 +31,7 @@ import { router as shiftSwapRouter } from './shiftSwap.routes';
 import { router as gdprRouter } from './gdpr.routes';
 import { router as ticketsRouter } from './tickets.routes';
 import { router as pushRouter } from './push.routes';
+import { router as approvalRoutingRouter } from './approvalRouting.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -71,4 +72,5 @@ export function registerRoutes(app: Express) {
   app.use(gdprRouter);
   app.use(ticketsRouter);
   app.use(pushRouter);
+  app.use(approvalRoutingRouter);
 }

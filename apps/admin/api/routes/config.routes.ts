@@ -53,7 +53,7 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const {
-        wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
+        timezone, wifiSsid, officeIp, wifiCheckEnabled, lat, lng, radius, shiftStart, shiftEnd, gracePeriodMins, halfDayMins, dailyBreakBudgetMins, weekendConfig, minAttendancePercent,
         arrivalPolicy, workingHoursPolicy, requiredWorkingMins, hybridMaxCheckoutTime, overtimePayrollEnabled,
         wfhEnabled, wfhAllowedRoles, wfhMaxDaysPerMonth, wfhAllowedWeekdays, wfhRadiusMeters, wfhApprovalRequired, wfhRequireReason, wfhLateLoginGraceMins,
         kycEnabled, documentsEnabled, passwordExpiryDays, idleTimeoutMinutes, attendanceRetentionMonths, faceIdEnabled,
@@ -78,6 +78,14 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       }
 
       const updates: any = {};
+      if (timezone !== undefined && timezone !== '') {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+        } catch {
+          return res.status(400).json({ error: `"${timezone}" is not a valid IANA timezone (e.g. "Asia/Kolkata", "America/New_York").` });
+        }
+        updates.timezone = timezone;
+      }
       // Company-wide switch: when off, no employee at this tenant needs
       // device identity verification to check in — GPS-within-radius becomes
       // the sole gate. Independent of QR attendance's own qrRequireFace toggle.

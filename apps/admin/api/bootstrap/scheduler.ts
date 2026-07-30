@@ -3,24 +3,53 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, schema, tryAcquireSchedulerLeadership } from '../../db';
 import { logger } from '../../logger';
 import { reverseGeocode } from '../../geocoding.js';
-import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail } from '../../mail.js';
+import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail, sendAutoAbsentAlertEmail } from '../../mail.js';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { logToAuditLedger } from '../services/audit';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { raiseAttendanceAlert } from '../services/alerts';
 import { resolveNextEscalation } from '../services/escalation';
-import { notifyUser } from '../services/notifications';
+import { notifyUser, notifyUsers } from '../services/notifications';
+import { queue } from '../services/queue';
+import { isPlatformFeatureAllowed } from '../auth/rbac';
+import { getEffectiveShift } from '../services/shiftOverrides';
+import { resolveEffectivePolicy } from '../services/attendancePolicy';
+import { resolveApprovers } from '../services/approvalRouting';
+import { localDateKey } from '../services/dateUtils';
+import { tenantDateKey, tenantParts } from '../services/tenantTime';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
   
   // Track runs to prevent duplicate triggers within the same minute
-  let lastAbsenteesRun = '';
+  // Per-tenant (not a single global string) — "11:00 AM" means 11:00 in
+  // EACH tenant's own configured timezone (tenants.timezone), which can
+  // differ from the server's clock and from each other.
+  const lastAbsenteesRun = new Map<number, string>();
   let lastCheckoutRun = '';
   let lastSummaryRun = '';
   let lastAttendanceCheckRun = '';
   let lastArchivalRun = '';
+  // Missed-checkout verification (Phase 5) runs every minute per-user
+  // (each has a different shiftEnd+grace trigger time), not once at a
+  // fixed hour — this dedupes so a user isn't processed twice in one day.
+  // Cleared at midnight below.
+  let missedCheckoutProcessed = new Set<string>();
+
+  // 0. Background job queue poll (services/queue) — runs only on this
+  // (leader) instance, same guarantee every other job in this function
+  // already relies on, so queued jobs are never double-processed across a
+  // multi-replica deployment. Short cadence relative to the once-a-minute
+  // jobs below since queued work (email sends, recalculations) is meant to
+  // feel "background," not "batch."
+  setInterval(async () => {
+    try {
+      await queue.pollOnce();
+    } catch (err) {
+      logger.error('scheduler: queue poll failed', { error: (err as any)?.message });
+    }
+  }, 5000);
 
   // 1. Break overstay scanner (runs every minute)
   setInterval(async () => {
@@ -101,23 +130,42 @@ export function runBackgroundScheduler() {
       const currentMin = now.getMinutes();
       const todayKey = now.toDateString();
 
-      // --- Auto-mark absentees (at 11:00 AM daily) ---
-      if (currentHour === 11 && currentMin === 0 && lastAbsenteesRun !== todayKey) {
-        lastAbsenteesRun = todayKey;
-        console.log('Running Auto-Mark Absentees Job...');
+      if (currentHour === 0 && currentMin === 0) {
+        missedCheckoutProcessed = new Set<string>();
+      }
+
+      // --- Auto-mark absentees (at 11:00 AM in EACH tenant's own timezone) ---
+      // Previously gated by the SERVER's clock (`currentHour === 11`) for
+      // every tenant at once, and never told anyone it happened — an
+      // employee (or their manager) had no way to find out short of
+      // noticing a gap in the attendance report days later. Both fixed
+      // here: the trigger now checks 11:00 in the tenant's own configured
+      // timezone (tenants.timezone), and marking someone absent now raises
+      // an in-app alert (routed via the same manager -> GM -> tenant_admin
+      // escalation missed-checkout already uses) plus an email to both the
+      // employee and that assignee.
+      {
         const tenantsList = await db.select().from(schema.tenants);
         for (const tenant of tenantsList) {
+          const tParts = tenantParts(tenant, now);
+          const tTodayKey = tenantDateKey(tenant, now);
+          if (!(tParts.hour === 11 && tParts.minute === 0 && lastAbsenteesRun.get(tenant.id) !== tTodayKey)) continue;
+          lastAbsenteesRun.set(tenant.id, tTodayKey);
+          console.log(`Running Auto-Mark Absentees Job for tenant ${tenant.id}...`);
+
           const employees = await db.select().from(schema.users).where(
             and(
               eq(schema.users.tenantId, tenant.id),
               eq(schema.users.role, 'employee')
             )
           );
-          
+
           const todayStart = new Date();
           todayStart.setHours(0, 0, 0, 0);
 
           for (const emp of employees) {
+            if (emp.employeeStatus && emp.employeeStatus !== 'active') continue;
+
             // Check if employee has an approved check-in log today
             const logs = await db.select().from(schema.attendanceLogs).where(
               and(
@@ -126,7 +174,7 @@ export function runBackgroundScheduler() {
                 sql`created_at >= ${todayStart}`
               )
             );
-            
+
             if (logs.length === 0) {
               // Create auto-absent log
               await db.insert(schema.attendanceLogs).values({
@@ -136,7 +184,7 @@ export function runBackgroundScheduler() {
                 type: 'absent',
                 reason: 'Auto-marked absent: No clock-in detected by 11:00 AM'
               });
-              
+
               await logToAuditLedger({
                 tenantId: tenant.id,
                 actorId: emp.id,
@@ -144,12 +192,123 @@ export function runBackgroundScheduler() {
                 action: 'AUTO_MARK_ABSENT',
                 details: { info: 'No clock-in detected by 11:00 AM' }
               });
+
+              const alert = await raiseAttendanceAlert({
+                tenantId: tenant.id,
+                userId: emp.id,
+                type: 'auto_marked_absent',
+                message: `${emp.name} was auto-marked Absent — no check-in detected by 11:00 AM.`,
+              });
+
+              if (emp.email) {
+                await sendAutoAbsentAlertEmail(emp.email, emp.name, emp.name, tTodayKey, true).catch(() => undefined);
+              }
+              if (alert?.currentAssigneeUserId) {
+                const assigneeRows = await db.select().from(schema.users).where(eq(schema.users.id, alert.currentAssigneeUserId)).limit(1);
+                const assignee = assigneeRows[0];
+                if (assignee?.email) {
+                  await sendAutoAbsentAlertEmail(assignee.email, assignee.name, emp.name, tTodayKey, false).catch(() => undefined);
+                }
+              }
             }
           }
         }
       }
 
-      // --- Auto-checkout (at 11:59 PM daily) ---
+      // --- Missed-checkout verification (Phase 5) — per-user shiftEnd +
+      // checkoutGraceMins, only for tenants with 'missed_checkout_
+      // verification' enabled. Runs every minute (each user's trigger time
+      // differs), unlike the legacy fixed-23:59 job below, which still
+      // handles every other tenant completely unchanged. ---
+      {
+        const verifyTenants = (await db.select().from(schema.tenants)).filter((t: any) => isPlatformFeatureAllowed(t, 'missed_checkout_verification'));
+        for (const tenant of verifyTenants) {
+          const graceMins = tenant.checkoutGraceMins ?? 15;
+          const todayStart = new Date();
+          todayStart.setHours(0, 0, 0, 0);
+
+          const activeCheckIns = await db.execute(sql`
+            WITH latest_logs AS (
+              SELECT DISTINCT ON (user_id) *
+              FROM attendance_logs
+              WHERE tenant_id = ${tenant.id} AND created_at >= ${todayStart} AND status = 'approved'
+              ORDER BY user_id, id DESC
+            )
+            SELECT l.*, u.name as user_name, u.branch_id, u.employee_status,
+                   u.last_heartbeat_lat, u.last_heartbeat_lng, u.last_heartbeat_at
+            FROM latest_logs l
+            JOIN users u ON l.user_id = u.id
+            WHERE l.type = 'check_in'
+          `);
+
+          for (const row of (activeCheckIns.rows || activeCheckIns) as any[]) {
+            if (row.employee_status && row.employee_status !== 'active') continue;
+            const dedupeKey = `${row.user_id}:${todayKey}`;
+            if (missedCheckoutProcessed.has(dedupeKey)) continue;
+
+            const branch = row.branch_id ? (await db.select().from(schema.branches).where(eq(schema.branches.id, row.branch_id)).limit(1))[0] || null : null;
+            const shift = await getEffectiveShift(tenant.id, row.user_id as number, localDateKey(now));
+            const policy = resolveEffectivePolicy(tenant, branch, shift);
+            const [endH, endM] = policy.shiftEndStr.split(':').map(Number);
+            const shiftEndToday = new Date();
+            shiftEndToday.setHours(endH || 18, endM || 0, 0, 0);
+            const triggerAt = new Date(shiftEndToday.getTime() + graceMins * 60000);
+            if (now < triggerAt) continue;
+
+            missedCheckoutProcessed.add(dedupeKey);
+
+            const heartbeatIsFromToday = row.last_heartbeat_at && new Date(row.last_heartbeat_at as any).toDateString() === todayKey;
+            let outsideOffice = false;
+            if (heartbeatIsFromToday && tenant.locationLat && tenant.locationLng) {
+              const distance = haversineMeters(row.last_heartbeat_lat as number, row.last_heartbeat_lng as number, tenant.locationLat, tenant.locationLng);
+              outsideOffice = distance > (tenant.locationRadiusMeters || 100);
+            }
+
+            // Never later than shiftEnd when unverified — this is the
+            // overtime-inflation fix: no positive evidence of continued
+            // presence means no time past shift end gets counted as worked.
+            const checkoutAt = outsideOffice && row.last_heartbeat_at ? new Date(row.last_heartbeat_at as any) : shiftEndToday;
+            const reason = outsideOffice
+              ? 'Auto check-out: Verified outside office premises after shift end + grace period'
+              : `Missed checkout: Could not verify departure ${graceMins} minute(s) after shift end — pending manager review`;
+
+            await db.insert(schema.attendanceLogs).values({
+              userId: row.user_id,
+              tenantId: tenant.id,
+              status: 'approved',
+              type: 'check_out',
+              checkoutAt,
+              createdAt: checkoutAt,
+              reason,
+              pendingVerification: !outsideOffice,
+            });
+
+            await logToAuditLedger({
+              tenantId: tenant.id,
+              actorId: row.user_id,
+              actorName: row.user_name,
+              action: 'CHECK_OUT',
+              details: { info: reason, verified: outsideOffice },
+            });
+
+            if (!outsideOffice) {
+              await raiseAttendanceAlert({
+                tenantId: tenant.id as number,
+                userId: row.user_id as number,
+                type: 'auto_checkout_unverified',
+                message: `${row.user_name} missed checkout and their departure couldn't be verified ${graceMins} minute(s) after shift end. Their attendance is Pending Checkout Verification.`,
+              });
+              const approvers = await resolveApprovers(tenant.id, 'missed_checkout', row.user_id as number, ['attendance.approve', 'attendance.edit']);
+              if (approvers.length > 0) {
+                await notifyUsers(approvers.map((a: any) => a.id), 'Missed checkout — verification needed', `${row.user_name} did not check out and their departure couldn't be confirmed. Review and resolve via Attendance > Edit Record.`);
+              }
+            }
+          }
+        }
+      }
+
+      // --- Auto-checkout (at 11:59 PM daily) — unchanged for tenants that
+      // haven't enabled missed_checkout_verification above. ---
       if (currentHour === 23 && currentMin === 59 && lastCheckoutRun !== todayKey) {
         lastCheckoutRun = todayKey;
         console.log('Running Auto-Checkout Job...');

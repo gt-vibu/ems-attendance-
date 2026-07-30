@@ -31,11 +31,13 @@ export async function verifyAndSyncDatabase() {
     // Add columns if they do not exist
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS office_ip TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Kolkata';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'Basic';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS features_allowed JSONB;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_start TEXT DEFAULT '09:00';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_end TEXT DEFAULT '18:00';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS grace_period_mins INTEGER DEFAULT 15;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS checkout_grace_mins INTEGER DEFAULT 15;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS half_day_mins INTEGER DEFAULT 240;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS weekend_config JSONB DEFAULT '["Saturday", "Sunday"]';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS daily_break_budget_mins INTEGER DEFAULT 60;`); } catch(e){}
@@ -311,6 +313,21 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    // Branch/department scoping — NULL/NULL (the default for every existing
+    // row) still means "everyone in the tenant," identical to before.
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS holiday_employee_overrides (
+        id SERIAL PRIMARY KEY,
+        holiday_id INTEGER NOT NULL REFERENCES holidays(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        included BOOLEAN NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (holiday_id, user_id)
+      );
+    `);
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_corrections (
@@ -327,6 +344,11 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    // Regularization additions: approver remarks now, plus (further below,
+    // once attendance_logs/employee_documents exist) the FK columns linking
+    // a request to the document attached to it and the attendance_logs row
+    // approving it actually produced.
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS review_remarks TEXT;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS leave_policies (
@@ -511,6 +533,26 @@ export async function verifyAndSyncDatabase() {
     // Backs the idempotent "INSERT ... ON CONFLICT DO NOTHING" in
     // GET /api/payroll/history — one snapshot per employee per period, ever.
     try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_unique ON payroll_runs (user_id, year, month);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS unpaid_absence_days REAL NOT NULL DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS lop_deduction REAL NOT NULL DEFAULT 0;`); } catch(e){}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_adjustments (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        payroll_run_id INTEGER NOT NULL REFERENCES payroll_runs(id),
+        source_type TEXT NOT NULL,
+        source_id INTEGER,
+        amount_delta REAL NOT NULL,
+        reason TEXT NOT NULL,
+        created_by_user_id INTEGER REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'pending',
+        applied_to_next_cycle BOOLEAN NOT NULL DEFAULT false,
+        applied_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_logs (
@@ -552,6 +594,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS expected_checkout_at TIMESTAMP;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_short_day BOOLEAN;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS pending_verification BOOLEAN DEFAULT false;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime_minutes REAL;`); } catch(e){}
 
     await db.execute(sql`
@@ -684,7 +727,8 @@ export async function verifyAndSyncDatabase() {
         hash TEXT NOT NULL
       );
     `);
-    
+    try { await db.execute(sql`ALTER TABLE audit_ledger ADD COLUMN IF NOT EXISTS request_id TEXT;`); } catch(e){}
+
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS service_accounts (
         id SERIAL PRIMARY KEY,
@@ -772,6 +816,11 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
+    // attendance_corrections FK columns that depend on tables not yet
+    // created earlier in this script (attendance_logs, employee_documents).
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES employee_documents(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS applied_log_id INTEGER REFERENCES attendance_logs(id);`); } catch(e){}
+
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shift_swap_requests (
         id SERIAL PRIMARY KEY,
@@ -787,6 +836,62 @@ export async function verifyAndSyncDatabase() {
         reviewed_by_user_id INTEGER REFERENCES users(id),
         reviewed_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS approval_routing_rules (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        category TEXT NOT NULL,
+        scope_type TEXT NOT NULL DEFAULT 'all',
+        scope_id INTEGER,
+        scope_value TEXT,
+        approver_type TEXT NOT NULL,
+        approver_value TEXT,
+        priority INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS attendance_freeze_periods (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        frozen_at TIMESTAMP DEFAULT NOW(),
+        frozen_by_user_id INTEGER REFERENCES users(id),
+        UNIQUE (tenant_id, year, month)
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS background_jobs (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id),
+        job_type TEXT NOT NULL,
+        payload JSONB NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        run_after TIMESTAMP DEFAULT NOW(),
+        last_error TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_templates (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        event_type TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT 'email',
+        subject TEXT,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (tenant_id, event_type, channel)
       );
     `);
 

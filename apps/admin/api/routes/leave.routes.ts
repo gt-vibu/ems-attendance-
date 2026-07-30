@@ -8,6 +8,7 @@ import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mai
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { notifyUser, notifyUsers } from '../services/notifications';
+import { resolveApprovers } from '../services/approvalRouting';
 import { amendLeaveRequest } from '../services/recordEdits';
 
 export const router = Router();
@@ -190,10 +191,9 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
       status: policy?.requiresApproval === false ? 'approved' : 'pending',
     }).returning();
 
-    const approvers = uniqueById([
-      ...(await getUsersWithPrivilege(req.user.tenantId, 'leave.approve')),
-      ...(await getUsersWithPrivilege(req.user.tenantId, 'attendance.approve')),
-    ]).filter((approver: any) => approver.id !== req.user.userId);
+    const approvers = uniqueById(
+      await resolveApprovers(req.user.tenantId, 'leave', req.user.userId, ['leave.approve', 'attendance.approve'])
+    ).filter((approver: any) => approver.id !== req.user.userId);
 
     await Promise.all(approvers.map((approver: any) =>
       sendLeaveApprovalRequestEmail(

@@ -4,17 +4,37 @@
 // in-process TensorFlow native-addon attempt did before. This module is the
 // only place that talks to it; everything else only ever deals with
 // embeddings (arrays of numbers) and scores.
-export async function callFaceService(endpoint: string, payload: any): Promise<any> {
+//
+// Bounded so a cold Render instance can't leave this `await` (and the route
+// handler awaiting it) hanging indefinitely — previously there was no
+// timeout here at all, so a slow cold-start just kept the request open with
+// no way for the caller to give up and retry.
+const FACE_SERVICE_TIMEOUT_MS = 25000;
+
+export async function callFaceService(endpoint: string, payload: any, signal?: AbortSignal): Promise<any> {
   const baseUrl = process.env.FACE_SERVICE_URL || 'http://127.0.0.1:8001';
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), FACE_SERVICE_TIMEOUT_MS);
+  // Abort the outbound call if either our own timeout fires or the caller's
+  // signal (e.g. the inbound HTTP request being cancelled) does.
+  const onCallerAbort = () => timeoutController.abort();
+  signal?.addEventListener('abort', onCallerAbort);
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: timeoutController.signal,
     });
   } catch (networkErr: any) {
+    if (networkErr?.name === 'AbortError') {
+      throw new Error('The face verification service is still starting up (it was idle and had to reload its models) — please wait about a minute and try again.');
+    }
     throw new Error(`Could not reach the face service at ${baseUrl} — is it running? (services/face-service)`);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -34,11 +54,18 @@ export async function callFaceService(endpoint: string, payload: any): Promise<a
 
 export async function getFaceServiceHealth(): Promise<{ status: string; modelLoaded: boolean }> {
   const baseUrl = process.env.FACE_SERVICE_URL || 'http://127.0.0.1:8001';
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), FACE_SERVICE_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/health`);
+    response = await fetch(`${baseUrl}/health`, { signal: timeoutController.signal });
   } catch (_networkErr: any) {
+    if (_networkErr?.name === 'AbortError') {
+      throw new Error('The face verification service is still starting up (it was idle and had to reload its models) — please wait about a minute and try again.');
+    }
     throw new Error(`Could not reach the face service at ${baseUrl} — is it running? (services/face-service)`);
+  } finally {
+    clearTimeout(timer);
   }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {

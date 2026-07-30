@@ -9,8 +9,30 @@ function authHeaders(): HeadersInit {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 }
 
+// Without this, a cold Render instance (or a dropped connection) leaves
+// `fetch` pending indefinitely — the UI just sits on "Checking..." forever
+// with nothing to show the user and nothing to let them retry. Every
+// face-service call below is wrapped in this so a hang surfaces as a clear,
+// actionable error within a bounded time instead.
+async function fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs: number, timeoutMessage: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(timeoutMessage);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const COLD_START_MESSAGE = 'The face verification service is taking longer than usual to respond (it may be waking up from being idle) — please wait a moment and try again.';
+
 export async function ensureFaceServiceReady(): Promise<void> {
-  const res = await fetch('/api/health/face');
+  const res = await fetchWithTimeout('/api/health/face', {}, 20000, COLD_START_MESSAGE);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data.error || 'Face verification service is unavailable right now.');
@@ -78,11 +100,11 @@ export async function verifyFace(
   onProgress?.({ phase: 'passive' });
   const passiveFrames = await captureBurst(video, canvas, PASSIVE_FRAME_COUNT, PASSIVE_INTERVAL_MS);
 
-  const passiveRes = await fetch('/api/face/verify', {
+  const passiveRes = await fetchWithTimeout('/api/face/verify', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ images: passiveFrames, mode: 'photo' }),
-  });
+  }, 25000, COLD_START_MESSAGE);
   const passiveData = await passiveRes.json().catch(() => ({}));
 
   if (passiveRes.ok && passiveData.passed) {
@@ -94,7 +116,7 @@ export async function verifyFace(
 
   // Fast path wasn't convincing (poor lighting, motion blur, angle) — fall
   // back to exactly one challenge action instead of failing outright.
-  const challengeRes = await fetch('/api/face/challenge', { headers: authHeaders() });
+  const challengeRes = await fetchWithTimeout('/api/face/challenge', { headers: authHeaders() }, 20000, COLD_START_MESSAGE);
   const challengeData = await challengeRes.json().catch(() => ({}));
   if (!challengeRes.ok || !Array.isArray(challengeData.challenge) || challengeData.challenge.length === 0) {
     throw new Error(challengeData.error || 'Could not start the fallback check. Please try again.');
@@ -103,11 +125,11 @@ export async function verifyFace(
   onProgress?.({ phase: 'fallback', action });
 
   const actionFrames = await captureBurst(video, canvas, CHALLENGE_FRAME_COUNT, CHALLENGE_INTERVAL_MS);
-  const challengeVerifyRes = await fetch('/api/face/verify', {
+  const challengeVerifyRes = await fetchWithTimeout('/api/face/verify', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({ images: actionFrames, mode: 'challenge' }),
-  });
+  }, 25000, COLD_START_MESSAGE);
   const challengeVerifyData = await challengeVerifyRes.json().catch(() => ({}));
   if (!challengeVerifyRes.ok || !challengeVerifyData.passed) {
     throw new Error(challengeVerifyData.error || 'Face verification failed. Please try again.');

@@ -52,6 +52,8 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'attendance.approve.corrections', label: 'Approve Attendance Corrections', description: 'Review and approve or reject employee-submitted corrections (missed check-in/out, wrong location flagged).' },
       { key: 'attendance.approve', label: 'Approve All Attendance Requests (general)', description: 'General bucket — anyone holding this can approve every request type above regardless of the specific toggles.' },
       { key: 'attendance.edit', label: 'Edit Attendance Records', description: 'Directly correct an existing attendance record\'s status or times (e.g. flip a wrongly-marked Absent to Present) — the fix reflects immediately in attendance history, leave, and payroll.' },
+      { key: 'attendance.freeze', label: 'Freeze Monthly Attendance', description: 'Manually close a month\'s attendance for the organization — unresolved absences with no approved correction become Loss of Pay from that point on. One-way: a mistaken freeze is corrected via a payroll adjustment, not by unfreezing.' },
+      { key: 'attendance.override_without_approval', label: 'Override Attendance Without Approval', description: 'Mark a day present retroactively even after its month has been frozen or its payroll locked, bypassing the normal correction-approval flow. Grant sparingly — this is the one path that can still change a closed period.' },
     ],
   },
   {
@@ -82,6 +84,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     features: [
       { key: 'payroll.read', label: 'View Payroll Analytics', description: 'See salary breakup, payroll summaries, and per-role or per-department cost reports.' },
       { key: 'payroll.manage', label: 'Manage Payroll Structures', description: 'Configure CTC, salary components, overtime rates, and payroll settings for any employee.' },
+      { key: 'payroll.lock', label: 'Lock Payroll Periods', description: 'Close a generated payroll period so it can never be silently recalculated — later attendance corrections against a locked period create a Payroll Adjustment instead. One-way: there is no unlock.' },
     ],
   },
   {
@@ -193,6 +196,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'gdpr.manage', label: 'Manage Data Privacy (GDPR)', description: 'Erase a terminated employee\'s personal data on request, per data-privacy regulations.' },
       { key: 'webhooks.manage', label: 'Manage Webhooks & Integrations', description: 'Create, view, and remove outbound webhook subscriptions for external integrations.' },
       { key: 'serviceAccounts.manage', label: 'Manage API Keys (Service Accounts)', description: 'Create and revoke machine-to-machine API keys used by external integrations.' },
+      { key: 'approval_routing.manage', label: 'Manage Approval Routing', description: 'Configure which department/branch/team\'s approval and alert notifications go to which role, specific person, or the employee\'s own reporting manager, instead of the default flat privilege-holder fan-out.' },
     ],
   },
 ];

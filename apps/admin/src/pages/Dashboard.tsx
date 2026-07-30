@@ -194,6 +194,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   } = usePolicyAnnouncement(token);
 
   const {
+    timezone, setTimezone,
     wifiSsid, setWifiSsid, officeIp, setOfficeIp, wifiCheckEnabled, setWifiCheckEnabled,
     lat, setLat, lng, setLng, radius, setRadius,
     shiftStart, setShiftStart, shiftEnd, setShiftEnd, gracePeriodMins, setGracePeriodMins,
@@ -294,6 +295,26 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   const {
     corrections, hasCorrectionsAccess, fetchCorrections, handleResolveCorrection,
   } = useCorrections(token, approvalQueueSetters);
+  // Draft remarks per correction row, keyed by id — kept local since it's
+  // only needed transiently while a reviewer is deciding.
+  const [correctionRemarksDraft, setCorrectionRemarksDraft] = useState<Record<number, string>>({});
+  const handleDownloadCorrectionAttachment = async (id: number, fileName: string) => {
+    try {
+      const res = await fetch(`/api/attendance/corrections/${id}/attachment`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Download failed.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Download failed.');
+    }
+  };
   const {
     pendingAttendance, hasAttendanceApprovalAccess, fetchPendingAttendance, handleResolveAttendance,
   } = usePendingAttendance(token, approvalQueueSetters);
@@ -1238,7 +1259,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     const teamPresent = bd ? bd.present.filter((p: any) => teamIds.has(p.userId)).length : null;
                     const teamLate = bd ? bd.late.filter((p: any) => teamIds.has(p.userId)).length : null;
                     const teamAbsent = bd ? bd.absent.filter((p: any) => teamIds.has(p.userId)).length : null;
-                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const now = new Date();
+                    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                     const teamOnLeave = homeLeaveRequests.filter((r: any) =>
                       teamIds.has(r.userId) && r.status === 'approved' && r.startDate <= todayStr && r.endDate >= todayStr
                     ).length;
@@ -1734,7 +1756,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                             >
                               <option value="missed_checkin">Missed Check-In</option>
                               <option value="missed_checkout">Missed Check-Out</option>
+                              <option value="marked_absent">Marked Absent (I Was Present)</option>
                               <option value="wrong_location">Wrong Location Flagged</option>
+                              <option value="face_recognition_failed">Face Recognition Failed</option>
+                              <option value="gps_verification_failed">GPS Verification Failed</option>
+                              <option value="biometric_issue">Biometric Issue</option>
+                              <option value="business_travel">Business Travel</option>
+                              <option value="wfh_verification_issue">Work From Home Verification Issue</option>
+                              <option value="network_issue">Network Issue</option>
                               <option value="other">Other</option>
                             </select>
                           </div>
@@ -2481,40 +2510,62 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {corrections.map((c) => (
-                      <div key={c.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{c.userName}</span>
-                            <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold">{c.userRole}</span>
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]">
-                              {c.requestType.replace('_', ' ')}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${c.status === 'pending' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' : c.status === 'approved' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
-                              {c.status}
-                            </span>
+                      <div key={c.id} className="flex flex-col gap-3 p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{c.userName}</span>
+                              <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold">{c.userRole}</span>
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]">
+                                {c.requestType.replace(/_/g, ' ')}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${c.status === 'pending' ? 'bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)]' : c.status === 'approved' ? 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]'}`}>
+                                {c.status}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[var(--color-nexus-muted)]">
+                              {c.requestedDate}{c.requestedTime ? ` at ${c.requestedTime}` : ''} — {c.reason}
+                            </p>
+                            <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Submitted {new Date(c.createdAt).toLocaleString()}</p>
+                            {c.attachmentFileName && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadCorrectionAttachment(c.id, c.attachmentFileName)}
+                                className="mt-1 text-[10px] font-bold text-[var(--color-nexus-primary)] hover:underline"
+                              >
+                                📎 {c.attachmentFileName}
+                              </button>
+                            )}
+                            {c.status !== 'pending' && c.reviewRemarks && (
+                              <p className="text-[11px] text-[var(--color-nexus-ink)] mt-1.5"><strong>Reviewer remarks:</strong> {c.reviewRemarks}</p>
+                            )}
                           </div>
-                          <p className="text-xs text-[var(--color-nexus-muted)]">
-                            {c.requestedDate}{c.requestedTime ? ` at ${c.requestedTime}` : ''} — {c.reason}
-                          </p>
-                          <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Submitted {new Date(c.createdAt).toLocaleString()}</p>
+                          {c.status === 'pending' && (
+                            <div className="flex gap-2 shrink-0 sm:ml-4">
+                              <button
+                                onClick={() => handleResolveCorrection(c.id, 'approve', correctionRemarksDraft[c.id])}
+                                disabled={loading}
+                                className="bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleResolveCorrection(c.id, 'reject', correctionRemarksDraft[c.id])}
+                                disabled={loading}
+                                className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
                         </div>
                         {c.status === 'pending' && (
-                          <div className="flex gap-2 shrink-0 ml-4">
-                            <button
-                              onClick={() => handleResolveCorrection(c.id, 'approve')}
-                              disabled={loading}
-                              className="bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleResolveCorrection(c.id, 'reject')}
-                              disabled={loading}
-                              className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              Reject
-                            </button>
-                          </div>
+                          <input
+                            value={correctionRemarksDraft[c.id] || ''}
+                            onChange={(e) => setCorrectionRemarksDraft((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                            placeholder="Remarks for the employee (optional)"
+                            className="w-full rounded-lg border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-3 py-1.5 text-xs focus:outline-none"
+                          />
                         )}
                       </div>
                     ))}
@@ -2740,6 +2791,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck, visible: hasAnyPrivilege('tenant.config.manage') },
                     { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
                     { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
+                    { id: 'approval-routing', label: 'Approval Routing', icon: Users, navigateTo: '/tenant/approval-routing', visible: hasAnyPrivilege('approval_routing.manage') },
                     { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: user.deviceChangeEnabled !== false && hasAnyPrivilege('settings.edit') },
                     // Notifications and Org Chart are informational/personal
                     // rather than tied to a specific management privilege —
@@ -2959,6 +3011,19 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
                     <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)] mb-4">Attendance &amp; Break Policy</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Time Zone</label>
+                        <select
+                          value={timezone}
+                          onChange={e => setTimezone(e.target.value)}
+                          className="w-full px-4 py-3 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20 focus:border-[var(--color-nexus-primary)] transition-all"
+                        >
+                          {(typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [timezone, 'Asia/Kolkata', 'UTC'])
+                            .filter((tz, i, arr) => arr.indexOf(tz) === i)
+                            .map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
+                        </select>
+                        <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Where your company actually operates — attendance day boundaries and payroll periods follow this, not the server's own clock.</p>
+                      </div>
                       <div>
                         <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1.5 uppercase tracking-wider">Shift Start Time</label>
                         <TimeSelect value={shiftStart} onChange={setShiftStart} />

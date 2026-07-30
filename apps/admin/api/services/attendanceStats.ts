@@ -1,5 +1,7 @@
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { localDateKey } from './dateUtils';
+import { getHolidaysForEmployee } from './holidayScope';
 
 // Attendance percentage for a user, computed from working days so far this
 // calendar month (excludes weekends per tenant.weekendConfig and holidays
@@ -16,14 +18,14 @@ export async function computeAttendancePercent(userId: number, tenant: any, asOf
   const today = new Date(asOfDate);
   today.setHours(0, 0, 0, 0);
 
-  const holidayRows = await db.select().from(schema.holidays).where(eq(schema.holidays.tenantId, tenant.id));
-  const holidayDates = new Set(holidayRows.map((h: any) => h.date));
+  const holidayRows = await getHolidaysForEmployee(tenant.id, userId);
+  const holidayDates = new Set(holidayRows.map((h) => h.date));
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const workingDates: string[] = [];
   for (let d = new Date(monthStart); d <= today; d.setDate(d.getDate() + 1)) {
     const dayName = dayNames[d.getDay()];
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localDateKey(d);
     if (weekendDays.includes(dayName)) continue;
     if (holidayDates.has(dateStr)) continue;
     workingDates.push(dateStr);
@@ -41,7 +43,7 @@ export async function computeAttendancePercent(userId: number, tenant: any, asOf
       sql`created_at >= ${monthStart}`
     )
   );
-  const presentDates = new Set(checkIns.map((log: any) => new Date(log.createdAt).toISOString().slice(0, 10)));
+  const presentDates = new Set(checkIns.map((log: any) => localDateKey(new Date(log.createdAt))));
   const daysPresent = workingDates.filter(d => presentDates.has(d)).length;
 
   return { percentage: Math.round((daysPresent / workingDates.length) * 100), daysPresent, workingDaysSoFar: workingDates.length };
