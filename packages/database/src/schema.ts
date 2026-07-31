@@ -111,6 +111,12 @@ export const tenants = pgTable('tenants', {
   // row is moved to attendance_logs_archive (same shape, still queryable,
   // just off the hot path). 0 = keep forever (no archival runs).
   attendanceRetentionMonths: integer('attendance_retention_months').default(0),
+  // Report branding (see api/services/reportFileExport.ts) — an
+  // already-hosted image URL, not a file upload; null means the exported
+  // report header just shows the company name with no logo, never a
+  // broken image.
+  reportLogoUrl: text('report_logo_url'),
+  reportAddress: text('report_address'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -174,6 +180,54 @@ export const shifts = pgTable('shifts', {
   isDefault: boolean('is_default').default(false),
   status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Shift Versioning audit trail. Note the correctness guarantee this
+// codebase already had before this table existed: attendanceLogs snapshots
+// isLate/lateByMinutes/overtimeMinutes at check-in/check-out time (see
+// services/attendancePolicy.ts), it never re-derives them from the shift's
+// CURRENT checkInTime/checkOutTime — so editing a shift's timings has never
+// silently rewritten historical attendance/payroll. What was actually
+// missing was visibility: the audit ledger recorded SHIFT_UPDATED with only
+// the new values, not what changed from. This table adds the old->new diff
+// as its own queryable-by-shift record.
+export const shiftHistory = pgTable('shift_history', {
+  id: serial('id').primaryKey(),
+  shiftId: integer('shift_id').references(() => shifts.id).notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  action: text('action').notNull(), // 'created' | 'updated' | 'deactivated' | 'reactivated'
+  previous: jsonb('previous'), // {name, checkInTime, checkOutTime, gracePeriodMins, status} before the change, null for 'created'
+  next: jsonb('next').notNull(), // the same shape after the change
+  actorUserId: integer('actor_user_id').references(() => users.id),
+  actorName: text('actor_name'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Delegation: fine-grained, time-bounded privilege delegation (e.g. a
+// manager going on leave delegates specific approval privileges to someone
+// else) — never an identity swap. `privilegeKeys` is a subset of the
+// delegator's OWN effective privileges (enforced at creation, see
+// delegation.routes.ts) so nobody can hand out power they don't hold
+// themselves, same guarantee getEffectivePrivileges() already protects for
+// role editing. Auto-expires by date range, checked live in
+// hasActiveDelegatedPrivilege() (rbac.ts) — no cron needed for enforcement,
+// though a daily job flips `status` to 'expired' for clean audit history.
+// Tenant admin / super admin bypass delegation entirely (they already
+// bypass every privilege check, see hasPrivilege()) — the emergency
+// override the user asked for falls out of that existing behavior for free.
+export const delegations = pgTable('delegations', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  delegatedByUserId: integer('delegated_by_user_id').references(() => users.id).notNull(),
+  delegatedToUserId: integer('delegated_to_user_id').references(() => users.id).notNull(),
+  privilegeKeys: jsonb('privilege_keys').notNull(), // string[] — FEATURE_CATALOG keys being delegated
+  startDate: text('start_date').notNull(), // 'YYYY-MM-DD'
+  endDate: text('end_date').notNull(),
+  reason: text('reason'),
+  status: text('status').notNull().default('active'), // 'active' | 'expired' | 'revoked'
+  createdAt: timestamp('created_at').defaultNow(),
+  revokedAt: timestamp('revoked_at'),
+  revokedByUserId: integer('revoked_by_user_id').references(() => users.id),
 });
 
 export const users = pgTable('users', {
@@ -435,7 +489,27 @@ export const holidays = pgTable('holidays', {
   // row (both NULL) keeps working exactly as before.
   branchId: integer('branch_id').references(() => branches.id),
   department: text('department'), // matches users.department's flat string, not a normalized table
+  // false = mandatory, applies to everyone in scope automatically (the
+  // long-standing default — every pre-existing row keeps this behavior).
+  // true = optional/floater — excluded from the mandatory calendar and
+  // instead offered as one of the choices in an employee's optional-holiday
+  // picker (GET/POST /api/tenant/holidays/optional), capped by
+  // payroll_settings.optional_holiday_limit. Before this column existed,
+  // every holiday was implicitly part of the optional pool regardless of
+  // this distinction — this is a deliberate behavior change, not additive.
+  isOptional: boolean('is_optional').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow(),
+  // Holiday Versioning: a holiday is never hard-deleted anymore — "delete"
+  // archives it instead, so any payroll batch that already calculated
+  // against this row (attendance-driven payroll reads the holiday calendar
+  // as of calculation time) keeps a truthful historical record instead of
+  // the holiday silently vanishing from what would otherwise look like an
+  // append-only ledger everywhere else in this codebase. Archived holidays
+  // are excluded from every "current calendar" read (employee view,
+  // optional-holiday picker, notifications) but stay queryable for audit.
+  isArchived: boolean('is_archived').notNull().default(false),
+  archivedAt: timestamp('archived_at'),
+  archivedByUserId: integer('archived_by_user_id').references(() => users.id),
 });
 
 export const holidaysRelations = relations(holidays, ({ one }) => ({
@@ -444,6 +518,21 @@ export const holidaysRelations = relations(holidays, ({ one }) => ({
     references: [tenants.id],
   }),
 }));
+
+// Full change history for holidays — created/archived/restored — separate
+// from the row itself so a holiday's own fields never carry "who changed
+// this and why" clutter, matching the leaveEscalationHistory /
+// compensation_history pattern already used elsewhere in this schema.
+export const holidayHistory = pgTable('holiday_history', {
+  id: serial('id').primaryKey(),
+  holidayId: integer('holiday_id').references(() => holidays.id).notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  action: text('action').notNull(), // 'created' | 'archived' | 'restored'
+  snapshot: jsonb('snapshot').notNull(), // {date, name, branchId, department, isOptional} at the time of the action
+  actorUserId: integer('actor_user_id').references(() => users.id),
+  actorName: text('actor_name'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 
 // Per-employee override on top of a holiday's branch/department scope —
 // e.g. exclude one person from a department-wide holiday, or include
@@ -554,6 +643,76 @@ export const notificationTemplates = pgTable('notification_templates', {
 // already runs the absent-marker/auto-checkout crons (runBackgroundScheduler
 // in bootstrap/scheduler.ts), so it's automatically single-instance-safe
 // across a multi-replica deployment with no extra plumbing.
+// Per-tenant, per-event recipient policy for the unified Notification
+// Service (services/notificationService.ts) — the "who gets told when X
+// happens" matrix (employee/manager/HR/admin checkboxes) the user asked
+// for, instead of each module deciding recipients inline. A tenant with no
+// row for an eventType gets a hardcoded safe default matching whatever
+// that event's behavior already was before this table existed — see
+// DEFAULT_POLICIES in notificationService.ts.
+export const notificationPolicies = pgTable('notification_policies', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  eventType: text('event_type').notNull(),
+  notifyEmployee: boolean('notify_employee').notNull().default(true),
+  notifyManager: boolean('notify_manager').notNull().default(false),
+  notifyHR: boolean('notify_hr').notNull().default(false),
+  notifyAdmin: boolean('notify_admin').notNull().default(false),
+  channels: jsonb('channels').notNull().default('["in_app","email"]'), // subset of 'in_app' | 'email' | 'sms' | 'whatsapp' | 'push' (only in_app/email wired today)
+  // When true, "HR" recipients are filtered to HR-privileged users whose
+  // OWN users.department matches the subject employee's department (e.g.
+  // only "Engineering HR" is notified about an Engineering employee),
+  // instead of every HR-privileged user tenant-wide. Manager already
+  // resolves to the employee's actual reporting manager via
+  // resolveEscalationAssignee regardless of this flag — there's no "all
+  // managers" version of that bug to fix. Admin stays tenant-wide by design
+  // (no branch/department concept applies to "the tenant admin").
+  scopeHrToDepartment: boolean('scope_hr_to_department').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantEventUnique: uniqueIndex('notification_policies_tenant_event_unique').on(table.tenantId, table.eventType),
+}));
+
+// Reusable recipient presets ("Default Attendance Group", "Payroll Group",
+// "Security Group") — a saved {notifyEmployee/Manager/HR/Admin, channels}
+// combination a tenant admin can apply to any event's notification_policies
+// row in one click, instead of re-checking the same four boxes across
+// dozens of event types. Deliberately NOT a live foreign key from
+// notification_policies (an event referencing a group that changes later
+// would silently change that event's behavior with no visible diff) —
+// applying a group is a one-time copy, same as picking a color from a
+// swatch rather than binding to it.
+export const notificationRecipientGroups = pgTable('notification_recipient_groups', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(),
+  notifyEmployee: boolean('notify_employee').notNull().default(true),
+  notifyManager: boolean('notify_manager').notNull().default(false),
+  notifyHR: boolean('notify_hr').notNull().default(false),
+  notifyAdmin: boolean('notify_admin').notNull().default(false),
+  channels: jsonb('channels').notNull().default('["in_app","email"]'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Every actual delivery attempt notify() makes — one row per
+// recipient×channel, written by the queue's 'deliver_notification' handler
+// itself (services/notificationService.ts), so this only ever records what
+// really happened, not what was merely enqueued. Deliberately stops at
+// Sent/Failed: Delivered/Opened/Clicked would need an email provider's
+// webhook events (SendGrid/Postmark/SES) as the source of truth, which
+// this app has no provider integration for yet — faking those states from
+// data this app doesn't have would be worse than not showing them.
+export const notificationLog = pgTable('notification_log', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  eventType: text('event_type').notNull(),
+  recipientUserId: integer('recipient_user_id').references(() => users.id),
+  channel: text('channel').notNull(), // 'in_app' | 'email'
+  status: text('status').notNull(), // 'sent' | 'failed'
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const backgroundJobs = pgTable('background_jobs', {
   id: serial('id').primaryKey(),
   tenantId: integer('tenant_id').references(() => tenants.id),
@@ -903,11 +1062,25 @@ export const leaveRequests = pgTable('leave_requests', {
   reviewerComment: text('reviewer_comment'),
   reviewedAt: timestamp('reviewed_at'),
   createdAt: timestamp('created_at').defaultNow(),
+  // Escalation Engine: mirrors the ticket/alert 24h auto-escalation
+  // machinery in escalation.ts (0=manager, 1=GM, 2=tenant_admin). A pending
+  // request left unactioned for 24h walks one level up and re-notifies;
+  // null/0 for every existing row means "not yet escalated," so this is
+  // additive and changes nothing until the scheduler job actually escalates
+  // something.
+  escalationLevel: integer('escalation_level').notNull().default(0),
+  lastEscalatedAt: timestamp('last_escalated_at'),
 });
 
 export const payrollSettings = pgTable('payroll_settings', {
   id: serial('id').primaryKey(),
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  // Whether a payroll batch with unapplied payroll_adjustments (created
+  // e.g. when an attendance correction lands on an already-locked period)
+  // can still be released. Default false = warn only (today's existing
+  // behavior, unchanged) — a tenant explicitly opts into the stricter
+  // "block release" policy.
+  blockPayrollReleaseOnPendingAdjustments: boolean('block_payroll_release_on_pending_adjustments').default(false),
   workingDaysPerMonth: integer('working_days_per_month').notNull().default(26),
   maxPaidLeaveDaysPerMonth: real('max_paid_leave_days_per_month').notNull().default(0),
   excessLeavePenaltyPercent: real('excess_leave_penalty_percent').notNull().default(100),
@@ -1021,9 +1194,23 @@ export const payrollRuns = pgTable('payroll_runs', {
   // populated once Phase 7 (lock & adjustments) ships. Existing rows are
   // unaffected either way.
   status: text('status').notNull().default('draft'),
+  // Links this line item to a payroll_batches row when created via the
+  // batch workflow (P1) — null for the pre-existing lazy per-employee
+  // generation path, which is untouched. version/supersedesRunId support
+  // versioned payslips (P3): an adjustment after release never overwrites
+  // a row, it inserts a new version pointing back at the one it replaces.
+  batchId: integer('batch_id'),
+  version: integer('version').notNull().default(1),
+  supersedesRunId: integer('supersedes_run_id'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
-  userPeriodUnique: uniqueIndex('payroll_runs_user_period_unique').on(table.userId, table.year, table.month),
+  // Versioned Payslips (P3/P7 fix): uniqueness now includes `version` so a
+  // post-release adjustment can insert version 2, 3, ... instead of being
+  // blocked from ever recording more than one payslip per period. Every
+  // existing write path (lazy per-employee route, batch calculation)
+  // always targets version 1 explicitly — this is additive, not a
+  // behavior change for either of them.
+  userPeriodVersionUnique: uniqueIndex('payroll_runs_user_period_version_unique').on(table.userId, table.year, table.month, table.version),
 }));
 
 // Once a payroll_runs row is locked (status = 'locked'), it is never
@@ -1046,6 +1233,201 @@ export const payrollAdjustments = pgTable('payroll_adjustments', {
   status: text('status').notNull().default('pending'), // 'pending' | 'applied'
   appliedToNextCycle: boolean('applied_to_next_cycle').notNull().default(false),
   appliedAt: timestamp('applied_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// A tenant-configurable payroll calendar for one (year, month) period —
+// freeze/calculation/review/release/credit dates. Batch lifecycle routes
+// (see payrollBatches below) check these dates before allowing each
+// transition; a transition attempted before its date is rejected, not
+// silently allowed. A tenant with no calendar row for a period can still
+// use payroll (no dates configured = no date gating), same "additive,
+// never a hard requirement" convention as everything else in this schema.
+export const payrollCalendars = pgTable('payroll_calendars', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(),
+  attendanceFreezeDate: text('attendance_freeze_date'), // 'YYYY-MM-DD'
+  calculationDate: text('calculation_date'),
+  hrReviewDate: text('hr_review_date'),
+  financeReviewDate: text('finance_review_date'),
+  releaseDate: text('release_date'),
+  salaryCreditDate: text('salary_credit_date'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantPeriodUnique: uniqueIndex('payroll_calendars_tenant_period_unique').on(table.tenantId, table.year, table.month),
+}));
+
+// First-class Payroll Run for a whole employee population — NOT the same as
+// payrollRuns (below), which stays the per-employee line item. Carries the
+// full lifecycle state machine: draft -> calculating -> calculated ->
+// pending_hr_review -> pending_finance_review -> approved ->
+// payslips_generated -> released -> locked. No stage is skippable; each
+// transition route validates the previous state server-side (see
+// services/payrollBatch.ts). Existing lazily-created payrollRuns rows
+// (batchId null) are completely unaffected — this is opt-in via the
+// 'payroll_batches' platform feature.
+export const payrollBatches = pgTable('payroll_batches', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  year: integer('year').notNull(),
+  month: integer('month').notNull(),
+  status: text('status').notNull().default('draft'),
+  employeeCount: integer('employee_count').notNull().default(0),
+  totalGross: real('total_gross').notNull().default(0),
+  totalNet: real('total_net').notNull().default(0),
+  calculatedAt: timestamp('calculated_at'),
+  hrReviewedByUserId: integer('hr_reviewed_by_user_id').references(() => users.id),
+  hrReviewedAt: timestamp('hr_reviewed_at'),
+  financeReviewedByUserId: integer('finance_reviewed_by_user_id').references(() => users.id),
+  financeReviewedAt: timestamp('finance_reviewed_at'),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  releasedByUserId: integer('released_by_user_id').references(() => users.id),
+  releasedAt: timestamp('released_at'),
+  lockedAt: timestamp('locked_at'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantPeriodUnique: uniqueIndex('payroll_batches_tenant_period_unique').on(table.tenantId, table.year, table.month),
+}));
+
+// One-off financial events feeding INTO payroll calculation as inputs —
+// deliberately separate from employeeSalaryComponents (which stays
+// reserved for recurring salary structure), mirroring the append-only
+// pattern payrollAdjustments already established.
+export const payrollLoans = pgTable('payroll_loans', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  principal: real('principal').notNull(),
+  emiAmount: real('emi_amount').notNull(),
+  remainingBalance: real('remaining_balance').notNull(),
+  startYear: integer('start_year').notNull(),
+  startMonth: integer('start_month').notNull(),
+  status: text('status').notNull().default('active'), // 'active' | 'closed'
+  reason: text('reason'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const payrollAdvances = pgTable('payroll_advances', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  amount: real('amount').notNull(),
+  recoveryMonths: integer('recovery_months').notNull().default(1),
+  recoveryPerMonth: real('recovery_per_month').notNull(),
+  remainingBalance: real('remaining_balance').notNull(),
+  startYear: integer('start_year').notNull(),
+  startMonth: integer('start_month').notNull(),
+  status: text('status').notNull().default('active'),
+  reason: text('reason'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const payrollReimbursements = pgTable('payroll_reimbursements', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  category: text('category').notNull(), // 'travel' | 'medical' | 'internet' | 'food' | 'fuel' | 'custom'
+  amount: real('amount').notNull(),
+  description: text('description'),
+  receiptDocumentId: integer('receipt_document_id'), // reuses the existing documents table, no FK enforced (documents may predate this feature)
+  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected' | 'paid'
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  payrollBatchId: integer('payroll_batch_id'), // set once actually paid out in a batch
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const payrollBonuses = pgTable('payroll_bonuses', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  type: text('type').notNull(), // 'festival' | 'performance' | 'joining' | 'retention' | 'manual'
+  amount: real('amount').notNull(),
+  reason: text('reason'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected' | 'paid'
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  payrollBatchId: integer('payroll_batch_id'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Salary is never edited directly once this feature is in use — a change
+// is proposed here, reviewed by HR then Finance, and only written to
+// employeeCompensationProfiles (the existing table, unchanged write path)
+// on final approval. compensationHistory (existing) still captures the
+// resulting diff automatically, same as any other profile write.
+export const salaryRevisionRequests = pgTable('salary_revision_requests', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  type: text('type').notNull().default('revision'), // 'revision' | 'promotion'
+  proposedAnnualCtc: real('proposed_annual_ctc').notNull(),
+  proposedComponents: jsonb('proposed_components'), // same shape as employeeSalaryComponents rows
+  effectiveDate: text('effective_date').notNull(),
+  reason: text('reason'),
+  status: text('status').notNull().default('pending_hr'), // 'pending_hr' | 'pending_finance' | 'approved' | 'rejected'
+  hrReviewedByUserId: integer('hr_reviewed_by_user_id').references(() => users.id),
+  hrReviewedAt: timestamp('hr_reviewed_at'),
+  financeReviewedByUserId: integer('finance_reviewed_by_user_id').references(() => users.id),
+  financeReviewedAt: timestamp('finance_reviewed_at'),
+  requestedByUserId: integer('requested_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Append-only financial ledger — every finalized payroll calculation line
+// item (salary, loan EMI, advance recovery, bonus, reimbursement,
+// proration) writes one row here in addition to its own source table.
+// Reports/reconciliation read this ledger instead of joining 5 separate
+// tables; it never drives calculation itself (that stays in
+// payrollBatchCalculation.ts), it only records the result.
+export const payrollLedgerEntries = pgTable('payroll_ledger_entries', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  batchId: integer('batch_id'),
+  payrollRunId: integer('payroll_run_id'),
+  entryType: text('entry_type').notNull(), // 'salary' | 'loan_recovery' | 'advance_recovery' | 'bonus' | 'reimbursement' | 'proration' | 'adjustment'
+  sourceTable: text('source_table'), // e.g. 'payroll_loans', null for plain salary
+  sourceId: integer('source_id'),
+  amount: real('amount').notNull(), // signed: negative = deduction, positive = addition/earning
+  year: integer('year').notNull(),
+  month: integer('month').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Generated once an employee's termination has been approved
+// (terminationRequests.status = 'approved') — never automatic, an HR/
+// Finance user triggers generation explicitly with the actual last working
+// date (terminationRequests has no such field; it's supplied at settlement
+// time). Reuses the existing leave-encashment rate calculation
+// (getEffectiveDailyRate) and outstanding loan/advance balances rather
+// than recomputing any of that.
+export const payrollFinalSettlements = pgTable('payroll_final_settlements', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  terminationRequestId: integer('termination_request_id').references(() => terminationRequests.id).notNull(),
+  lastWorkingDate: text('last_working_date').notNull(),
+  remainingSalaryAmount: real('remaining_salary_amount').notNull().default(0),
+  leaveEncashmentDays: real('leave_encashment_days').notNull().default(0),
+  leaveEncashmentAmount: real('leave_encashment_amount').notNull().default(0),
+  pendingBonusAmount: real('pending_bonus_amount').notNull().default(0),
+  noticePeriodRecoveryAmount: real('notice_period_recovery_amount').notNull().default(0),
+  loanAdvanceRecoveryAmount: real('loan_advance_recovery_amount').notNull().default(0),
+  grossSettlement: real('gross_settlement').notNull().default(0),
+  netSettlement: real('net_settlement').notNull().default(0),
+  breakdown: jsonb('breakdown'),
+  status: text('status').notNull().default('draft'), // 'draft' | 'approved' | 'paid'
+  generatedByUserId: integer('generated_by_user_id').references(() => users.id),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -1470,6 +1852,22 @@ export const ticketsRelations = relations(tickets, ({ one }) => ({
 // separate from the auditLedger hash chain since this is ticket-specific
 // structured data a resolver's UI needs to render as a timeline, not a
 // generic audit entry.
+// Full audit trail for leave-request escalation, mirroring ticketEscalations
+// below — leaveRequests.escalationLevel only tracks the current level, this
+// table preserves the whole Created -> Assigned -> Escalated -> Escalated
+// chain for audits, since "who had this and when" matters more here than
+// for a ticket.
+export const leaveEscalationHistory = pgTable('leave_escalation_history', {
+  id: serial('id').primaryKey(),
+  leaveRequestId: integer('leave_request_id').references(() => leaveRequests.id).notNull(),
+  fromUserId: integer('from_user_id').references(() => users.id),
+  toUserId: integer('to_user_id').references(() => users.id).notNull(),
+  fromLevel: integer('from_level').notNull(),
+  toLevel: integer('to_level').notNull(),
+  reason: text('reason').notNull(), // 'auto_24h_timeout' (only source today; manual escalation isn't exposed yet)
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const ticketEscalations = pgTable('ticket_escalations', {
   id: serial('id').primaryKey(),
   ticketId: integer('ticket_id').references(() => tickets.id).notNull(),

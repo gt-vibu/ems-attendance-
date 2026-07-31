@@ -1,5 +1,8 @@
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { computeEmployeeEarnings } from '../services/earnings';
+import { computeAttendanceDrivenPayrollInputs } from '../services/attendanceDayStatus';
+import { isPlatformFeatureAllowed } from '../auth/rbac';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -201,6 +204,27 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
 export interface AttendanceDrivenInputs {
   workingDays: number;
   unpaidAbsenceDays: number;
+}
+
+// Real overtime is computed day-by-day from actual worked minutes (see
+// services/earnings.ts) — expensive relative to a flat 0, so it only runs
+// at all once a tenant admin has explicitly opted in via
+// tenant.overtimePayrollEnabled (default false). Shared by every payroll
+// calculation path (lazy per-employee, and the batch calculator) so they
+// can never silently diverge.
+export async function resolveOvertimeHours(overtimePayrollEnabled: boolean, userId: number, tenantId: number, year: number, month: number): Promise<number> {
+  if (!overtimePayrollEnabled) return 0;
+  const earnings = await computeEmployeeEarnings(userId, tenantId, year, month);
+  return earnings.summary?.totalOvertimeHours || 0;
+}
+
+// Attendance-driven payroll (Phase 6) — same opt-in shape as overtime
+// above: every payroll number stays byte-for-byte identical to before this
+// feature existed unless the tenant explicitly enabled
+// 'payroll_attendance_driven'.
+export async function resolveAttendanceDrivenInputs(tenant: any, userId: number, tenantId: number, year: number, month: number): Promise<AttendanceDrivenInputs | null> {
+  if (!isPlatformFeatureAllowed(tenant, 'payroll_attendance_driven')) return null;
+  return computeAttendanceDrivenPayrollInputs(tenantId, userId, year, month);
 }
 
 export function buildPayrollSummary(profile: any, components: any[], settings: any, leaveDays: LeaveDaysSplit, overtimeHours: number, attendanceDriven?: AttendanceDrivenInputs | null) {

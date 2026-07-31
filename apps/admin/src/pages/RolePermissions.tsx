@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ShieldCheck, Plus, Check } from 'lucide-react';
+import { ArrowLeft, ShieldCheck, Plus, Check, Eye, X } from 'lucide-react';
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
@@ -30,6 +30,7 @@ export default function RolePermissions({ user }: { user: User }) {
   const [showNewRole, setShowNewRole] = useState(false);
   const [newRoleName, setNewRoleName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const fetchAll = async () => {
     try {
@@ -208,9 +209,15 @@ export default function RolePermissions({ user }: { user: User }) {
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">{selectedRole.roleName}</h2>
-                    <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-2">
                       {saveState === 'saving' && <span className="text-[var(--color-nexus-muted)]">Saving…</span>}
                       {saveState === 'saved' && <span className="text-[var(--color-nexus-secondary)] flex items-center gap-1"><Check size={13} /> Saved</span>}
+                      <button
+                        onClick={() => setShowPreview(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[var(--color-nexus-primary)] bg-[var(--color-nexus-primary-fixed)] hover:opacity-80 transition-opacity normal-case"
+                      >
+                        <Eye size={13} /> Preview Access As {selectedRole.roleName}
+                      </button>
                     </div>
                   </div>
                   <FeatureCatalogGrid
@@ -226,6 +233,112 @@ export default function RolePermissions({ user }: { user: User }) {
                   No roles yet — add one to get started.
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {showPreview && selectedRole && (
+          <AccessPreviewModal
+            roleName={selectedRole.roleName}
+            catalog={catalog}
+            privileges={draftPrivileges}
+            onClose={() => setShowPreview(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Read-only, computed-from-data access preview — NOT real session impersonation.
+// Deliberately never creates a token, session, or "view as" auth context; it
+// only reports which catalog categories the role's current privilege set
+// would unlock, so admins can sanity-check a role before assigning it.
+function AccessPreviewModal({
+  roleName,
+  catalog,
+  privileges,
+  onClose,
+}: {
+  roleName: string;
+  catalog: FeatureCatalogCategory[];
+  privileges: string[];
+  onClose: () => void;
+}) {
+  const granted = new Set(privileges);
+  const categorySummaries = catalog.map((cat) => {
+    const grantedFeatures = cat.features.filter((f) => granted.has(f.key));
+    return { category: cat.category, icon: cat.icon, total: cat.features.length, grantedFeatures };
+  });
+  const accessibleCategories = categorySummaries.filter((c) => c.grantedFeatures.length > 0);
+  const noAccessCategories = categorySummaries.filter((c) => c.grantedFeatures.length === 0);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="nexus-card rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <Eye size={18} className="text-[var(--color-nexus-primary)]" />
+            <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Access Preview — {roleName}</h3>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-[var(--color-nexus-muted)] mb-5">
+          A read-only summary of what someone in this role would be able to see and do, computed from its
+          current privilege set below — not a live session, and nothing here is being changed or logged as if
+          someone actually signed in as this role.
+        </p>
+
+        {accessibleCategories.length === 0 ? (
+          <div className="text-xs text-[var(--color-nexus-muted)] p-4 rounded-lg bg-[var(--color-nexus-surface-alt)]">
+            This role currently has zero granted privileges — no app sections would be accessible beyond
+            baseline pages every employee sees.
+          </div>
+        ) : (
+          <div className="space-y-3 mb-4">
+            {accessibleCategories.map((c) => (
+              <div key={c.category} className="rounded-xl border border-[var(--color-nexus-border)] p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{c.icon} {c.category}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
+                    {c.grantedFeatures.length}/{c.total}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {c.grantedFeatures.map((f) => (
+                    <span
+                      key={f.key}
+                      title={f.description}
+                      className="text-[10px] font-semibold px-2 py-1 rounded-full bg-[var(--color-nexus-secondary-soft,rgba(16,185,129,0.1))] text-[var(--color-nexus-secondary)]"
+                    >
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {noAccessCategories.length > 0 && (
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-2">
+              No access in these areas
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {noAccessCategories.map((c) => (
+                <span
+                  key={c.category}
+                  className="text-[10px] font-semibold px-2 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]"
+                >
+                  {c.icon} {c.category}
+                </span>
+              ))}
             </div>
           </div>
         )}

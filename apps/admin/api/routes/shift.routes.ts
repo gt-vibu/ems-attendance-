@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
@@ -60,6 +60,12 @@ router.post('/api/branches/:branchId/shifts', authenticate, async (req: any, res
       deviceInfo: req.headers['user-agent'] || '',
       details: { shiftId: shift.id, branchId, name },
     });
+    await db.insert(schema.shiftHistory).values({
+      shiftId: shift.id, tenantId: req.user.tenantId, action: 'created',
+      previous: null,
+      next: { name: shift.name, checkInTime: shift.checkInTime, checkOutTime: shift.checkOutTime, gracePeriodMins: shift.gracePeriodMins, status: shift.status },
+      actorUserId: req.user.userId, actorName: req.user.name,
+    });
 
     res.json({ success: true, shift });
   } catch (err: any) {
@@ -79,6 +85,7 @@ router.patch('/api/shifts/:id', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Access denied: This shift does not belong to your organization.' });
     }
 
+    const before = shiftRows[0];
     const update: any = {};
     for (const field of ['name', 'checkInTime', 'checkOutTime', 'gracePeriodMins', 'status']) {
       if (req.body[field] !== undefined) update[field] = req.body[field];
@@ -95,8 +102,36 @@ router.patch('/api/shifts/:id', authenticate, async (req: any, res: any) => {
       deviceInfo: req.headers['user-agent'] || '',
       details: { shiftId, changes: update },
     });
+    await db.insert(schema.shiftHistory).values({
+      shiftId,
+      tenantId: req.user.tenantId,
+      action: update.status && update.status !== before.status ? (update.status === 'active' ? 'reactivated' : 'deactivated') : 'updated',
+      previous: { name: before.name, checkInTime: before.checkInTime, checkOutTime: before.checkOutTime, gracePeriodMins: before.gracePeriodMins, status: before.status },
+      next: { name: updated.name, checkInTime: updated.checkInTime, checkOutTime: updated.checkOutTime, gracePeriodMins: updated.gracePeriodMins, status: updated.status },
+      actorUserId: req.user.userId, actorName: req.user.name,
+    });
 
     res.json({ success: true, shift: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/shifts/:id/history', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'shift.manage')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const shiftId = parseInt(req.params.id, 10);
+    const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
+    if (shiftRows.length === 0) return res.status(404).json({ error: 'Shift not found' });
+    if (shiftRows[0].tenantId !== req.user.tenantId) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const history = await db.select().from(schema.shiftHistory)
+      .where(and(eq(schema.shiftHistory.shiftId, shiftId), eq(schema.shiftHistory.tenantId, req.user.tenantId)))
+      .orderBy(desc(schema.shiftHistory.createdAt));
+    res.json({ history });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

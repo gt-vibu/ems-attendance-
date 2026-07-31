@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege } from '../auth/rbac';
+import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
+import { notify } from '../services/notificationService';
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
@@ -15,9 +16,10 @@ export const router = Router();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Shared by /api/leave/mine (self-service) and the admin-facing
-// per-employee lookup below — one leave-balance calculation, not two.
-async function computeLeaveBalancesForUser(userId: number, tenantId: number) {
+// Shared by /api/leave/mine (self-service), the admin-facing per-employee
+// lookup below, and Final Settlement (payrollExtras.routes.ts) — one leave-
+// balance calculation, not several.
+export async function computeLeaveBalancesForUser(userId: number, tenantId: number) {
   const [policies, requests, adjustments] = await Promise.all([
     db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)).orderBy(schema.leavePolicies.name),
     db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.userId, userId)).orderBy(desc(schema.leaveRequests.createdAt)),
@@ -191,22 +193,31 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
       status: policy?.requiresApproval === false ? 'approved' : 'pending',
     }).returning();
 
-    const approvers = uniqueById(
-      await resolveApprovers(req.user.tenantId, 'leave', req.user.userId, ['leave.approve', 'attendance.approve'])
-    ).filter((approver: any) => approver.id !== req.user.userId);
+    const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'leave_requested', {
+        subjectUserId: req.user.userId,
+        subjectName: user.name,
+        data: { leaveType, startDate, endDate, totalDays, reason },
+      }).catch(() => undefined);
+    } else {
+      const approvers = uniqueById(
+        await resolveApprovers(req.user.tenantId, 'leave', req.user.userId, ['leave.approve', 'attendance.approve'])
+      ).filter((approver: any) => approver.id !== req.user.userId);
 
-    await Promise.all(approvers.map((approver: any) =>
-      sendLeaveApprovalRequestEmail(
-        approver.email,
-        approver.name || 'Approver',
-        user.name,
-        leaveType,
-        startDate,
-        endDate,
-        totalDays,
-        reason,
-      ).catch(() => undefined)
-    ));
+      await Promise.all(approvers.map((approver: any) =>
+        sendLeaveApprovalRequestEmail(
+          approver.email,
+          approver.name || 'Approver',
+          user.name,
+          leaveType,
+          startDate,
+          endDate,
+          totalDays,
+          reason,
+        ).catch(() => undefined)
+      ));
+    }
 
     dispatchWebhookEvent(req.user.tenantId, 'leave.requested', {
       requestId: inserted.id,
@@ -351,7 +362,16 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, leaveRequest.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
+      const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
+        await notify(req.user.tenantId, 'leave_decided', {
+          subjectUserId: employee.id,
+          subjectName: employee.name,
+          data: { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
+        }).catch(() => undefined);
+      } else {
+        await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
+      }
     }
     dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
       requestId: updated.id,
@@ -386,6 +406,9 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
       return res.status(400).json({ error: 'A single batch is limited to 200 requests.' });
     }
 
+    const tenantRowBulk = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    const unifiedOn = isPlatformFeatureAllowed(tenantRowBulk, 'unified_notifications');
+
     const results: Array<{ requestId: number; success: boolean; error?: string }> = [];
     for (const rawId of requestIds) {
       const requestId = Number(rawId);
@@ -406,7 +429,15 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
         const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, leaveRequest.userId)).limit(1);
         if (employeeRows.length > 0) {
           const employee = employeeRows[0];
-          await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
+          if (unifiedOn) {
+            await notify(req.user.tenantId, 'leave_decided', {
+              subjectUserId: employee.id,
+              subjectName: employee.name,
+              data: { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
+            }).catch(() => undefined);
+          } else {
+            await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
+          }
         }
         dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
           requestId: updated.id, userId: leaveRequest.userId, leaveType: leaveRequest.leaveType,
@@ -581,8 +612,17 @@ router.post('/api/leave/encashment', authenticate, async (req: any, res: any) =>
     }).returning();
 
     const userRows = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId)).limit(1);
-    const approvers = uniqueById(await getUsersWithPrivilege(req.user.tenantId, 'leave.approve')).filter((a: any) => a.id !== req.user.userId);
-    await notifyUsers(approvers.map((a: any) => a.id), 'Leave encashment request', `${userRows[0]?.name || 'An employee'} requested to encash ${daysNum} day(s) of ${policy.name}.`);
+    const tenantRowEncash = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowEncash, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'leave_encashment_requested', {
+        subjectUserId: req.user.userId,
+        subjectName: userRows[0]?.name || 'An employee',
+        data: { days: daysNum, leaveType: policy.name },
+      }).catch(() => undefined);
+    } else {
+      const approvers = uniqueById(await getUsersWithPrivilege(req.user.tenantId, 'leave.approve')).filter((a: any) => a.id !== req.user.userId);
+      await notifyUsers(approvers.map((a: any) => a.id), 'Leave encashment request', `${userRows[0]?.name || 'An employee'} requested to encash ${daysNum} day(s) of ${policy.name}.`);
+    }
 
     res.json({ success: true, request });
   } catch (err: any) {
@@ -650,10 +690,19 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, request.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      const message = action === 'approve'
-        ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
-        : 'Your leave encashment request was rejected.';
-      await notifyUser(employee.id, `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, message);
+      const tenantRowEncashDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRowEncashDecision, 'unified_notifications')) {
+        await notify(req.user.tenantId, 'leave_encashment_decided', {
+          subjectUserId: employee.id,
+          subjectName: employee.name,
+          data: { days: request.days, amount: Math.round(amount || 0), status: action === 'approve' ? 'approved' : 'rejected' },
+        }).catch(() => undefined);
+      } else {
+        const message = action === 'approve'
+          ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
+          : 'Your leave encashment request was rejected.';
+        await notifyUser(employee.id, `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, message);
+      }
     }
 
     res.json({ success: true, request: updated });

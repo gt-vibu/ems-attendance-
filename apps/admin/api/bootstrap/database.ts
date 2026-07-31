@@ -89,6 +89,8 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_expiry_days INTEGER DEFAULT 0;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_minutes INTEGER DEFAULT 0;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS attendance_retention_months INTEGER DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_logo_url TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_address TEXT;`); } catch(e){}
 
     // Departments must exist
     await db.execute(sql`
@@ -317,6 +319,101 @@ export async function verifyAndSyncDatabase() {
     // row) still means "everyone in the tenant," identical to before.
     try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){}
+    // Mandatory (default) vs optional/floater holiday. Every pre-existing
+    // row defaults to false (mandatory) — a deliberate behavior change from
+    // before this column existed, when every holiday was implicitly part of
+    // the optional-selection pool regardless.
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_optional BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS last_escalated_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_by_user_id INTEGER REFERENCES users(id);`); } catch(e){}
+    try { await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS delegations (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        delegated_by_user_id INTEGER NOT NULL REFERENCES users(id),
+        delegated_to_user_id INTEGER NOT NULL REFERENCES users(id),
+        privilege_keys JSONB NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT NOW(),
+        revoked_at TIMESTAMP,
+        revoked_by_user_id INTEGER REFERENCES users(id)
+      );
+    `); } catch(e){}
+    try { await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS shift_history (
+        id SERIAL PRIMARY KEY,
+        shift_id INTEGER NOT NULL REFERENCES shifts(id),
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        action TEXT NOT NULL,
+        previous JSONB,
+        next JSONB NOT NULL,
+        actor_user_id INTEGER REFERENCES users(id),
+        actor_name TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `); } catch(e){}
+    try { await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS holiday_history (
+        id SERIAL PRIMARY KEY,
+        holiday_id INTEGER NOT NULL REFERENCES holidays(id),
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        action TEXT NOT NULL,
+        snapshot JSONB NOT NULL,
+        actor_user_id INTEGER REFERENCES users(id),
+        actor_name TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `); } catch(e){}
+    try { await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS leave_escalation_history (
+        id SERIAL PRIMARY KEY,
+        leave_request_id INTEGER NOT NULL REFERENCES leave_requests(id),
+        from_user_id INTEGER REFERENCES users(id),
+        to_user_id INTEGER NOT NULL REFERENCES users(id),
+        from_level INTEGER NOT NULL,
+        to_level INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `); } catch(e){}
+
+    // One-time backfill: unified_notifications now ships on by default for
+    // new tenants (see super.routes.ts tenant creation), and every
+    // pre-existing tenant is migrated onto it here too — safe because
+    // DEFAULT_POLICIES (notificationService.ts) was deliberately calibrated
+    // to match each event's prior hardcoded recipient/channel behavior
+    // exactly, so this doesn't change who gets notified for anyone who
+    // hasn't customized a policy; it just makes the system configurable
+    // (and turns on notify()-gated fixes that were previously dormant for
+    // tenants that never had this toggle enabled).
+    try {
+      // features_allowed is jsonb (an array literal, not a native Postgres
+      // array) — use jsonb containment/concatenation, not array_append/ANY.
+      await db.execute(sql`
+        UPDATE tenants SET features_allowed = COALESCE(features_allowed, '[]'::jsonb) || '["unified_notifications"]'::jsonb
+        WHERE NOT (COALESCE(features_allowed, '[]'::jsonb) @> '["unified_notifications"]'::jsonb);
+      `);
+    } catch (e) {}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_recipient_groups (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        name TEXT NOT NULL,
+        notify_employee BOOLEAN NOT NULL DEFAULT true,
+        notify_manager BOOLEAN NOT NULL DEFAULT false,
+        notify_hr BOOLEAN NOT NULL DEFAULT false,
+        notify_admin BOOLEAN NOT NULL DEFAULT false,
+        channels JSONB NOT NULL DEFAULT '["in_app","email"]',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS holiday_employee_overrides (
@@ -455,6 +552,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS income_tax_slabs JSONB DEFAULT '[{"upTo":300000,"ratePercent":0},{"upTo":600000,"ratePercent":5},{"upTo":900000,"ratePercent":10},{"upTo":1200000,"ratePercent":15},{"upTo":1500000,"ratePercent":20},{"upTo":null,"ratePercent":30}]';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_standard_deduction REAL NOT NULL DEFAULT 50000;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_basic_percent_of_gross REAL NOT NULL DEFAULT 50;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS block_payroll_release_on_pending_adjustments BOOLEAN DEFAULT false;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_compensation_profiles (
@@ -550,6 +648,166 @@ export async function verifyAndSyncDatabase() {
         status TEXT NOT NULL DEFAULT 'pending',
         applied_to_next_cycle BOOLEAN NOT NULL DEFAULT false,
         applied_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS batch_id INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS supersedes_run_id INTEGER;`); } catch(e){}
+    // Versioned Payslips (P3/P7 fix) — the old per-(user,year,month) unique
+    // index blocked ever recording more than one payslip for a period,
+    // which meant a post-release adjustment couldn't produce a v2 payslip.
+    // Dropped in favor of a per-(user,year,month,version) index, only
+    // possible now that the version column above actually exists.
+    try { await db.execute(sql`DROP INDEX IF EXISTS payroll_runs_user_period_unique;`); } catch(e){}
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_version_unique ON payroll_runs (user_id, year, month, version);`); } catch(e){}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_calendars (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        attendance_freeze_date TEXT,
+        calculation_date TEXT,
+        hr_review_date TEXT,
+        finance_review_date TEXT,
+        release_date TEXT,
+        salary_credit_date TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (tenant_id, year, month)
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_batches (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        employee_count INTEGER NOT NULL DEFAULT 0,
+        total_gross REAL NOT NULL DEFAULT 0,
+        total_net REAL NOT NULL DEFAULT 0,
+        calculated_at TIMESTAMP,
+        hr_reviewed_by_user_id INTEGER REFERENCES users(id),
+        hr_reviewed_at TIMESTAMP,
+        finance_reviewed_by_user_id INTEGER REFERENCES users(id),
+        finance_reviewed_at TIMESTAMP,
+        approved_by_user_id INTEGER REFERENCES users(id),
+        approved_at TIMESTAMP,
+        released_by_user_id INTEGER REFERENCES users(id),
+        released_at TIMESTAMP,
+        locked_at TIMESTAMP,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (tenant_id, year, month)
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_loans (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        principal REAL NOT NULL,
+        emi_amount REAL NOT NULL,
+        remaining_balance REAL NOT NULL,
+        start_year INTEGER NOT NULL,
+        start_month INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        reason TEXT,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_advances (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        amount REAL NOT NULL,
+        recovery_months INTEGER NOT NULL DEFAULT 1,
+        recovery_per_month REAL NOT NULL,
+        remaining_balance REAL NOT NULL,
+        start_year INTEGER NOT NULL,
+        start_month INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        reason TEXT,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_reimbursements (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        category TEXT NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        receipt_document_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending',
+        approved_by_user_id INTEGER REFERENCES users(id),
+        approved_at TIMESTAMP,
+        payroll_batch_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_bonuses (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        approved_by_user_id INTEGER REFERENCES users(id),
+        approved_at TIMESTAMP,
+        payroll_batch_id INTEGER,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS salary_revision_requests (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        type TEXT NOT NULL DEFAULT 'revision',
+        proposed_annual_ctc REAL NOT NULL,
+        proposed_components JSONB,
+        effective_date TEXT NOT NULL,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'pending_hr',
+        hr_reviewed_by_user_id INTEGER REFERENCES users(id),
+        hr_reviewed_at TIMESTAMP,
+        finance_reviewed_by_user_id INTEGER REFERENCES users(id),
+        finance_reviewed_at TIMESTAMP,
+        requested_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_ledger_entries (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        batch_id INTEGER,
+        payroll_run_id INTEGER,
+        entry_type TEXT NOT NULL,
+        source_table TEXT,
+        source_id INTEGER,
+        amount REAL NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -929,6 +1187,36 @@ export async function verifyAndSyncDatabase() {
     `);
 
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_policies (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        event_type TEXT NOT NULL,
+        notify_employee BOOLEAN NOT NULL DEFAULT true,
+        notify_manager BOOLEAN NOT NULL DEFAULT false,
+        notify_hr BOOLEAN NOT NULL DEFAULT false,
+        notify_admin BOOLEAN NOT NULL DEFAULT false,
+        channels JSONB NOT NULL DEFAULT '["in_app","email"]',
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (tenant_id, event_type)
+      );
+    `);
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS scope_hr_to_department BOOLEAN NOT NULL DEFAULT false;`); } catch (e) {}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_log (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        event_type TEXT NOT NULL,
+        recipient_user_id INTEGER REFERENCES users(id),
+        channel TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS notification_log_tenant_idx ON notification_log(tenant_id, created_at DESC);`);
+
+    await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_logs_archive (
         id INTEGER PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id),
@@ -964,6 +1252,30 @@ export async function verifyAndSyncDatabase() {
         status TEXT NOT NULL DEFAULT 'pending',
         reviewed_by_user_id INTEGER REFERENCES users(id),
         reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payroll_final_settlements (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        termination_request_id INTEGER NOT NULL REFERENCES termination_requests(id),
+        last_working_date TEXT NOT NULL,
+        remaining_salary_amount REAL NOT NULL DEFAULT 0,
+        leave_encashment_days REAL NOT NULL DEFAULT 0,
+        leave_encashment_amount REAL NOT NULL DEFAULT 0,
+        pending_bonus_amount REAL NOT NULL DEFAULT 0,
+        notice_period_recovery_amount REAL NOT NULL DEFAULT 0,
+        loan_advance_recovery_amount REAL NOT NULL DEFAULT 0,
+        gross_settlement REAL NOT NULL DEFAULT 0,
+        net_settlement REAL NOT NULL DEFAULT 0,
+        breakdown JSONB,
+        status TEXT NOT NULL DEFAULT 'draft',
+        generated_by_user_id INTEGER REFERENCES users(id),
+        approved_by_user_id INTEGER REFERENCES users(id),
+        approved_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);

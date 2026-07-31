@@ -202,10 +202,17 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   // isn't in roleNames yet (e.g. roleNames failed to load) still shows up
   // because an employee has it — either way, a newly created role is never
   // missing from this list without a code change.
+  // Deduped case-insensitively — role data has inconsistent casing across
+  // onboarding paths ('employee' vs 'Employee'), which previously showed
+  // as two separate filter options that both meant the same role. The
+  // filter itself (below) matches case-insensitively too, so either casing
+  // in this list selects every employee with that role regardless of how
+  // their own record happens to be cased.
   const employeeRoleOptions = useMemo(() => {
-    const roles = new Set<string>(roleNames);
-    employees.forEach((e) => { if (e.role) roles.add(e.role); });
-    return Array.from(roles).sort((a, b) => a.localeCompare(b));
+    const byLowerKey = new Map<string, string>();
+    for (const r of roleNames) if (r && !byLowerKey.has(r.toLowerCase())) byLowerKey.set(r.toLowerCase(), r);
+    for (const e of employees) if (e.role && !byLowerKey.has(e.role.toLowerCase())) byLowerKey.set(e.role.toLowerCase(), e.role);
+    return Array.from(byLowerKey.values()).sort((a, b) => a.localeCompare(b));
   }, [roleNames, employees]);
 
   const filteredEmployees = useMemo(() => {
@@ -215,7 +222,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
         || (setupFilter === 'configured' && !!existingRow)
         || (setupFilter === 'pending' && !existingRow);
       if (!matchesSetup) return false;
-      if (roleFilter !== 'all' && employee.role !== roleFilter) return false;
+      if (roleFilter !== 'all' && (employee.role || '').toLowerCase() !== roleFilter.toLowerCase()) return false;
       return true;
     });
   }, [employees, payrollOverview, setupFilter, roleFilter]);

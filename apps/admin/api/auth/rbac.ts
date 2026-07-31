@@ -25,7 +25,26 @@ export const PLATFORM_FEATURES = [
   { key: 'missed_checkout_verification', label: 'Missed Checkout Verification', description: 'Waits a configurable grace period past shift end, then only auto-checks-out an employee if their location is verified as outside the office; unverified cases become "Pending Checkout Verification" instead of silently counting the rest of the day as worked/overtime. Off by default — without this, end-of-day auto-checkout is unchanged (fixed 11:59 PM).' },
   { key: 'payroll_attendance_driven', label: 'Attendance-Driven Payroll', description: 'Payroll working days become calendar-derived (instead of a flat monthly constant) and unresolved absences that survive an Attendance Freeze (Loss of Pay) start reducing pay. Off by default — without this, payroll is driven only by approved leave, exactly as before. The single most impactful toggle in the system: changes what employees actually get paid, so review a preview before enabling it for a tenant.' },
   { key: 'payroll_lock_adjustments', label: 'Payroll Lock & Adjustments', description: 'Lets a payroll period be locked so it can never be silently recalculated; attendance corrections against a locked period create a Payroll Adjustment for HR to apply instead. Strongly recommended alongside Attendance-Driven Payroll — without it, a correction after payroll runs just silently changes the next calculation with no record of what changed or why.' },
-] as const;
+  { key: 'unified_notifications', label: 'Unified Notification Policies', description: 'Routes attendance/leave/payroll/reports/approval events through one admin-configurable policy (per event: notify employee/manager/HR/admin, via in-app and/or email) instead of each module\'s hardcoded recipient list. Off by default — without this, every event keeps notifying exactly who it notifies today.' },
+  { key: 'payroll_batches', label: 'Payroll Batches (Full Lifecycle)', description: 'Runs payroll for a whole period as a single tracked batch (Draft → Calculate → HR Review → Finance Review → Approve → Release → Locked), with an exception center and validation gates before each stage. Off by default — without this, payroll stays exactly as it is today: a lazily-created, per-employee snapshot with no batch-level review workflow.' },
+];
+
+// Soft dependencies between platform features — surfaced to the Super Admin
+// as a warning when enabling the dependent without the dependency, never a
+// silent auto-enable (a tenant's entitlements are a billing/plan concern;
+// changing a SECOND feature as a side effect of toggling one would be a
+// surprising thing for a super admin to discover later).
+export const PLATFORM_FEATURE_DEPENDENCIES: Record<string, string[]> = {
+  // Comment on payroll_attendance_driven itself already says unresolved
+  // absences only reduce pay once they've survived an Attendance Freeze —
+  // without the freeze feature, "attendance-driven" has no LOP path to
+  // actually drive from.
+  payroll_attendance_driven: ['attendance_freeze'],
+  // Existing comment on payroll_lock_adjustments: "Strongly recommended
+  // alongside Attendance-Driven Payroll — without it, a correction after
+  // payroll runs just silently changes the next calculation with no record."
+  payroll_lock_adjustments: ['payroll_attendance_driven'],
+};
 
 // Keys that predate this whitelist (the original, never-enforced
 // 'e.g. kyc/wifi_lock/gps_geofence' default set). A tenant whose array
@@ -126,8 +145,31 @@ export async function hasPrivilege(user: any, permission: string): Promise<boole
       return true;
     }
 
+    if (await hasActiveDelegatedPrivilege(dbUser.id, dbUser.tenantId, permission)) {
+      return true;
+    }
+
     return false;
   }
+
+// True if `userId` currently holds `permission` via an active, in-window
+// delegation someone handed them (see delegations table / delegation.routes.ts).
+// Checked live against startDate/endDate — a delegation past its endDate
+// stops granting access immediately even if a cleanup job hasn't yet
+// flipped its status to 'expired'.
+export async function hasActiveDelegatedPrivilege(userId: number, tenantId: number, permission: string): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await db.select().from(schema.delegations).where(
+    and(
+      eq(schema.delegations.tenantId, tenantId),
+      eq(schema.delegations.delegatedToUserId, userId),
+      eq(schema.delegations.status, 'active'),
+      sql`${schema.delegations.startDate} <= ${today}`,
+      sql`${schema.delegations.endDate} >= ${today}`,
+    )
+  );
+  return rows.some((d: any) => Array.isArray(d.privilegeKeys) && d.privilegeKeys.includes(permission));
+}
 
   // A user's full effective privilege set: their own explicitly-granted
   // privileges plus whatever their role gets by default (looked up fresh

@@ -14,7 +14,7 @@ import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
-import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES } from '../auth/rbac';
+import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES, PLATFORM_FEATURE_DEPENDENCIES, isPlatformFeatureAllowed } from '../auth/rbac';
 import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
@@ -115,7 +115,14 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
         name: request.companyName,
         adminUid,
         plan: plan || request.plan,
-        featuresAllowed: featuresAllowed || ['device_identity', 'wifi_lock', 'gps_geofence']
+        // unified_notifications ships on by default — the notification
+        // engine itself should always be active (DEFAULT_POLICIES in
+        // notificationService.ts is calibrated to match every event's
+        // pre-existing hardcoded recipient/channel behavior exactly, so
+        // turning this on changes nothing a tenant admin would notice
+        // until they actually customize a policy). Only advanced channels
+        // (SMS/push/Slack/Teams, once built) should need their own opt-in.
+        featuresAllowed: featuresAllowed || ['device_identity', 'wifi_lock', 'gps_geofence', 'unified_notifications']
       }).returning();
 
       // No branch/shift is auto-created here, deliberately: every branch a
@@ -199,7 +206,7 @@ router.get('/api/super/platform-features', authenticate, async (req: any, res: a
     if (req.user.role !== 'super_admin') {
       return res.status(403).json({ error: 'Access denied' });
     }
-    res.json({ features: PLATFORM_FEATURES });
+    res.json({ features: PLATFORM_FEATURES, dependencies: PLATFORM_FEATURE_DEPENDENCIES });
   });
 
 router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
@@ -437,6 +444,104 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
   // SUPER ADMIN API: List the tenant_admin account(s) for a given tenant —
   // feeds the "delete tenant admin" picker (a tenant can in principle have
   // more than one).
+// Job Scheduler Dashboard — a direct window into background_jobs, the
+// table the Postgres-backed queue (services/queue/postgresQueue.ts)
+// already reads/writes. This adds visibility, not new state: no job here
+// is created or mutated by this route, only summarized and listed.
+router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const rows = await db.select().from(schema.backgroundJobs).orderBy(desc(schema.backgroundJobs.createdAt)).limit(500);
+
+      const byStatus: Record<string, number> = { pending: 0, running: 0, done: 0, failed: 0 };
+      const byType: Record<string, { pending: number; running: number; done: number; failed: number }> = {};
+      for (const j of rows) {
+        byStatus[j.status] = (byStatus[j.status] || 0) + 1;
+        if (!byType[j.jobType]) byType[j.jobType] = { pending: 0, running: 0, done: 0, failed: 0 };
+        byType[j.jobType][j.status as 'pending' | 'running' | 'done' | 'failed'] =
+          (byType[j.jobType][j.status as 'pending' | 'running' | 'done' | 'failed'] || 0) + 1;
+      }
+
+      const recentFailures = rows.filter((j: any) => j.status === 'failed').slice(0, 20);
+
+      res.json({
+        summary: byStatus,
+        byType,
+        recentFailures: recentFailures.map((j: any) => ({ id: j.id, jobType: j.jobType, tenantId: j.tenantId, attempts: j.attempts, maxAttempts: j.maxAttempts, lastError: j.lastError, createdAt: j.createdAt })),
+        recentJobs: rows.slice(0, 50).map((j: any) => ({ id: j.id, jobType: j.jobType, tenantId: j.tenantId, status: j.status, attempts: j.attempts, createdAt: j.createdAt, completedAt: j.completedAt })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// System Health Dashboard — separate from Config Health (which checks a
+// TENANT's own setup completeness). This checks the PLATFORM's operating
+// condition: is the database reachable (this route itself proves that —
+// if it weren't, the query below would throw and we'd never reach the
+// response), is the queue keeping up (oldest pending job age, any job
+// stuck 'running' past a sane timeout — a real stuck-worker signal, not a
+// guess), is an email provider actually configured (RESEND_API_KEY or
+// SMTP_HOST — checked directly, not inferred). No fabricated "Redis:
+// Healthy" line — this deployment doesn't use Redis for anything but the
+// optional rate limiter, which already degrades to in-memory without it,
+// so there's no real Redis health signal to report.
+router.get('/api/super/system-health', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const now = Date.now();
+      const dbStart = now;
+      const tenantCountRows = await db.select({ count: sql<number>`count(*)` }).from(schema.tenants);
+      const dbLatencyMs = Date.now() - dbStart;
+
+      const pendingJobs = await db.select().from(schema.backgroundJobs).where(eq(schema.backgroundJobs.status, 'pending'));
+      const runningJobs = await db.select().from(schema.backgroundJobs).where(eq(schema.backgroundJobs.status, 'running'));
+      const oldestPendingAgeMs = pendingJobs.length > 0
+        ? Math.max(...pendingJobs.map((j: any) => now - new Date(j.runAfter || j.createdAt).getTime()))
+        : 0;
+      const STUCK_RUNNING_THRESHOLD_MS = 10 * 60 * 1000; // a job claimed 'running' for 10+ min with no completion is a real stuck-worker signal
+      const stuckJobs = runningJobs.filter((j: any) => now - new Date(j.createdAt).getTime() > STUCK_RUNNING_THRESHOLD_MS);
+
+      const failedLast24h = await db.select({ count: sql<number>`count(*)` }).from(schema.backgroundJobs).where(
+        and(eq(schema.backgroundJobs.status, 'failed'), sql`${schema.backgroundJobs.createdAt} >= ${new Date(now - 24 * 60 * 60 * 1000)}`)
+      );
+
+      const emailConfigured = !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
+
+      const checks = [
+        { id: 'database', label: 'Database', status: 'healthy', detail: `Reachable, ${dbLatencyMs}ms query latency, ${tenantCountRows[0]?.count ?? 0} tenants.` },
+        {
+          id: 'queue', label: 'Background Job Queue',
+          status: stuckJobs.length > 0 ? 'degraded' : oldestPendingAgeMs > 5 * 60 * 1000 ? 'degraded' : 'healthy',
+          detail: stuckJobs.length > 0
+            ? `${stuckJobs.length} job(s) stuck in 'running' for 10+ minutes — likely a crashed worker mid-job.`
+            : `${pendingJobs.length} pending, oldest ${Math.round(oldestPendingAgeMs / 1000)}s old.`,
+        },
+        {
+          id: 'email', label: 'Email Delivery',
+          status: emailConfigured ? 'healthy' : 'not_configured',
+          detail: emailConfigured ? 'A provider (Resend or SMTP) is configured.' : 'No RESEND_API_KEY or SMTP_HOST set — outbound email will fail.',
+        },
+        {
+          id: 'background_jobs', label: 'Background Jobs (24h)',
+          status: (failedLast24h[0]?.count ?? 0) > 0 ? 'degraded' : 'healthy',
+          detail: `${failedLast24h[0]?.count ?? 0} failed in the last 24 hours.`,
+        },
+      ];
+
+      res.json({ checks, checkedAt: new Date().toISOString() });
+    } catch (err: any) {
+      // If we got here, the database check itself is what failed —
+      // report that directly instead of a generic 500.
+      res.status(500).json({ error: err.message, checks: [{ id: 'database', label: 'Database', status: 'unhealthy', detail: err.message }] });
+    }
+  });
+
 router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any, res: any) => {
     try {
       if (req.user.role !== 'super_admin') {
@@ -553,11 +658,18 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
 
       const activeTenants = tenantsList.filter((t: any) => (t.status || 'active') === 'active').length;
       const suspendedTenants = tenantsList.filter((t: any) => t.status === 'suspended').length;
-      const staffByRole: Record<string, number> = {};
+      // Grouped case-insensitively — see tenant.routes.ts's identical fix
+      // for why (inconsistent role casing across onboarding paths was
+      // splitting one role into multiple display buckets).
+      const staffByRoleLower: Record<string, { label: string; count: number }> = {};
       for (const u of allUsers) {
-        const r = u.role || 'employee';
-        staffByRole[r] = (staffByRole[r] || 0) + 1;
+        const raw = u.role || 'employee';
+        const key = raw.toLowerCase();
+        if (!staffByRoleLower[key]) staffByRoleLower[key] = { label: raw, count: 0 };
+        staffByRoleLower[key].count += 1;
       }
+      const staffByRole: Record<string, number> = {};
+      for (const { label, count } of Object.values(staffByRoleLower)) staffByRole[label] = count;
 
       res.json({
         totalTenants: tenantsList.length,
@@ -573,6 +685,70 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
           return acc;
         }, {})
       });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// Feature Usage Analytics — a SaaS-ops view, not a per-tenant one: for each
+// platform module, how many tenants have it ENABLED (adoption, via the same
+// isPlatformFeatureAllowed() logic every route already gates on, including
+// its legacy-fallback quirk) vs. how many are actually GENERATING DATA
+// through it (real usage, read from the tables that module actually
+// writes to). A feature can be "enabled" with zero real usage — that gap is
+// the whole point of building this, not something to paper over.
+router.get('/api/super/feature-usage', authenticate, async (req: any, res: any) => {
+    try {
+      if (req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const tenantsList = await db.select().from(schema.tenants);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const [wfhLogs, qrScans, payrollBatches, notificationLogs, webhookRows, serviceAccountRows, docRows] = await Promise.all([
+        db.select({ tenantId: schema.attendanceLogs.tenantId }).from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.attendanceMode, 'wfh'), sql`${schema.attendanceLogs.createdAt} >= ${thirtyDaysAgo}`)),
+        db.select({ tenantId: schema.attendanceLogs.tenantId }).from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.attendanceMode, 'qr'), sql`${schema.attendanceLogs.createdAt} >= ${thirtyDaysAgo}`)),
+        db.select({ tenantId: schema.payrollBatches.tenantId }).from(schema.payrollBatches),
+        db.select({ tenantId: schema.notificationLog.tenantId }).from(schema.notificationLog).where(sql`${schema.notificationLog.createdAt} >= ${thirtyDaysAgo}`),
+        db.select({ tenantId: schema.webhookSubscriptions.tenantId }).from(schema.webhookSubscriptions),
+        db.select({ tenantId: schema.serviceAccounts.tenantId }).from(schema.serviceAccounts),
+        db.select({ tenantId: schema.employeeDocuments.tenantId }).from(schema.employeeDocuments),
+      ]);
+
+      const countByTenant = (rows: Array<{ tenantId: number | null }>) => {
+        const set = new Set<number>();
+        for (const r of rows) if (r.tenantId) set.add(r.tenantId);
+        return set;
+      };
+      const usageSets: Record<string, Set<number>> = {
+        wfh: countByTenant(wfhLogs),
+        qr_attendance: countByTenant(qrScans),
+        payroll_batches: countByTenant(payrollBatches),
+        unified_notifications: countByTenant(notificationLogs),
+        webhooks: countByTenant(webhookRows),
+        service_accounts: countByTenant(serviceAccountRows),
+        documents: countByTenant(docRows),
+      };
+
+      const features = PLATFORM_FEATURES.map((f) => {
+        const enabledTenants = tenantsList.filter((t: any) => isPlatformFeatureAllowed(t, f.key));
+        const usageSet = usageSets[f.key];
+        return {
+          key: f.key,
+          label: f.label,
+          tenantsEnabled: enabledTenants.length,
+          tenantsTotal: tenantsList.length,
+          adoptionPercent: tenantsList.length > 0 ? Math.round((enabledTenants.length / tenantsList.length) * 100) : 0,
+          // null = no usage signal tracked for this feature yet (most are
+          // pure config toggles with no dedicated table of their own —
+          // reporting a fake 0 would look like "enabled but unused" when
+          // really it's "not instrumented," a meaningfully different fact.
+          tenantsActiveUsage: usageSet ? usageSet.size : null,
+        };
+      });
+
+      res.json({ features, totalTenants: tenantsList.length, windowDays: 30 });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
+import { notify } from '../services/notificationService';
 
 export const router = Router();
 
@@ -305,7 +306,21 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
     });
 
     if (newShiftName) {
-      await notifyUser(employeeId, 'Your shift has changed', `Your shift has been changed to ${newShiftName}, effective immediately.`);
+      // Previously in-app only (notifyUser), completely bypassing notify()/
+      // email even though 'shift_changed' is defined with email enabled in
+      // DEFAULT_POLICIES — an employee's shift could change with no email
+      // ever sent. Toggle-gated fallback keeps the old in-app-only behavior
+      // for tenants that haven't opted into unified_notifications.
+      if (await isPlatformFeatureAllowedForTenant(tenantId, 'unified_notifications')) {
+        await notify(tenantId, 'shift_changed', {
+          subjectUserId: employeeId,
+          subjectName: updated?.name || employee.name,
+          actorId: req.user.userId,
+          data: { newShiftName },
+        }).catch(() => undefined);
+      } else {
+        await notifyUser(employeeId, 'Your shift has changed', `Your shift has been changed to ${newShiftName}, effective immediately.`);
+      }
     }
 
     res.json({ success: true, employee: updated });

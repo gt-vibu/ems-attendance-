@@ -69,6 +69,195 @@ export interface ReportSnapshot {
   digitalSignature: string;
 }
 
+// Drives the Reports wizard (ReportsPage.tsx): selecting a report type
+// swaps which columns/summary fields are shown, structurally (not by
+// convention) — a type's `columns` list is the only source the column
+// checklist and preview table read from, so a payroll field can never leak
+// into an attendance report. Column `key`s match the exact row field names
+// buildReportData() (api/services/reportData.ts) already returns for that
+// type — see buildAttendanceReport/buildLeaveReport/buildPayrollReport.
+export interface WizardColumn {
+  key: string;
+  label: string;
+  default: boolean;
+  format?: 'hours' | 'currency' | 'boolean';
+  group?: string; // sidebar column-picker grouping, e.g. 'Employee Info' | 'Attendance' | 'Verification' | 'Other'
+}
+
+export interface WizardSummaryField {
+  key: string; // reads reportData.summary[key]
+  label: string;
+  format?: 'hours' | 'currency' | 'percentage';
+}
+
+export interface ReportTypeConfig {
+  id: string;
+  label: string;
+  backendType: string; // filters.type sent to /api/reports/data
+  description: string;
+  requiresPrivilege?: string; // e.g. 'payroll.read'
+  comingSoon?: boolean;
+  toggleFilters?: Array<{ key: 'wfhOnly' | 'lateOnly' | 'overtimeOnly' | 'exceptionsOnly'; label: string }>;
+  columns: WizardColumn[];
+  summaryFields: WizardSummaryField[];
+}
+
+export const REPORT_TYPE_CONFIG: ReportTypeConfig[] = [
+  {
+    id: 'attendance',
+    label: 'Attendance',
+    backendType: 'attendance',
+    description: 'Daily check-in/check-out, status, hours and late minutes per employee.',
+    toggleFilters: [
+      { key: 'wfhOnly', label: 'WFH Only' },
+      { key: 'lateOnly', label: 'Late Only' },
+      { key: 'exceptionsOnly', label: 'Exceptions Only' },
+    ],
+    columns: [
+      { key: 'employeeName', label: 'Employee', default: true, group: 'Employee Info' },
+      { key: 'department', label: 'Department', default: true, group: 'Employee Info' },
+      { key: 'date', label: 'Date', default: true, group: 'Attendance' },
+      { key: 'status', label: 'Status', default: true, group: 'Attendance' },
+      { key: 'checkIn', label: 'Check In', default: true, group: 'Attendance' },
+      { key: 'checkOut', label: 'Check Out', default: true, group: 'Attendance' },
+      { key: 'lateMins', label: 'Late (mins)', default: false, group: 'Attendance' },
+      { key: 'workingHours', label: 'Working Hours', default: true, format: 'hours', group: 'Attendance' },
+      { key: 'overtimeHours', label: 'Overtime', default: false, format: 'hours', group: 'Attendance' },
+      { key: 'isWfh', label: 'WFH', default: false, format: 'boolean', group: 'Verification' },
+      { key: 'verificationMode', label: 'Attendance Mode', default: false, group: 'Verification' },
+      { key: 'approvalStatus', label: 'Approval Status', default: false, group: 'Other' },
+      { key: 'notes', label: 'Notes', default: false, group: 'Other' },
+    ],
+    summaryFields: [
+      { key: 'totalEmployees', label: 'Total Employees' },
+      { key: 'presentCount', label: 'Present' },
+      { key: 'absentCount', label: 'Absent' },
+      { key: 'lateCount', label: 'Late' },
+      { key: 'halfDayCount', label: 'Half Day' },
+      { key: 'totalHours', label: 'Total Hours', format: 'hours' },
+      { key: 'overtimeHours', label: 'Overtime', format: 'hours' },
+    ],
+  },
+  {
+    id: 'leave',
+    label: 'Leave',
+    backendType: 'leave',
+    description: 'Leave requests, approvals and balances for the selected period.',
+    columns: [
+      { key: 'employeeName', label: 'Employee', default: true, group: 'Employee Info' },
+      { key: 'department', label: 'Department', default: true, group: 'Employee Info' },
+      { key: 'leaveType', label: 'Leave Type', default: true, group: 'Leave' },
+      { key: 'startDate', label: 'Start Date', default: true, group: 'Leave' },
+      { key: 'endDate', label: 'End Date', default: true, group: 'Leave' },
+      { key: 'daysCount', label: 'Days', default: true, group: 'Leave' },
+      { key: 'status', label: 'Status', default: true, group: 'Leave' },
+      { key: 'reason', label: 'Reason', default: false, group: 'Other' },
+      { key: 'appliedOn', label: 'Applied On', default: false, group: 'Other' },
+    ],
+    summaryFields: [
+      { key: 'totalLeaves', label: 'Applied' },
+      { key: 'approvedCount', label: 'Approved' },
+      { key: 'rejectedCount', label: 'Rejected' },
+      { key: 'pendingCount', label: 'Pending' },
+      { key: 'totalDays', label: 'Total Days' },
+    ],
+  },
+  {
+    id: 'payroll',
+    label: 'Payroll',
+    backendType: 'payroll',
+    description: 'Processed payroll runs: gross, deductions and net pay per employee.',
+    requiresPrivilege: 'payroll.read',
+    columns: [
+      { key: 'employeeName', label: 'Employee', default: true, group: 'Employee Info' },
+      { key: 'department', label: 'Department', default: true, group: 'Employee Info' },
+      { key: 'monthYear', label: 'Period', default: true, group: 'Payroll' },
+      { key: 'grossSalary', label: 'Gross', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'deductions', label: 'Deductions', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'netSalary', label: 'Net Salary', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'lopDays', label: 'LOP Days', default: false, group: 'Payroll' },
+      { key: 'pfAmount', label: 'PF', default: false, format: 'currency', group: 'Payroll' },
+      { key: 'esiAmount', label: 'ESI', default: false, format: 'currency', group: 'Payroll' },
+      { key: 'taxAmount', label: 'Tax (TDS)', default: false, format: 'currency', group: 'Payroll' },
+      { key: 'loanRecovery', label: 'Loan/Advance Recovery', default: false, format: 'currency', group: 'Payroll' },
+      { key: 'bonusPaid', label: 'Bonus/Reimbursement', default: false, format: 'currency', group: 'Payroll' },
+      { key: 'status', label: 'Status', default: false, group: 'Other' },
+    ],
+    summaryFields: [
+      { key: 'processedCount', label: 'Payslips' },
+      { key: 'totalGross', label: 'Total Gross', format: 'currency' },
+      { key: 'totalDeductions', label: 'Total Deductions', format: 'currency' },
+      { key: 'totalPayout', label: 'Total Net Payout', format: 'currency' },
+      { key: 'avgSalary', label: 'Avg. Salary', format: 'currency' },
+    ],
+  },
+  {
+    id: 'overtime',
+    label: 'Shift & Overtime',
+    backendType: 'overtime',
+    description: 'Overtime hours and late arrivals, same attendance data filtered to what needs review.',
+    toggleFilters: [
+      { key: 'overtimeOnly', label: 'Overtime Only' },
+      { key: 'lateOnly', label: 'Late Only' },
+    ],
+    columns: [
+      { key: 'employeeName', label: 'Employee', default: true, group: 'Employee Info' },
+      { key: 'department', label: 'Department', default: true, group: 'Employee Info' },
+      { key: 'date', label: 'Date', default: true, group: 'Attendance' },
+      { key: 'checkIn', label: 'Check In', default: true, group: 'Attendance' },
+      { key: 'checkOut', label: 'Check Out', default: true, group: 'Attendance' },
+      { key: 'workingHours', label: 'Working Hours', default: true, format: 'hours', group: 'Attendance' },
+      { key: 'overtimeHours', label: 'Overtime', default: true, format: 'hours', group: 'Attendance' },
+      { key: 'lateMins', label: 'Late (mins)', default: true, group: 'Attendance' },
+    ],
+    summaryFields: [
+      { key: 'totalHours', label: 'Total Hours', format: 'hours' },
+      { key: 'overtimeHours', label: 'Total Overtime', format: 'hours' },
+      { key: 'lateCount', label: 'Late Instances' },
+    ],
+  },
+  {
+    id: 'consolidated',
+    label: 'Consolidated (Attendance + Leave + Payroll)',
+    backendType: 'consolidated',
+    description: 'One employee-level report merging Attendance, Leave, and Payroll — pick any combination of the three modules.',
+    columns: [
+      { key: 'employeeId', label: 'Employee ID', default: true, group: 'Employee Info' },
+      { key: 'employeeName', label: 'Employee Name', default: true, group: 'Employee Info' },
+      { key: 'department', label: 'Department', default: true, group: 'Employee Info' },
+      { key: 'designation', label: 'Designation', default: true, group: 'Employee Info' },
+      { key: 'attendancePct', label: 'Attendance %', default: true, group: 'Attendance' },
+      { key: 'presentDays', label: 'Present Days', default: true, group: 'Attendance' },
+      { key: 'lateCount', label: 'Late Count', default: false, group: 'Attendance' },
+      { key: 'workingHours', label: 'Working Hours', default: false, format: 'hours', group: 'Attendance' },
+      { key: 'overtimeHours', label: 'Overtime', default: false, format: 'hours', group: 'Attendance' },
+      { key: 'leaveTaken', label: 'Leave Taken', default: true, group: 'Leave' },
+      { key: 'grossPay', label: 'Gross Pay', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'deductions', label: 'Deductions', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'netPay', label: 'Net Pay', default: true, format: 'currency', group: 'Payroll' },
+      { key: 'payrollStatus', label: 'Payroll Status', default: false, group: 'Payroll' },
+    ],
+    summaryFields: [
+      { key: 'totalEmployees', label: 'Total Employees' },
+      { key: 'presentCount', label: 'Present' },
+      { key: 'absentCount', label: 'Absent' },
+      { key: 'leaveTakenTotal', label: 'Leave Taken' },
+      { key: 'totalGross', label: 'Gross Pay', format: 'currency' },
+      { key: 'totalDeductions', label: 'Deductions', format: 'currency' },
+      { key: 'totalPayout', label: 'Net Pay', format: 'currency' },
+    ],
+  },
+  {
+    id: 'compliance',
+    label: 'Compliance',
+    backendType: 'compliance',
+    description: 'Not available yet — no compliance data model exists in this system yet.',
+    comingSoon: true,
+    columns: [],
+    summaryFields: [],
+  },
+];
+
 // Enterprise Metadata-Driven Field Catalog
 export const REPORT_FIELDS_METADATA: ReportFieldMetadata[] = [
   // Employee Info
@@ -169,6 +358,25 @@ export const BUSINESS_TEMPLATES_PRESETS: BusinessTemplatePreset[] = [
     defaultDateRange: 'this_month',
     badge: 'ISO 27001'
   }
+];
+
+export interface ReportLayout {
+  id: string;
+  label: string;
+  description: string;
+}
+
+// Wired into both the live preview (ReportPreview.tsx) and the server PDF/
+// Excel builders (api/services/reportFileExport.ts) via the same
+// themeId/layoutId query params, so switching one changes both identically.
+export const REPORT_LAYOUTS: ReportLayout[] = [
+  { id: 'standard', label: 'Standard Table', description: 'Branded header, data table, totals footer — the default.' },
+  { id: 'executive', label: 'Executive Summary', description: 'KPI cards, charts, insights, and department summary before any table — for a CEO/HR-head-facing read.' },
+  { id: 'employee_summary', label: 'Employee Attendance Summary', description: 'One row per employee — attendance %, present/absent/leave/late, working hours. What HR downloads most.' },
+  { id: 'compact', label: 'Compact Register', description: 'Smaller rows, no summary cards — for printing long rosters.' },
+  { id: 'detailed', label: 'Attendance Register', description: 'One section per employee with their own date-by-date rows and a per-employee summary — for auditors, not a flat repeated-name list.' },
+  { id: 'register', label: 'Register', description: 'Grouped by pay component (payroll) or leave type (leave) instead of one flat table.' },
+  { id: 'weekly_grid', label: 'Weekly Attendance Grid', description: 'One column per day with a status icon per employee, a TOTAL row, and a legend — attendance-type reports only.' },
 ];
 
 // Rich Report Design Themes

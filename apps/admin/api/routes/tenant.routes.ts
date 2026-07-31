@@ -146,11 +146,24 @@ router.get('/api/tenant/analytics', authenticate, async (req: any, res: any) => 
         rejectedToday,
         monthlyCheckIns: monthlyLogs.filter((l: any) => l.type === 'check_in' && l.status === 'approved').length,
         monthlyRejections: monthlyLogs.filter((l: any) => l.status === 'rejected').length,
-        staffByRole: staff.reduce((acc: Record<string, number>, u: any) => {
-          const r = u.role || 'employee';
-          acc[r] = (acc[r] || 0) + 1;
-          return acc;
-        }, {}),
+        // Grouped case-insensitively — role data in this DB has inconsistent
+        // casing across different onboarding paths ('employee' vs 'Employee'
+        // vs 'CASHIER'), which previously split one role into multiple
+        // display buckets (e.g. two separate "EMPLOYEE" rows). The first-seen
+        // casing is kept as the display label; the underlying stored role
+        // string on each user row is never touched, only this aggregate.
+        staffByRole: (() => {
+          const byLowerKey: Record<string, { label: string; count: number }> = {};
+          for (const u of staff) {
+            const raw = u.role || 'employee';
+            const key = raw.toLowerCase();
+            if (!byLowerKey[key]) byLowerKey[key] = { label: raw, count: 0 };
+            byLowerKey[key].count += 1;
+          }
+          const result: Record<string, number> = {};
+          for (const { label, count } of Object.values(byLowerKey)) result[label] = count;
+          return result;
+        })(),
         breakdown,
       });
     } catch (err: any) {

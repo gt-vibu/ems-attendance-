@@ -11,7 +11,10 @@ router.get('/api/tenant/holidays/optional', authenticate, async (req: any, res: 
   try {
     const [settings, holidays, choices] = await Promise.all([
       getOrCreatePayrollSettings(req.user.tenantId),
-      db.select().from(schema.holidays).where(eq(schema.holidays.tenantId, req.user.tenantId)).orderBy(schema.holidays.date),
+      // Only holidays explicitly marked optional are selectable here —
+      // mandatory holidays (isOptional: false, the default) apply to
+      // everyone automatically and are never part of this picker.
+      db.select().from(schema.holidays).where(and(eq(schema.holidays.tenantId, req.user.tenantId), eq(schema.holidays.isOptional, true), eq(schema.holidays.isArchived, false))).orderBy(schema.holidays.date),
       db.select().from(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.userId, req.user.userId)),
     ]);
     const selectedHolidayIds = new Set(choices.map((choice: any) => choice.holidayId));
@@ -35,11 +38,13 @@ router.post('/api/tenant/holidays/optional', authenticate, async (req: any, res:
       const validHolidays = await db.select({ id: schema.holidays.id }).from(schema.holidays).where(
         and(
           eq(schema.holidays.tenantId, req.user.tenantId),
+          eq(schema.holidays.isOptional, true),
+          eq(schema.holidays.isArchived, false),
           inArray(schema.holidays.id, holidayIds),
         )
       );
       if (validHolidays.length !== holidayIds.length) {
-        return res.status(400).json({ error: 'One or more selected holidays are invalid.' });
+        return res.status(400).json({ error: 'One or more selected holidays are invalid or not marked optional.' });
       }
     }
     await db.delete(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.userId, req.user.userId));

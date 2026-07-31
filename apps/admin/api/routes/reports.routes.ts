@@ -7,7 +7,7 @@ import { hasPrivilege } from '../auth/rbac';
 import { sendEmail } from '../../mail.js';
 import { buildReportData, type ReportFilters } from '../services/reportData';
 import { buildCsv } from '../services/reportExport';
-import { buildReportExcel, buildReportPdf, type ReportExportMeta } from '../services/reportFileExport';
+import { buildReportExcel, buildReportPdf, type ReportExportMeta, type ReportColumnMeta, type ReportSummaryFieldMeta } from '../services/reportFileExport';
 import { logToAuditLedger } from '../services/audit';
 
 export const router = Router();
@@ -26,6 +26,7 @@ function parseFiltersFromQuery(req: any): ReportFilters {
     lateOnly: req.query.late === 'true',
     overtimeOnly: req.query.overtime === 'true',
     exceptionsOnly: req.query.exceptions === 'true',
+    modules: typeof req.query.modules === 'string' && req.query.modules.length > 0 ? req.query.modules.split(',') : undefined,
   };
 }
 
@@ -49,16 +50,125 @@ function describeFilters(filters: ReportFilters): string {
 
 async function buildExportMeta(req: any, title: string, filters: ReportFilters): Promise<ReportExportMeta> {
   const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+  const tenant = tenantRows[0];
+
+  let branchLabel = 'All Locations';
+  if (filters.branchId) {
+    const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, filters.branchId)).limit(1);
+    if (branchRows[0]) branchLabel = branchRows[0].name;
+  }
+  const filterChips = [
+    { label: 'Department', value: filters.department && filters.department !== 'ALL' ? filters.department : 'All Departments' },
+    { label: 'Location', value: branchLabel },
+    { label: 'Status', value: filters.status && filters.status !== 'ALL' ? filters.status : 'All' },
+  ];
+
   return {
     title,
-    tenantName: tenantRows[0]?.name || 'Organization',
+    tenantName: tenant?.name || 'Organization',
+    tenantAddress: tenant?.reportAddress || null,
+    logoUrl: req.query.logo === 'false' ? null : (tenant?.reportLogoUrl || null),
     generatedByName: req.user.name,
     generatedByEmail: req.user.email,
     generatedAt: new Date(),
-    timezone: tenantRows[0]?.timezone || 'Asia/Kolkata',
+    timezone: tenant?.timezone || 'Asia/Kolkata',
     filtersDescription: describeFilters(filters),
+    filterChips,
+    themeId: (req.query.themeId as string) || undefined,
+    layoutId: (req.query.layoutId as string) || undefined,
+    signatureLine: (req.query.signature as string) || null,
+    showWatermark: req.query.watermark === 'true',
+    pageSize: (req.query.pageSize as 'A4' | 'Letter') || 'A4',
+    orientation: (req.query.orientation as 'auto' | 'portrait' | 'landscape') || 'auto',
   };
 }
+
+// Mirrors REPORT_TYPE_CONFIG's columns/summaryFields (apps/admin/src/
+// components/reports/reportMetadata.ts) — kept as a small server-side
+// constant rather than importing the frontend file into the API build,
+// same reasoning as reportFileExport.ts's THEME_COLORS mirror. Used only
+// to give the PDF/Excel exports real labels instead of raw row/summary
+// object keys.
+const REPORT_COLUMNS_BY_TYPE: Record<string, ReportColumnMeta[]> = {
+  attendance: [
+    { key: 'employeeName', label: 'Employee' }, { key: 'department', label: 'Department' },
+    { key: 'date', label: 'Date' }, { key: 'status', label: 'Status' },
+    { key: 'checkIn', label: 'Check In' }, { key: 'checkOut', label: 'Check Out' },
+    { key: 'lateMins', label: 'Late (mins)' }, { key: 'workingHours', label: 'Working Hours', format: 'hours' },
+    { key: 'overtimeHours', label: 'Overtime', format: 'hours' }, { key: 'isWfh', label: 'WFH', format: 'boolean' },
+    { key: 'verificationMode', label: 'Attendance Mode' }, { key: 'approvalStatus', label: 'Approval Status' },
+    { key: 'notes', label: 'Notes' },
+  ],
+  overtime: [
+    { key: 'employeeName', label: 'Employee' }, { key: 'department', label: 'Department' },
+    { key: 'date', label: 'Date' }, { key: 'checkIn', label: 'Check In' }, { key: 'checkOut', label: 'Check Out' },
+    { key: 'workingHours', label: 'Working Hours', format: 'hours' }, { key: 'overtimeHours', label: 'Overtime', format: 'hours' },
+    { key: 'lateMins', label: 'Late (mins)' },
+  ],
+  leave: [
+    { key: 'employeeName', label: 'Employee' }, { key: 'department', label: 'Department' },
+    { key: 'leaveType', label: 'Leave Type' }, { key: 'startDate', label: 'Start Date' }, { key: 'endDate', label: 'End Date' },
+    { key: 'daysCount', label: 'Days' }, { key: 'status', label: 'Status' }, { key: 'reason', label: 'Reason' },
+    { key: 'appliedOn', label: 'Applied On' },
+  ],
+  payroll: [
+    { key: 'employeeName', label: 'Employee' }, { key: 'department', label: 'Department' },
+    { key: 'monthYear', label: 'Period' }, { key: 'grossSalary', label: 'Gross', format: 'currency' },
+    { key: 'deductions', label: 'Deductions', format: 'currency' }, { key: 'netSalary', label: 'Net Salary', format: 'currency' },
+    { key: 'lopDays', label: 'LOP Days' }, { key: 'status', label: 'Status' },
+    { key: 'pfAmount', label: 'PF', format: 'currency' }, { key: 'esiAmount', label: 'ESI', format: 'currency' },
+    { key: 'taxAmount', label: 'Tax (TDS)', format: 'currency' }, { key: 'loanRecovery', label: 'Loan/Advance Recovery', format: 'currency' },
+    { key: 'bonusPaid', label: 'Bonus/Reimbursement', format: 'currency' },
+  ],
+  employee: [
+    { key: 'employeeId', label: 'Employee ID' }, { key: 'employeeName', label: 'Employee' },
+    { key: 'email', label: 'Email' }, { key: 'role', label: 'Role' }, { key: 'department', label: 'Department' },
+    { key: 'designation', label: 'Designation' }, { key: 'status', label: 'Status' },
+    { key: 'kycStatus', label: 'KYC Status' }, { key: 'joinedDate', label: 'Joined On' },
+  ],
+  // Superset of Attendance + Leave + Payroll columns for the consolidated
+  // employee-level table — the client only ever requests the subset for
+  // the modules the tenant actually selected (via the ?columns= param,
+  // same mechanism every other report type already uses).
+  consolidated: [
+    { key: 'employeeId', label: 'Employee ID' }, { key: 'employeeName', label: 'Employee Name' },
+    { key: 'department', label: 'Department' }, { key: 'designation', label: 'Designation' },
+    { key: 'attendancePct', label: 'Attendance %' }, { key: 'presentDays', label: 'Present Days' },
+    { key: 'lateCount', label: 'Late Count' }, { key: 'workingHours', label: 'Working Hours', format: 'hours' },
+    { key: 'overtimeHours', label: 'Overtime', format: 'hours' }, { key: 'leaveTaken', label: 'Leave Taken' },
+    { key: 'grossPay', label: 'Gross Pay', format: 'currency' }, { key: 'deductions', label: 'Deductions', format: 'currency' },
+    { key: 'netPay', label: 'Net Pay', format: 'currency' }, { key: 'payrollStatus', label: 'Payroll Status' },
+  ],
+};
+
+const REPORT_SUMMARY_BY_TYPE: Record<string, ReportSummaryFieldMeta[]> = {
+  attendance: [
+    { key: 'totalEmployees', label: 'Total Employees' }, { key: 'presentCount', label: 'Present' },
+    { key: 'absentCount', label: 'Absent' }, { key: 'lateCount', label: 'Late' }, { key: 'halfDayCount', label: 'Half Day' },
+    { key: 'totalHours', label: 'Total Hours', format: 'hours' }, { key: 'overtimeHours', label: 'Overtime', format: 'hours' },
+  ],
+  overtime: [
+    { key: 'totalHours', label: 'Total Hours', format: 'hours' }, { key: 'overtimeHours', label: 'Total Overtime', format: 'hours' },
+    { key: 'lateCount', label: 'Late Instances' },
+  ],
+  leave: [
+    { key: 'totalLeaves', label: 'Applied' }, { key: 'approvedCount', label: 'Approved' },
+    { key: 'rejectedCount', label: 'Rejected' }, { key: 'pendingCount', label: 'Pending' }, { key: 'totalDays', label: 'Total Days' },
+  ],
+  payroll: [
+    { key: 'processedCount', label: 'Payslips' }, { key: 'totalGross', label: 'Total Gross', format: 'currency' },
+    { key: 'totalDeductions', label: 'Total Deductions', format: 'currency' }, { key: 'totalPayout', label: 'Total Net Payout', format: 'currency' },
+    { key: 'avgSalary', label: 'Avg. Salary', format: 'currency' },
+  ],
+  employee: [
+    { key: 'totalEmployees', label: 'Total Employees' },
+  ],
+  consolidated: [
+    { key: 'totalEmployees', label: 'Total Employees' }, { key: 'presentCount', label: 'Present' }, { key: 'absentCount', label: 'Absent' },
+    { key: 'leaveTakenTotal', label: 'Leave Taken' }, { key: 'totalGross', label: 'Gross Pay', format: 'currency' },
+    { key: 'totalDeductions', label: 'Deductions', format: 'currency' }, { key: 'totalPayout', label: 'Net Pay', format: 'currency' },
+  ],
+};
 
 /**
  * GET /api/reports/data — the main Reports & Analytics data endpoint.
@@ -105,6 +215,26 @@ router.get('/api/reports/export', authenticate, async (req: any, res: any) => {
     const title = `${filters.type.charAt(0).toUpperCase()}${filters.type.slice(1)} Report`;
     const meta = await buildExportMeta(req, title, filters);
 
+    // REPORT_COLUMNS_BY_TYPE/REPORT_SUMMARY_BY_TYPE are only keyed by the 4
+    // types with dedicated column shapes. buildReportData() (reportData.ts)
+    // only gives 'leave'/'payroll'/'employee' their own builder — every other
+    // filters.type value (executive/compliance/wfh, Advanced Mode's category
+    // tabs) falls through to buildAttendanceReport and is attendance-shaped.
+    // Without this fallback those types resolved to an empty columns array,
+    // which made buildReportPdf's "No data" branch fire even though
+    // buildReportData had already returned real rows.
+    const columnLookupType = ['leave', 'payroll', 'overtime', 'employee', 'consolidated'].includes(filters.type) ? filters.type : 'attendance';
+    const allColumns = REPORT_COLUMNS_BY_TYPE[columnLookupType] || [];
+    const requestedKeys = typeof req.query.columns === 'string' && req.query.columns.length > 0
+      ? new Set(req.query.columns.split(','))
+      : null;
+    const columns = requestedKeys ? allColumns.filter((c) => requestedKeys.has(c.key)) : allColumns;
+    const allSummaryFields = REPORT_SUMMARY_BY_TYPE[columnLookupType] || [];
+    const requestedSummaryKeys = typeof req.query.summaryFields === 'string' && req.query.summaryFields.length > 0
+      ? new Set(req.query.summaryFields.split(','))
+      : null;
+    const summaryFields = requestedSummaryKeys ? allSummaryFields.filter((f) => requestedSummaryKeys.has(f.key)) : allSummaryFields;
+
     await logToAuditLedger({
       tenantId: req.user.tenantId,
       actorId: req.user.userId,
@@ -113,16 +243,20 @@ router.get('/api/reports/export', authenticate, async (req: any, res: any) => {
       details: { reportType: filters.type, format, filters: describeFilters(filters), recordCount: data.rows.length },
     });
 
+    const filenameBase = (typeof req.query.filename === 'string' && req.query.filename.trim())
+      ? req.query.filename.trim().replace(/[^a-z0-9_-]+/gi, '_')
+      : title.replace(/\s+/g, '_');
+
     if (format === 'xlsx') {
-      const buffer = await buildReportExcel(data.rows, data.summary, meta);
+      const buffer = await buildReportExcel(data.rows, data.summary, meta, columns, summaryFields);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.xlsx"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.xlsx"`);
       return res.send(buffer);
     }
 
-    const buffer = await buildReportPdf(data.rows, data.summary, meta);
+    const buffer = await buildReportPdf(data.rows, data.summary, meta, columns, summaryFields);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.pdf"`);
     return res.send(buffer);
   } catch (err: any) {
     logger.error('Error exporting report:', err);

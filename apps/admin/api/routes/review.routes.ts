@@ -15,6 +15,7 @@ import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToke
 import { authenticate } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed } from '../auth/rbac';
+import { notify } from '../services/notificationService';
 import { notifyUsers } from '../services/notifications';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
@@ -151,8 +152,15 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
   // Anyone authenticated in the tenant can view the holiday calendar.
 router.get('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
     try {
+      // includeArchived is for the admin-facing "holiday history" view only
+      // (requires holiday.manage) — every other caller (employee calendar,
+      // optional-holiday picker, notifications) always sees only the live
+      // calendar, matching the "archived = not currently in effect" intent.
+      const includeArchived = req.query.includeArchived === '1' && await hasPrivilege(req.user, 'holiday.manage');
       const list = await db.select().from(schema.holidays)
-        .where(eq(schema.holidays.tenantId, req.user.tenantId))
+        .where(includeArchived
+          ? eq(schema.holidays.tenantId, req.user.tenantId)
+          : and(eq(schema.holidays.tenantId, req.user.tenantId), eq(schema.holidays.isArchived, false)))
         .orderBy(schema.holidays.date);
       res.json({ holidays: list });
     } catch (err: any) {
@@ -169,7 +177,7 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const { date, name, branchId, department } = req.body;
+      const { date, name, branchId, department, isOptional } = req.body;
       if (!date || !name) {
         return res.status(400).json({ error: 'date and name are required' });
       }
@@ -179,7 +187,16 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
         name,
         branchId: branchId ? Number(branchId) : null,
         department: department || null,
+        isOptional: !!isOptional,
       }).returning();
+      await db.insert(schema.holidayHistory).values({
+        holidayId: created[0].id,
+        tenantId: req.user.tenantId,
+        action: 'created',
+        snapshot: { date, name, branchId: branchId ? Number(branchId) : null, department: department || null, isOptional: !!isOptional },
+        actorUserId: req.user.userId,
+        actorName: req.user.name,
+      });
       // Notify affected employees only — a scoped holiday shouldn't spam
       // the whole tenant with a branch/department calendar entry that
       // doesn't apply to them.
@@ -212,8 +229,61 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
       if (holidayList[0].tenantId !== req.user.tenantId) {
         return res.status(403).json({ error: 'Access denied: This holiday does not belong to your organization.' });
       }
-      await db.delete(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      const holiday = holidayList[0];
+      if (holiday.isArchived) {
+        return res.status(400).json({ error: 'This holiday is already archived.' });
+      }
+      // Archive, don't hard-delete — a payroll batch that already
+      // calculated against this holiday must not lose its record of what
+      // the calendar looked like at the time. See holidays.isArchived doc.
+      await db.update(schema.holidays).set({
+        isArchived: true, archivedAt: new Date(), archivedByUserId: req.user.userId,
+      }).where(eq(schema.holidays.id, holiday.id));
+      await db.insert(schema.holidayHistory).values({
+        holidayId: holiday.id,
+        tenantId: req.user.tenantId,
+        action: 'archived',
+        snapshot: { date: holiday.date, name: holiday.name, branchId: holiday.branchId, department: holiday.department, isOptional: holiday.isOptional },
+        actorUserId: req.user.userId,
+        actorName: req.user.name,
+      });
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+router.post('/api/tenant/holidays/:id/restore', authenticate, async (req: any, res: any) => {
+    try {
+      if (!await hasPrivilege(req.user, 'holiday.manage')) {
+        return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+      }
+      const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      if (holidayList.length === 0) return res.status(404).json({ error: 'Holiday not found' });
+      const holiday = holidayList[0];
+      if (holiday.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
+      if (!holiday.isArchived) return res.status(400).json({ error: 'This holiday is not archived.' });
+      await db.update(schema.holidays).set({ isArchived: false, archivedAt: null, archivedByUserId: null }).where(eq(schema.holidays.id, holiday.id));
+      await db.insert(schema.holidayHistory).values({
+        holidayId: holiday.id, tenantId: req.user.tenantId, action: 'restored',
+        snapshot: { date: holiday.date, name: holiday.name, branchId: holiday.branchId, department: holiday.department, isOptional: holiday.isOptional },
+        actorUserId: req.user.userId, actorName: req.user.name,
+      });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+router.get('/api/tenant/holidays/:id/history', authenticate, async (req: any, res: any) => {
+    try {
+      if (!await hasPrivilege(req.user, 'holiday.manage')) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+      const rows = await db.select().from(schema.holidayHistory).where(
+        and(eq(schema.holidayHistory.holidayId, parseInt(req.params.id)), eq(schema.holidayHistory.tenantId, req.user.tenantId))
+      ).orderBy(desc(schema.holidayHistory.createdAt));
+      res.json({ history: rows });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -289,15 +359,24 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
       // Notify whoever can actually approve corrections — routed via
       // resolveApprovers (falls back to the flat privilege fan-out below
       // when the tenant has no routing rules configured for this category).
-      const approvers = await resolveApprovers(req.user.tenantId, 'attendance_correction', req.user.userId, ['attendance.approve.corrections', 'attendance.approve']);
-      for (const approver of approvers) {
-        await sendManagerEscalationEmail(
-          approver.email,
-          approver.name,
-          req.user.name,
-          'Attendance Correction Requested',
-          `${req.user.name} requested an attendance correction for ${requestedDate} (${requestType.replace('_', ' ')}): ${reason}`
-        );
+      const tenantRowCorrection = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRowCorrection, 'unified_notifications')) {
+        await notify(req.user.tenantId, 'attendance_correction_requested', {
+          subjectUserId: req.user.userId,
+          subjectName: req.user.name,
+          data: { requestedDate, requestType: requestType.replace('_', ' '), reason },
+        }).catch(() => undefined);
+      } else {
+        const approvers = await resolveApprovers(req.user.tenantId, 'attendance_correction', req.user.userId, ['attendance.approve.corrections', 'attendance.approve']);
+        for (const approver of approvers) {
+          await sendManagerEscalationEmail(
+            approver.email,
+            approver.name,
+            req.user.name,
+            'Attendance Correction Requested',
+            `${req.user.name} requested an attendance correction for ${requestedDate} (${requestType.replace('_', ' ')}): ${reason}`
+          );
+        }
       }
 
       res.json({ correction: created[0] });
@@ -488,6 +567,22 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
 
       dispatchWebhookEvent(req.user.tenantId, 'attendance.correction_resolved', { correctionId, subjectUserId: correction.userId, status: action === 'approve' ? 'approved' : 'rejected' });
 
+      // This decision was previously never notified to the employee at all —
+      // the request side (line ~294 above) already fires notify(), but the
+      // decision side only updated the DB/audit ledger/webhook. Employees
+      // had no way of knowing their correction was approved/rejected short
+      // of checking the app. Mirrors the exact toggle-gated pattern used for
+      // the request notification.
+      const tenantRowDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRowDecision, 'unified_notifications')) {
+        await notify(req.user.tenantId, 'attendance_correction_decided', {
+          subjectUserId: correction.userId,
+          subjectName: req.user.name,
+          actorId: req.user.userId,
+          data: { requestedDate: correction.requestedDate, requestType: correction.requestType.replace(/_/g, ' '), status: action === 'approve' ? 'approved' : 'rejected', remarks: remarks || null },
+        }).catch(() => undefined);
+      }
+
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -571,20 +666,36 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
       });
 
       if (employee) {
+        const tenantRowDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+        const unifiedOnDecision = isPlatformFeatureAllowed(tenantRowDecision, 'unified_notifications');
         if (isWfh) {
+          if (unifiedOnDecision) {
+            await notify(req.user.tenantId, 'wfh_decided', {
+              subjectUserId: employee.id, subjectName: employee.name,
+              data: { date: new Date(log.createdAt as any).toLocaleDateString(), status: action === 'approve' ? 'approved' : 'rejected' },
+            }).catch(() => undefined);
+          } else {
           await sendWfhDecisionEmail(
             employee.email,
             employee.name,
             new Date(log.createdAt as any).toLocaleDateString(),
             action === 'approve' ? 'approved' : 'rejected'
           );
+          }
         } else {
+          if (unifiedOnDecision) {
+            await notify(req.user.tenantId, 'late_arrival_decided', {
+              subjectUserId: employee.id, subjectName: employee.name,
+              data: { date: new Date(log.createdAt as any).toLocaleDateString(), status: action === 'approve' ? 'approved' : 'rejected' },
+            }).catch(() => undefined);
+          } else {
           await sendLateArrivalDecisionEmail(
             employee.email,
             employee.name,
             new Date(log.createdAt as any).toLocaleDateString(),
             action === 'approve' ? 'approved' : 'rejected'
           );
+          }
         }
       }
 

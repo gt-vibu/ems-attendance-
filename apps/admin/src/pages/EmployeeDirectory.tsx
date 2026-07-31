@@ -363,6 +363,12 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
             >
               View Full Calendar
             </button>
+            <button
+              onClick={() => navigate(`/tenant/reports?employeeId=${selected.id}&tab=attendance`)}
+              className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
+            >
+              View Analytics
+            </button>
             {canResetDevice && selected.employeeStatus !== 'terminated' && (
               <button
                 onClick={() => resetDevice(selected)}

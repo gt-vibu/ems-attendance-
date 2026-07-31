@@ -107,6 +107,8 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
   const [newHolidayDepartment, setNewHolidayDepartment] = useState('');
+  const [newHolidayIsOptional, setNewHolidayIsOptional] = useState(false);
+  const [showArchivedHolidays, setShowArchivedHolidays] = useState(false);
   const canManageHolidays = user.role === 'tenant_admin' || user.role === 'super_admin';
   const [encashmentRequests, setEncashmentRequests] = useState<any[]>([]);
   const [encashmentActioning, setEncashmentActioning] = useState<number | null>(null);
@@ -171,7 +173,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const refreshHolidays = async () => {
     setHolidaysLoading(true);
     try {
-      const res = await fetch('/api/tenant/holidays', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch('/api/tenant/holidays?includeArchived=1', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not load holidays.');
       setHolidays(Array.isArray(data.holidays) ? data.holidays : []);
@@ -399,13 +401,14 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       const res = await fetch('/api/tenant/holidays', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ date: newHolidayDate, name: newHolidayName.trim(), department: newHolidayDepartment.trim() || undefined }),
+        body: JSON.stringify({ date: newHolidayDate, name: newHolidayName.trim(), department: newHolidayDepartment.trim() || undefined, isOptional: newHolidayIsOptional }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add holiday.');
       setNewHolidayDate('');
       setNewHolidayName('');
       setNewHolidayDepartment('');
+      setNewHolidayIsOptional(false);
       setSuccess('Holiday added.');
       await refreshHolidays();
       setTimeout(() => setSuccess(''), 2500);
@@ -426,11 +429,31 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to delete holiday.');
-      setSuccess('Holiday removed.');
+      setSuccess('Holiday archived.');
       await refreshHolidays();
       setTimeout(() => setSuccess(''), 2500);
     } catch (err: any) {
       setError(err.message || 'Failed to delete holiday.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRestoreHoliday = async (id: number) => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/tenant/holidays/${id}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to restore holiday.');
+      setSuccess('Holiday restored.');
+      await refreshHolidays();
+      setTimeout(() => setSuccess(''), 2500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to restore holiday.');
     } finally {
       setSaving(false);
     }
@@ -444,7 +467,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       {/* Top-level tab pills — same visual pattern as the Organization
           Dashboard / Self Service toggle on Dashboard.tsx, reused here so the
           two "portal-within-a-portal" areas of the app read as one system. */}
-      <div className="flex bg-[var(--color-nexus-surface-alt)] p-1 rounded-full border border-[var(--color-nexus-border)] w-fit mb-6 shadow-sm overflow-x-auto">
+      <div className="flex bg-[var(--color-nexus-surface-alt)] p-1 rounded-full border border-[var(--color-nexus-border)] max-w-full w-fit mb-6 shadow-sm overflow-x-auto">
         {TOP_TABS.map((tabDef) => {
           const Icon = tabDef.icon;
           return (
@@ -973,47 +996,78 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
             </div>
 
             {canManageHolidays && (
-              <form onSubmit={handleAddHoliday} className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1">
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Date</label>
-                  <DateSelect value={newHolidayDate} onChange={setNewHolidayDate} required />
+              <form onSubmit={handleAddHoliday} className="mb-6 space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Date</label>
+                    <DateSelect value={newHolidayDate} onChange={setNewHolidayDate} required />
+                  </div>
+                  <div className="flex-[2]">
+                    <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Holiday Name</label>
+                    <input value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} placeholder="Independence Day" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Department (optional)</label>
+                    <input value={newHolidayDepartment} onChange={(e) => setNewHolidayDepartment(e.target.value)} placeholder="Everyone" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                  </div>
+                  <button type="submit" disabled={saving} className="flex items-center justify-center gap-1.5 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50 shrink-0">
+                    <Plus size={14} /> Add Holiday
+                  </button>
                 </div>
-                <div className="flex-[2]">
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Holiday Name</label>
-                  <input value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} placeholder="Independence Day" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
-                </div>
-                <div className="flex-1">
-                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Department (optional)</label>
-                  <input value={newHolidayDepartment} onChange={(e) => setNewHolidayDepartment(e.target.value)} placeholder="Everyone" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
-                </div>
-                <button type="submit" disabled={saving} className="flex items-center justify-center gap-1.5 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
-                  <Plus size={14} /> Add Holiday
-                </button>
+                <label className="flex items-center gap-2 text-xs font-medium text-[var(--color-nexus-ink)] cursor-pointer">
+                  <input type="checkbox" checked={newHolidayIsOptional} onChange={(e) => setNewHolidayIsOptional(e.target.checked)} className="rounded" />
+                  Optional / floater holiday — employees choose whether to take it (up to the Optional Holiday Limit in Payroll Settings), instead of it applying to everyone automatically.
+                </label>
               </form>
             )}
 
+            {canManageHolidays && holidays.some((h: any) => h.isArchived) && (
+              <label className="mb-3 flex items-center gap-2 text-xs font-semibold text-[var(--color-nexus-muted)]">
+                <input type="checkbox" checked={showArchivedHolidays} onChange={(e) => setShowArchivedHolidays(e.target.checked)} className="rounded" />
+                Show archived holidays
+              </label>
+            )}
             {holidaysLoading ? (
               <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading holidays…</div>
-            ) : holidays.length === 0 ? (
+            ) : holidays.filter((h: any) => showArchivedHolidays || !h.isArchived).length === 0 ? (
               <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No holiday data to display currently.</div>
             ) : (
               <div className="space-y-2">
-                {holidays.map((holiday: any) => (
-                  <div key={holiday.id} className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-3">
-                    <div>
-                      <span className="block text-sm font-bold text-[var(--color-nexus-ink)]">{holiday.name}</span>
-                      <span className="block text-[11px] text-[var(--color-nexus-muted)]">{holiday.date}</span>
+                {holidays.filter((h: any) => showArchivedHolidays || !h.isArchived).map((holiday: any) => (
+                  <div key={holiday.id} className={`flex items-center justify-between gap-4 rounded-2xl border border-[var(--color-nexus-border)] px-5 py-3 ${holiday.isArchived ? 'bg-[var(--color-nexus-surface)] opacity-60' : 'bg-[var(--color-nexus-surface-alt)]'}`}>
+                    <div className="flex items-center gap-2.5">
+                      <div>
+                        <span className="block text-sm font-bold text-[var(--color-nexus-ink)]">{holiday.name}</span>
+                        <span className="block text-[11px] text-[var(--color-nexus-muted)]">{holiday.date}</span>
+                      </div>
+                      {holiday.isOptional && (
+                        <span className="rounded-full bg-[var(--color-nexus-info-soft)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-info)]">Optional</span>
+                      )}
+                      {holiday.isArchived && (
+                        <span className="rounded-full bg-[var(--color-nexus-border)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Archived</span>
+                      )}
                     </div>
                     {canManageHolidays && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteHoliday(holiday.id)}
-                        disabled={saving}
-                        className="rounded-xl p-2 text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] disabled:opacity-50"
-                        title="Remove holiday"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      holiday.isArchived ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreHoliday(holiday.id)}
+                          disabled={saving}
+                          className="rounded-xl px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)] disabled:opacity-50"
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteHoliday(holiday.id)}
+                          disabled={saving}
+                          className="rounded-xl p-2 text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] disabled:opacity-50"
+                          title="Archive holiday"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )
                     )}
                   </div>
                 ))}
@@ -1254,6 +1308,11 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                               <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">{request.employeeName || request.leaveType}</h4>
                               <StatusPill tone="info">{request.leaveType}</StatusPill>
                               <StatusPill tone={STATUS_TONE[(request.status || 'pending') as keyof typeof STATUS_TONE] || 'warning'}>{request.status}</StatusPill>
+                              {request.status === 'pending' && request.escalationLevel > 0 && (
+                                <StatusPill tone="warning">
+                                  Escalated to {request.escalationLevel === 1 ? 'GM' : 'Tenant Admin'}
+                                </StatusPill>
+                              )}
                             </div>
                             <p className="text-xs text-[var(--color-nexus-muted)]">{[request.employeeEmail, request.department, request.role].filter(Boolean).join(' • ')}</p>
                             <p className="text-xs text-[var(--color-nexus-muted)]">{request.startDate} to {request.endDate} • {request.totalDays} day(s)</p>

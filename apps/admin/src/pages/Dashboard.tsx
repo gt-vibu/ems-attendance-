@@ -11,6 +11,8 @@ import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
 import TicketsPanel from '../components/TicketsPanel';
 import OrgChart from '../components/OrgChart';
 import BulkHireImport from '../components/BulkHireImport';
+import ConfigHealthWidget from '../components/ConfigHealthWidget';
+import SlaDashboardWidget from '../components/SlaDashboardWidget';
 import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
@@ -59,6 +61,61 @@ function preloadNavPages() {
   import('./LeaveManagementPage');
   import('./PayrollPage');
   import('./EmployeeDirectory');
+}
+
+// Purely a display grouping for the Super Admin's platform-feature toggle
+// lists — the flat PLATFORM_FEATURES array (rbac.ts) is the source of
+// truth; this only decides which heading a key renders under, so a new
+// feature key added there just falls into "Other" until this map is
+// updated, never breaks.
+const PLATFORM_FEATURE_CATEGORIES: Record<string, string> = {
+  face_recognition: 'Attendance',
+  wifi_lock: 'Attendance',
+  gps_geofence: 'Attendance',
+  qr_attendance: 'Attendance',
+  attendance_freeze: 'Attendance',
+  missed_checkout_verification: 'Attendance',
+  wfh: 'Attendance',
+  payroll_attendance_driven: 'Payroll',
+  payroll_batches: 'Payroll',
+  payroll_lock_adjustments: 'Payroll',
+  service_accounts: 'Integrations',
+  webhooks: 'Integrations',
+  custom_rbac: 'Organization',
+  notification_routing: 'Organization',
+  unified_notifications: 'Organization',
+  device_identity: 'Employee Experience',
+  device_change: 'Employee Experience',
+  documents: 'Employee Experience',
+};
+const PLATFORM_FEATURE_CATEGORY_ORDER = ['Attendance', 'Payroll', 'Integrations', 'Organization', 'Employee Experience', 'Other'];
+
+function groupPlatformFeatures(features: { key: string; label: string; description: string }[]) {
+  const groups = new Map<string, typeof features>();
+  for (const f of features) {
+    const cat = PLATFORM_FEATURE_CATEGORIES[f.key] || 'Other';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(f);
+  }
+  return PLATFORM_FEATURE_CATEGORY_ORDER
+    .filter((cat) => groups.has(cat))
+    .map((cat) => ({ category: cat, features: groups.get(cat)! }));
+}
+
+// Soft warning only — never blocks saving. Returns human labels, not keys,
+// so the banner reads as a sentence instead of a debug dump.
+function unmetPlatformDependencies(selected: string[], dependencies: Record<string, string[]>, features: { key: string; label: string }[]): string[] {
+  const labelOf = (key: string) => features.find((f) => f.key === key)?.label || key;
+  const warnings: string[] = [];
+  for (const key of selected) {
+    const deps = dependencies[key];
+    if (!deps) continue;
+    const missing = deps.filter((d) => !selected.includes(d));
+    if (missing.length > 0) {
+      warnings.push(`${labelOf(key)} usually needs ${missing.map(labelOf).join(', ')} enabled too.`);
+    }
+  }
+  return warnings;
 }
 
 export default function Dashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
@@ -177,7 +234,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // ==========================================
   const {
     tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
-    selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures,
+    selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures, platformFeatureDependencies, featureUsage, jobScheduler, systemHealth,
     undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData, handleToggleTenantStatus, handleDeleteTenant, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
@@ -992,6 +1049,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               {/* ======================================================== */}
               {homeTabMode === 'organization' && (
                 <div className="space-y-6">
+                  {user.role === 'tenant_admin' && <ConfigHealthWidget />}
+                  {(user.role === 'tenant_admin' || user.role === 'manager') && <SlaDashboardWidget />}
                   {/* Stat card row — single responsive row of equal-width
                       cards (Total Staff, Present/Absent/Late Today, Pending
                       Leave Requests, Payroll This Month), matching the
@@ -1822,6 +1881,26 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Analytics */}
             {activeTab === 'analytics' && superAnalytics && (
               <div className="space-y-6">
+                {systemHealth && (
+                  <div className="nexus-card rounded-2xl p-5">
+                    <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">System Health</h3>
+                    <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Platform operating condition — checked live, not cached.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {systemHealth.checks.map((c: any) => {
+                        const tone = c.status === 'healthy' ? 'bg-emerald-100 text-emerald-700' : c.status === 'not_configured' ? 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]' : c.status === 'unhealthy' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
+                        return (
+                          <div key={c.id} className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{c.label}</span>
+                              <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${tone}`}>{c.status.replace('_', ' ')}</span>
+                            </div>
+                            <p className="text-[10px] text-[var(--color-nexus-muted)]">{c.detail}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="nexus-card  rise-in rounded-2xl p-4" style={{ animationDelay: '0ms' }}>
                     <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Total Tenants</span>
@@ -1894,6 +1973,71 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     )}
                   </div>
                 </div>
+
+                <div className="nexus-card rounded-2xl p-5 mt-6">
+                  <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">Feature Usage Analytics</h3>
+                  <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Adoption (tenants with the module enabled) vs. actual usage in the last 30 days.</p>
+                  {featureUsage.length === 0 ? (
+                    <p className="text-xs text-[var(--color-nexus-muted)] text-center py-8">No feature usage data yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {[...featureUsage].sort((a: any, b: any) => b.adoptionPercent - a.adoptionPercent).map((f: any) => (
+                        <div key={f.key} className="flex items-center gap-3">
+                          <span className="text-xs font-semibold text-[var(--color-nexus-ink)] w-44 shrink-0 truncate" title={f.label}>{f.label}</span>
+                          <div className="flex-1 h-2 rounded-full bg-[var(--color-nexus-surface-alt)] overflow-hidden">
+                            <div className="h-full bg-[var(--color-nexus-primary)] rounded-full" style={{ width: `${f.adoptionPercent}%` }} />
+                          </div>
+                          <span className="text-[11px] font-bold text-[var(--color-nexus-muted)] w-14 text-right shrink-0">{f.adoptionPercent}%</span>
+                          <span className="text-[10px] text-[var(--color-nexus-muted)] w-32 shrink-0 text-right">
+                            {f.tenantsActiveUsage === null ? 'not instrumented' : `${f.tenantsActiveUsage}/${f.tenantsEnabled} actively used`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {jobScheduler && (
+                  <div className="nexus-card rounded-2xl p-5 mt-6">
+                    <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">Job Scheduler</h3>
+                    <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Live view of the background job queue (background_jobs), last 500 rows.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                      {(['pending', 'running', 'done', 'failed'] as const).map((s) => (
+                        <div key={s} className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3 text-center">
+                          <span className={`text-xl font-black block ${s === 'failed' ? 'text-[var(--color-nexus-error)]' : s === 'running' ? 'text-amber-600' : s === 'done' ? 'text-emerald-600' : 'text-[var(--color-nexus-ink)]'}`}>{jobScheduler.summary[s] || 0}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{s}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {Object.keys(jobScheduler.byType || {}).length > 0 && (
+                      <div className="mb-4">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-2">By job type</div>
+                        <div className="space-y-1.5">
+                          {Object.entries(jobScheduler.byType).map(([type, counts]: [string, any]) => (
+                            <div key={type} className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-[var(--color-nexus-ink)]">{type}</span>
+                              <span className="text-[var(--color-nexus-muted)]">
+                                {counts.pending} pending · {counts.running} running · {counts.done} done{counts.failed > 0 ? ` · ${counts.failed} failed` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {jobScheduler.recentFailures.length > 0 && (
+                      <div>
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] mb-2">Recent failures</div>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                          {jobScheduler.recentFailures.map((j: any) => (
+                            <div key={j.id} className="text-[11px] p-2 rounded-lg bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]">
+                              <span className="font-bold">{j.jobType}</span> (attempt {j.attempts}/{j.maxAttempts}) — {j.lastError || 'no error message'}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2102,24 +2246,35 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Requested: <strong>{selectedRequest.plan}</strong> — you can change it before onboarding.</p>
               </div>
 
-              <div className="space-y-3 mb-8 max-h-80 overflow-y-auto">
-                <span className="block text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider">Features Package</span>
-
-                {platformFeatures.map((f) => (
-                  <label key={f.key} className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedFeatures.includes(f.key)}
-                      onChange={() => toggleFeature(f.key)}
-                      className="w-4 h-4 accent-[var(--color-nexus-primary)]"
-                    />
-                    <div>
-                      <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
-                      <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+              <div className="space-y-4 mb-4 max-h-80 overflow-y-auto">
+                {groupPlatformFeatures(platformFeatures).map((group) => (
+                  <div key={group.category}>
+                    <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">{group.category}</span>
+                    <div className="space-y-2">
+                      {group.features.map((f) => (
+                        <label key={f.key} className="flex items-center gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={selectedFeatures.includes(f.key)}
+                            onChange={() => toggleFeature(f.key)}
+                            className="w-4 h-4 accent-[var(--color-nexus-primary)]"
+                          />
+                          <div>
+                            <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
+                            <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
+
+              {unmetPlatformDependencies(selectedFeatures, platformFeatureDependencies, platformFeatures).length > 0 && (
+                <div className="mb-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 space-y-1">
+                  {unmetPlatformDependencies(selectedFeatures, platformFeatureDependencies, platformFeatures).map((w, i) => <div key={i}>⚠ {w}</div>)}
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button 
@@ -2196,25 +2351,38 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Plan Features — {editFeaturesTenant.name}</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Only modules checked here can ever be turned on or delegated by this tenant's admin. Unchecking a module the tenant is already using disables it immediately.</p>
 
-              <div className="space-y-2 mb-6 max-h-96 overflow-y-auto">
-                {platformFeatures.map((f) => (
-                  <label
-                    key={f.key}
-                    className="flex items-start gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editFeaturesSelected.includes(f.key)}
-                      onChange={() => toggleEditFeature(f.key)}
-                      className="mt-0.5 w-4 h-4 accent-[var(--color-nexus-primary)]"
-                    />
-                    <div>
-                      <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
-                      <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+              <div className="space-y-4 mb-4 max-h-96 overflow-y-auto">
+                {groupPlatformFeatures(platformFeatures).map((group) => (
+                  <div key={group.category}>
+                    <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">{group.category}</span>
+                    <div className="space-y-2">
+                      {group.features.map((f) => (
+                        <label
+                          key={f.key}
+                          className="flex items-start gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editFeaturesSelected.includes(f.key)}
+                            onChange={() => toggleEditFeature(f.key)}
+                            className="mt-0.5 w-4 h-4 accent-[var(--color-nexus-primary)]"
+                          />
+                          <div>
+                            <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
+                            <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
+
+              {unmetPlatformDependencies(editFeaturesSelected, platformFeatureDependencies, platformFeatures).length > 0 && (
+                <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 space-y-1">
+                  {unmetPlatformDependencies(editFeaturesSelected, platformFeatureDependencies, platformFeatures).map((w, i) => <div key={i}>⚠ {w}</div>)}
+                </div>
+              )}
 
               <div className="flex gap-3">
                 <button
@@ -2791,6 +2959,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck, visible: hasAnyPrivilege('tenant.config.manage') },
                     { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
                     { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
+                    // No privilege gate — everyone can delegate whatever
+                    // privileges they themselves hold, and everyone can see
+                    // what's been delegated to them (server enforces the
+                    // "can't hand out what you don't have" rule).
+                    { id: 'delegation', label: 'Delegation', icon: Users2, navigateTo: '/tenant/delegation', visible: true },
+                    { id: 'business-calendar', label: 'Business Calendar', icon: CalendarDays, navigateTo: '/tenant/business-calendar', visible: true },
                     { id: 'approval-routing', label: 'Approval Routing', icon: Users, navigateTo: '/tenant/approval-routing', visible: hasAnyPrivilege('approval_routing.manage') },
                     { id: 'reports', label: 'Reports & Analytics', icon: BarChart2, navigateTo: '/tenant/reports', visible: hasAnyPrivilege('reports.view') },
                     { id: 'devices', label: 'Device Approvals', icon: Smartphone, count: deviceRequests.filter((d: any) => d.status === 'pending').length, visible: user.deviceChangeEnabled !== false && hasAnyPrivilege('settings.edit') },

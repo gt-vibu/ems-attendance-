@@ -74,6 +74,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     features: [
       { key: 'reports.view', label: 'View Reports & Audit Ledger', description: 'Access analytics, exports, and the immutable audit trail.' },
       { key: 'reports.schedule', label: 'Schedule Recurring Reports', description: 'Set up a report to auto-generate and email on a daily, weekly, or monthly cadence.' },
+      { key: 'reports.quick_mode', label: 'Quick Reports Presets', description: '2-3 click preset buttons (Today/This Week/This Month/Employee/Department/Payroll/Leave) shown above the full filter panel. Pure UX addition — the underlying data and permissions are unchanged.' },
     ],
   },
   {
@@ -86,6 +87,16 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'payroll.read', label: 'View Payroll Analytics', description: 'See salary breakup, payroll summaries, and per-role or per-department cost reports.' },
       { key: 'payroll.manage', label: 'Manage Payroll Structures', description: 'Configure CTC, salary components, overtime rates, and payroll settings for any employee.' },
       { key: 'payroll.lock', label: 'Lock Payroll Periods', description: 'Close a generated payroll period so it can never be silently recalculated — later attendance corrections against a locked period create a Payroll Adjustment instead. One-way: there is no unlock.' },
+      { key: 'payroll.calendar.manage', label: 'Manage Payroll Calendar', description: 'Set the freeze/calculation/HR-review/finance-review/release/salary-credit dates a tenant\'s payroll batches follow.' },
+      { key: 'payroll.batch.create', label: 'Create & Calculate Payroll Batches', description: 'Start a new payroll batch for a period and run its calculation across all employees.' },
+      { key: 'payroll.review.hr', label: 'HR Payroll Review', description: 'Review a calculated payroll batch and submit it forward to Finance review.' },
+      { key: 'payroll.review.finance', label: 'Finance Payroll Review', description: 'Review an HR-approved payroll batch and submit it forward for final approval.' },
+      { key: 'payroll.approve', label: 'Approve Payroll Batch', description: 'Give final approval to a payroll batch after HR and Finance review, unlocking payslip generation.' },
+      { key: 'payroll.release', label: 'Release Payroll', description: 'Release an approved, payslip-generated batch — the point at which employees can see their payslips and the batch becomes eligible for locking.' },
+      { key: 'payroll.loans.manage', label: 'Manage Loans & Advances', description: 'Issue employee loans and salary advances, and set their recovery schedule.' },
+      { key: 'payroll.reimbursements.manage', label: 'Approve Reimbursements', description: 'Review and approve/reject employee-submitted reimbursement claims.' },
+      { key: 'payroll.bonuses.manage', label: 'Manage Bonuses', description: 'Add festival/performance/joining/retention/manual bonuses for an employee.' },
+      { key: 'payroll.settlement.manage', label: 'Manage Final Settlements', description: 'Generate and approve a departing employee\'s final settlement (remaining salary, leave encashment, pending bonus, notice-period and loan/advance recovery), for an already-approved termination.' },
     ],
   },
   {
@@ -198,6 +209,7 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
       { key: 'webhooks.manage', label: 'Manage Webhooks & Integrations', description: 'Create, view, and remove outbound webhook subscriptions for external integrations.' },
       { key: 'serviceAccounts.manage', label: 'Manage API Keys (Service Accounts)', description: 'Create and revoke machine-to-machine API keys used by external integrations.' },
       { key: 'approval_routing.manage', label: 'Manage Approval Routing', description: 'Configure which department/branch/team\'s approval and alert notifications go to which role, specific person, or the employee\'s own reporting manager, instead of the default flat privilege-holder fan-out.' },
+      { key: 'notification_policies.manage', label: 'Manage Notification Policies', description: 'Configure, per event type (auto-absent, missed checkout, leave decided, payroll generated, etc.), whether the employee/manager/HR/admin are notified and via which channels.' },
     ],
   },
 ];
@@ -221,4 +233,11 @@ export const FEATURE_DEPENDENCIES: Record<string, string[]> = {
   'alerts.geofence_exit.resolve': ['alerts.geofence_exit.receive'],
   'alerts.security.resolve': ['alerts.security.receive'],
   'alerts.resolve': ['alerts.receive'],
+  // Releasing payroll without ever having reviewed/approved it isn't a real
+  // workflow — same reasoning as the alerts pairs above.
+  'payroll.release': ['payroll.approve'],
+  // Notification policies configure org-wide behavior (who gets told what)
+  // — treating it as a subset of general company-settings management
+  // instead of a standalone grant.
+  'notification_policies.manage': ['tenant.config.manage'],
 };

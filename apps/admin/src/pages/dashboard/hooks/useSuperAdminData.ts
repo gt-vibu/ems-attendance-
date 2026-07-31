@@ -21,6 +21,10 @@ export function useSuperAdminData(
   const [allTenants, setAllTenants] = useState<any[]>([]);
   const [superAnalytics, setSuperAnalytics] = useState<any>(null);
   const [platformFeatures, setPlatformFeatures] = useState<{ key: string; label: string; description: string }[]>([]);
+  const [platformFeatureDependencies, setPlatformFeatureDependencies] = useState<Record<string, string[]>>({});
+  const [featureUsage, setFeatureUsage] = useState<any[]>([]);
+  const [jobScheduler, setJobScheduler] = useState<any>(null);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
   // Set only when an approval's confirmation email did NOT actually get
   // delivered (unconfigured/misconfigured/blocked mail provider) — the
   // activation link (which embeds the temp password) is the new tenant
@@ -37,21 +41,28 @@ export function useSuperAdminData(
     // ~1x, since they now overlap on the wire instead of queuing.
     try {
       const authHeaders = { 'Authorization': `Bearer ${token}` };
-      const [reqsRes, notifyRes, tenantsRes, analyticsRes, featuresRes] = await Promise.all([
+      const [reqsRes, notifyRes, tenantsRes, analyticsRes, featuresRes, usageRes, jobsRes, healthRes] = await Promise.all([
         fetch('/api/super/requests', { headers: authHeaders }),
         fetch('/api/super/notifications', { headers: authHeaders }),
         fetch('/api/super/tenants', { headers: authHeaders }),
         fetch('/api/super/analytics', { headers: authHeaders }),
         fetch('/api/super/platform-features', { headers: authHeaders }),
+        fetch('/api/super/feature-usage', { headers: authHeaders }),
+        fetch('/api/super/job-scheduler', { headers: authHeaders }),
+        fetch('/api/super/system-health', { headers: authHeaders }),
       ]);
-      const [reqsData, notifyData, tenantsData, analyticsData, featuresData] = await Promise.all([
-        reqsRes.json(), notifyRes.json(), tenantsRes.json(), analyticsRes.json(), featuresRes.json(),
+      const [reqsData, notifyData, tenantsData, analyticsData, featuresData, usageData, jobsData, healthData] = await Promise.all([
+        reqsRes.json(), notifyRes.json(), tenantsRes.json(), analyticsRes.json(), featuresRes.json(), usageRes.json(), jobsRes.json(), healthRes.json(),
       ]);
       if (reqsData.requests) setTenancyRequests(reqsData.requests);
       if (notifyData.notifications) setNotifications(notifyData.notifications);
       if (tenantsData.tenants) setAllTenants(tenantsData.tenants);
       setSuperAnalytics(analyticsData);
       if (Array.isArray(featuresData.features)) setPlatformFeatures(featuresData.features);
+      if (featuresData.dependencies && typeof featuresData.dependencies === 'object') setPlatformFeatureDependencies(featuresData.dependencies);
+      if (Array.isArray(usageData.features)) setFeatureUsage(usageData.features);
+      if (jobsData.summary) setJobScheduler(jobsData);
+      if (Array.isArray(healthData.checks)) setSystemHealth(healthData);
     } catch (err) {
       console.error(err);
     }
@@ -262,6 +273,10 @@ export function useSuperAdminData(
     allTenants,
     superAnalytics,
     platformFeatures,
+    platformFeatureDependencies,
+    featureUsage,
+    jobScheduler,
+    systemHealth,
     undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData,
     handleToggleTenantStatus,

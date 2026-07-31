@@ -66,7 +66,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     db.select().from(schema.breakSessions).where(and(eq(schema.breakSessions.userId, userId), gte(schema.breakSessions.startTime, rangeStart), lte(schema.breakSessions.startTime, rangeEnd))),
     db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
     db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
-    db.select().from(schema.holidays).where(eq(schema.holidays.tenantId, tenantId)),
+    db.select().from(schema.holidays).where(and(eq(schema.holidays.tenantId, tenantId), eq(schema.holidays.isArchived, false))),
   ]);
 
   const tenant = tenantRows[0] || {};

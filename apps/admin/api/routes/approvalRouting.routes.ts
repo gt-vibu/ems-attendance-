@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
+import { DEFAULT_POLICY_EVENT_TYPES } from '../services/notificationService';
 import { logToAuditLedger } from '../services/audit';
 
 export const router = Router();
@@ -86,11 +87,16 @@ router.delete('/api/tenant/approval-routing/:id', authenticate, async (req: any,
   }
 });
 
-// Notification content overrides — same feature/privilege gate as routing,
-// since both live on the same admin screen (Phase 9).
+// Notification content overrides — gated the same as Notification Policies
+// (notification_policies.manage + unified_notifications), not Approval
+// Routing: templates are edited from the Notification Policies screen's
+// Templates tab, not the routing screen, so requiring a separate
+// approval_routing.manage privilege here meant anyone who could manage
+// notification policies still couldn't reach templates. requireNotification-
+// PoliciesFeature is defined further down in this file.
 router.get('/api/tenant/notification-templates', authenticate, async (req: any, res: any) => {
   try {
-    if (!await requireRoutingFeature(req, res)) return;
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
     const templates = await db.select().from(schema.notificationTemplates)
       .where(eq(schema.notificationTemplates.tenantId, req.user.tenantId));
     res.json({ templates });
@@ -101,7 +107,7 @@ router.get('/api/tenant/notification-templates', authenticate, async (req: any, 
 
 router.put('/api/tenant/notification-templates', authenticate, async (req: any, res: any) => {
   try {
-    if (!await requireRoutingFeature(req, res)) return;
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
     const { eventType, channel, subject, body } = req.body || {};
     if (!eventType || !body) return res.status(400).json({ error: 'eventType and body are required.' });
     const resolvedChannel = channel || 'email';
@@ -132,6 +138,181 @@ router.put('/api/tenant/notification-templates', authenticate, async (req: any, 
     });
 
     res.json({ template: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Notification policies (Unified Notification Service, see
+// services/notificationService.ts) — separate feature gate
+// ('unified_notifications') and privilege from the routing/templates
+// above, since a tenant may want the recipient-policy matrix without
+// opting into the whole approval-routing engine.
+async function requireNotificationPoliciesFeature(req: any, res: any): Promise<boolean> {
+  if (!await hasPrivilege(req.user, 'notification_policies.manage')) {
+    res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    return false;
+  }
+  if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'unified_notifications')) {
+    res.status(403).json({ error: 'Unified Notification Policies is not included in your organization\'s plan.' });
+    return false;
+  }
+  return true;
+}
+
+router.get('/api/tenant/notification-policies', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const rows = await db.select().from(schema.notificationPolicies).where(eq(schema.notificationPolicies.tenantId, req.user.tenantId));
+    res.json({ policies: rows, eventTypes: DEFAULT_POLICY_EVENT_TYPES });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/tenant/notification-policies', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const { eventType, notifyEmployee, notifyManager, notifyHR, notifyAdmin, channels, scopeHrToDepartment } = req.body || {};
+    if (!eventType) return res.status(400).json({ error: 'eventType is required.' });
+    const resolvedChannels = Array.isArray(channels) && channels.length > 0 ? channels : ['in_app', 'email'];
+
+    const existing = await db.select().from(schema.notificationPolicies).where(
+      and(eq(schema.notificationPolicies.tenantId, req.user.tenantId), eq(schema.notificationPolicies.eventType, eventType))
+    ).limit(1);
+
+    let saved;
+    if (existing.length > 0) {
+      [saved] = await db.update(schema.notificationPolicies)
+        .set({ notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin, channels: resolvedChannels, scopeHrToDepartment: !!scopeHrToDepartment })
+        .where(eq(schema.notificationPolicies.id, existing[0].id))
+        .returning();
+    } else {
+      [saved] = await db.insert(schema.notificationPolicies).values({
+        tenantId: req.user.tenantId, eventType,
+        notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin,
+        channels: resolvedChannels, scopeHrToDepartment: !!scopeHrToDepartment,
+      }).returning();
+    }
+
+    await logToAuditLedger({
+      tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name,
+      action: 'NOTIFICATION_POLICY_SAVED', details: { eventType },
+    });
+
+    res.json({ policy: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Notification History — real Sent/Failed rows written by
+// registerNotificationDeliveryHandler (notificationService.ts) as each
+// delivery actually happens. Most recent 100 for the tenant.
+router.get('/api/tenant/notification-log', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const rows = await db.select({
+      id: schema.notificationLog.id,
+      eventType: schema.notificationLog.eventType,
+      channel: schema.notificationLog.channel,
+      status: schema.notificationLog.status,
+      error: schema.notificationLog.error,
+      createdAt: schema.notificationLog.createdAt,
+      recipientName: schema.users.name,
+    }).from(schema.notificationLog)
+      .leftJoin(schema.users, eq(schema.notificationLog.recipientUserId, schema.users.id))
+      .where(eq(schema.notificationLog.tenantId, req.user.tenantId))
+      .orderBy(desc(schema.notificationLog.createdAt))
+      .limit(100);
+    res.json({ entries: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Recipient Groups — reusable {employee/manager/HR/admin, channels} presets
+// (see notificationRecipientGroups in schema.ts for why applying a group is
+// a one-time copy into notification_policies, not a live reference).
+router.get('/api/tenant/notification-recipient-groups', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const groups = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.tenantId, req.user.tenantId));
+    res.json({ groups });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tenant/notification-recipient-groups', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const { name, notifyEmployee, notifyManager, notifyHR, notifyAdmin, channels } = req.body || {};
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required.' });
+    const resolvedChannels = Array.isArray(channels) && channels.length > 0 ? channels : ['in_app', 'email'];
+    const [created] = await db.insert(schema.notificationRecipientGroups).values({
+      tenantId: req.user.tenantId, name: String(name).trim(),
+      notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin,
+      channels: resolvedChannels,
+    }).returning();
+    await logToAuditLedger({
+      tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name,
+      action: 'NOTIFICATION_RECIPIENT_GROUP_CREATED', details: { groupId: created.id, name: created.name },
+    });
+    res.json({ group: created });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/tenant/notification-recipient-groups/:id', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const id = parseInt(req.params.id, 10);
+    const rows = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id)).limit(1);
+    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Recipient group not found.' });
+    await db.delete(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Applies a saved group's recipient/channel settings to one or more event
+// types in one request — the "avoid repeating the same configuration
+// across dozens of notification types" ask. Reuses the exact upsert logic
+// PUT /api/tenant/notification-policies already has, just looped.
+router.post('/api/tenant/notification-recipient-groups/:id/apply', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const id = parseInt(req.params.id, 10);
+    const eventTypes: string[] = Array.isArray(req.body?.eventTypes) ? req.body.eventTypes : [];
+    if (eventTypes.length === 0) return res.status(400).json({ error: 'eventTypes must be a non-empty array.' });
+    const groupRows = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id)).limit(1);
+    if (groupRows.length === 0 || groupRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Recipient group not found.' });
+    const group = groupRows[0];
+
+    for (const eventType of eventTypes) {
+      const existing = await db.select().from(schema.notificationPolicies).where(
+        and(eq(schema.notificationPolicies.tenantId, req.user.tenantId), eq(schema.notificationPolicies.eventType, eventType))
+      ).limit(1);
+      const values = {
+        notifyEmployee: group.notifyEmployee, notifyManager: group.notifyManager, notifyHR: group.notifyHR, notifyAdmin: group.notifyAdmin,
+        channels: group.channels,
+      };
+      if (existing.length > 0) {
+        await db.update(schema.notificationPolicies).set(values).where(eq(schema.notificationPolicies.id, existing[0].id));
+      } else {
+        await db.insert(schema.notificationPolicies).values({ tenantId: req.user.tenantId, eventType, ...values });
+      }
+    }
+
+    await logToAuditLedger({
+      tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name,
+      action: 'NOTIFICATION_RECIPIENT_GROUP_APPLIED', details: { groupId: id, groupName: group.name, eventTypes },
+    });
+
+    res.json({ success: true, appliedTo: eventTypes.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

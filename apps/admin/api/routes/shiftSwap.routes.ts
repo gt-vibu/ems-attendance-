@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { eq, and, or, desc } from 'drizzle-orm';
+import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, getUsersWithPrivilege } from '../auth/rbac';
+import { hasPrivilege, getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { getEffectiveShiftId } from '../services/shiftOverrides';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser, notifyUsers } from '../services/notifications';
+import { notify } from '../services/notificationService';
 import { dispatchWebhookEvent } from '../services/webhooks';
 
 export const router = Router();
@@ -53,7 +54,16 @@ router.post('/api/tenant/shift-swap', authenticate, async (req: any, res: any) =
       reason: reason || null,
     }).returning();
 
-    await notifyUser(target.id, 'Shift swap request', `${req.user.name} wants to swap shifts with you on ${swapDate}.`);
+    const tenantRowSwap = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowSwap, 'unified_notifications')) {
+      await notify(tenantId, 'shift_swap_requested', {
+        subjectUserId: target.id,
+        subjectName: target.name,
+        data: { requesterName: req.user.name, swapDate },
+      }).catch(() => undefined);
+    } else {
+      await notifyUser(target.id, 'Shift swap request', `${req.user.name} wants to swap shifts with you on ${swapDate}.`);
+    }
 
     res.json({ success: true, request });
   } catch (err: any) {
@@ -205,7 +215,15 @@ router.post('/api/tenant/shift-swap/:id/action', authenticate, async (req: any, 
     const message = action === 'approve'
       ? `Your shift swap for ${request.swapDate} was approved.`
       : `Your shift swap for ${request.swapDate} was rejected.`;
-    await notifyUsers([request.requesterId, request.targetUserId], `Shift swap ${action === 'approve' ? 'approved' : 'rejected'}`, message);
+    const tenantRowDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, request.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowDecision, 'unified_notifications')) {
+      const parties = await db.select().from(schema.users).where(inArray(schema.users.id, [request.requesterId, request.targetUserId]));
+      await Promise.all(parties.map((u: any) =>
+        notify(request.tenantId, 'shift_swap_decided', { subjectUserId: u.id, subjectName: u.name, data: { swapDate: request.swapDate, action } }).catch(() => undefined)
+      ));
+    } else {
+      await notifyUsers([request.requesterId, request.targetUserId], `Shift swap ${action === 'approve' ? 'approved' : 'rejected'}`, message);
+    }
     if (action === 'approve') {
       dispatchWebhookEvent(request.tenantId, 'shift.swap_approved', { requestId: request.id, requesterId: request.requesterId, targetUserId: request.targetUserId, swapDate: request.swapDate });
     }

@@ -23,7 +23,10 @@ import { tenantDateKey } from './tenantTime';
 // session already fixed once in the calendar components.
 
 export interface ReportFilters {
-  type: string; // 'attendance' | 'executive' | 'overtime' | 'compliance' | 'wfh' | 'leave' | 'payroll' | 'employee'
+  type: string; // 'attendance' | 'executive' | 'overtime' | 'compliance' | 'wfh' | 'leave' | 'payroll' | 'employee' | 'consolidated'
+  // Which modules to merge when type === 'consolidated' — subset of
+  // ['attendance','leave','payroll']. Ignored for every other type.
+  modules?: string[];
   startDate?: string; // 'YYYY-MM-DD', defaults to today (tenant-local) if omitted
   endDate?: string; // 'YYYY-MM-DD', defaults to today (tenant-local) if omitted
   department?: string;
@@ -128,7 +131,7 @@ export async function buildReportData(tenantId: number, requestUser: any, filter
 
   const emptyResult = {
     type: filters.type,
-    summary: { totalEmployees: 0, presentCount: 0, absentCount: 0, lateCount: 0, wfhCount: 0, leaveCount: 0, totalHours: '0.0', overtimeHours: '0.0', attendancePct: 0 },
+    summary: { totalEmployees: 0, presentCount: 0, absentCount: 0, lateCount: 0, halfDayCount: 0, wfhCount: 0, leaveCount: 0, totalHours: '0.0', overtimeHours: '0.0', attendancePct: 0 },
     rows: [] as any[],
     charts: { dailyTrend: [] as any[], departmentBreakdown: [] as any[] },
   };
@@ -145,6 +148,11 @@ export async function buildReportData(tenantId: number, requestUser: any, filter
   if (filters.type === 'leave') return buildLeaveReport(tenantId, targetUserIds, employeeMap, filters, startKey, endKey);
   if (filters.type === 'payroll') return buildPayrollReport(tenantId, targetUserIds, employeeMap, requestUser);
   if (filters.type === 'employee') return buildEmployeeReport(filteredEmployees);
+  if (filters.type === 'consolidated') {
+    return buildConsolidatedReport(
+      tenant, tenantId, targetUserIds, employeeMap, filteredEmployees.length, filters, start, end, startKey, endKey, requestUser,
+    );
+  }
 
   // attendance / executive / overtime / compliance / wfh all share the same
   // underlying per-day data, just displayed/filtered differently.
@@ -190,7 +198,7 @@ async function buildAttendanceReport(
   const rows: any[] = [];
   const dailyMap = new Map<string, { present: number; late: number; wfh: number }>();
   const deptMap = new Map<string, { present: number; total: number; late: number }>();
-  let presentCount = 0, lateCount = 0, wfhCount = 0, leaveCount = 0, holidayCount = 0, weekendCount = 0, absentCount = 0;
+  let presentCount = 0, lateCount = 0, wfhCount = 0, leaveCount = 0, holidayCount = 0, weekendCount = 0, absentCount = 0, halfDayCount = 0;
   let totalWorkedMinutes = 0, totalOvertimeMinutes = 0;
 
   for (const userId of targetUserIds) {
@@ -222,6 +230,7 @@ async function buildAttendanceReport(
         const isPresent = entry.status === 'present' || entry.status === 'late' || entry.status === 'half_day' || entry.status === 'regularized' || entry.status === 'business_travel';
         if (isPresent) { presentCount++; deptMap.get(dept)!.present += 1; }
         if (entry.status === 'late') { lateCount++; deptMap.get(dept)!.late += 1; }
+        if (entry.status === 'half_day') halfDayCount++;
         if (isWfh) wfhCount++;
         if (entry.status === 'paid_leave' || entry.status === 'unpaid_leave') leaveCount++;
         if (entry.status === 'holiday') holidayCount++;
@@ -278,6 +287,7 @@ async function buildAttendanceReport(
       presentCount,
       absentCount,
       lateCount,
+      halfDayCount,
       wfhCount,
       leaveCount,
       totalHours: (totalWorkedMinutes / 60).toFixed(1),
@@ -352,6 +362,23 @@ async function buildPayrollReport(tenantId: number, targetUserIds: number[], emp
 
   const payrolls = await db.select().from(schema.payrollRuns).where(inArray(schema.payrollRuns.userId, targetUserIds)).orderBy(desc(schema.payrollRuns.year), desc(schema.payrollRuns.month));
 
+  // Statutory/loan/bonus figures are read from the same `breakdown` jsonb
+  // buildPayrollSummary/payrollBatchCalculation already write (component
+  // list for legacy rows, plus loan_recovery/bonus/reimbursement lines for
+  // batch-calculated rows) — the Financial Ledger (payroll_ledger_entries)
+  // is the more precise source once a batch has run, but scanning
+  // breakdown here means this report works for legacy (non-batch) rows too,
+  // not just batch-created ones.
+  function sumBreakdown(breakdown: any, matchers: RegExp[], types: string[]): number {
+    if (!Array.isArray(breakdown)) return 0;
+    return breakdown.reduce((sum: number, item: any) => {
+      if (types.includes(item?.type)) return sum + Math.abs(Number(item.amount) || 0);
+      const name = String(item?.componentName || '').toLowerCase();
+      if (matchers.some((re) => re.test(name))) return sum + Math.abs(Number(item.monthlyAmount ?? item.amount) || 0);
+      return sum;
+    }, 0);
+  }
+
   const rows = payrolls.map((p: any) => {
     const emp = employeeMap.get(p.userId) || {};
     return {
@@ -364,6 +391,11 @@ async function buildPayrollReport(tenantId: number, targetUserIds: number[], emp
       netSalary: Number(p.netPay) || 0,
       deductions: Number(p.leaveDeduction || 0) + Number(p.lopDeduction || 0),
       lopDays: Number(p.unpaidAbsenceDays) || 0,
+      pfAmount: sumBreakdown(p.breakdown, [/\bpf\b|provident/], []),
+      esiAmount: sumBreakdown(p.breakdown, [/\besi\b/], []),
+      taxAmount: sumBreakdown(p.breakdown, [/\btax\b|tds/], []),
+      loanRecovery: sumBreakdown(p.breakdown, [], ['loan_recovery', 'advance_recovery']),
+      bonusPaid: sumBreakdown(p.breakdown, [], ['bonus', 'reimbursement']),
       status: p.status || 'draft',
       processedOn: p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '-',
     };
@@ -397,6 +429,132 @@ async function buildPayrollReport(tenantId: number, targetUserIds: number[], emp
     },
     rows,
     charts: { payrollTrend },
+  };
+}
+
+// Merges Attendance + Leave + Payroll (any subset, via filters.modules) into
+// one employee-level row set. Reuses each module's own builder unchanged —
+// no parallel query logic — then joins the three row sets by employeeId.
+// Payroll requires 'payroll.read'; if the requester doesn't have it and
+// asked for payroll anyway, that module is silently dropped from the
+// consolidated view rather than 403ing the whole report (attendance/leave
+// are still useful to a caller who can't see salary figures).
+async function buildConsolidatedReport(
+  tenant: any, tenantId: number, targetUserIds: number[], employeeMap: Map<number, any>, totalEmployees: number,
+  filters: ReportFilters, start: Date, end: Date, startKey: string, endKey: string, requestUser: any,
+) {
+  const modules = filters.modules && filters.modules.length > 0 ? filters.modules : ['attendance', 'leave', 'payroll'];
+  const wantAttendance = modules.includes('attendance');
+  const wantLeave = modules.includes('leave');
+  const wantPayroll = modules.includes('payroll');
+
+  const [attendance, leave, payroll] = await Promise.all([
+    wantAttendance ? buildAttendanceReport(tenant, tenantId, targetUserIds, employeeMap, totalEmployees, filters, start, end, startKey, endKey) : null,
+    wantLeave ? buildLeaveReport(tenantId, targetUserIds, employeeMap, filters, startKey, endKey) : null,
+    wantPayroll ? buildPayrollReport(tenantId, targetUserIds, employeeMap, requestUser).catch((err) => {
+      if (err?.statusCode === 403) return null; // no payroll.read — degrade gracefully, don't fail the whole report
+      throw err;
+    }) : null,
+  ]);
+
+  // Per-employee attendance rollup (attendanceReport is one row per
+  // employee per day — collapse to one summary row per employee).
+  const attByEmp = new Map<string, { present: number; absent: number; leave: number; late: number; workingHours: number; overtimeHours: number; totalDays: number }>();
+  if (attendance) {
+    for (const r of attendance.rows) {
+      const key = String(r.employeeId);
+      if (!attByEmp.has(key)) attByEmp.set(key, { present: 0, absent: 0, leave: 0, late: 0, workingHours: 0, overtimeHours: 0, totalDays: 0 });
+      const a = attByEmp.get(key)!;
+      const s = (r.status || '').toLowerCase();
+      if (s.includes('late')) a.late += 1;
+      if (s.includes('leave')) a.leave += 1;
+      else if (s.includes('absent')) a.absent += 1;
+      else if (s.includes('present') || s.includes('wfh') || s.includes('half')) a.present += 1;
+      a.workingHours += Number(r.workingHours) || 0;
+      a.overtimeHours += Number(r.overtimeHours) || 0;
+      a.totalDays += 1;
+    }
+  }
+
+  const leaveByEmp = new Map<string, { taken: number; applied: number }>();
+  if (leave) {
+    for (const r of leave.rows) {
+      const key = String(r.employeeId);
+      if (!leaveByEmp.has(key)) leaveByEmp.set(key, { taken: 0, applied: 0 });
+      const l = leaveByEmp.get(key)!;
+      l.applied += 1;
+      if (r.status === 'approved') l.taken += Number(r.daysCount) || 0;
+    }
+  }
+
+  const payrollByEmp = new Map<string, { gross: number; deductions: number; net: number; status: string }>();
+  if (payroll) {
+    for (const r of payroll.rows) {
+      const key = String(r.employeeId);
+      // A payroll_runs history can hold multiple periods per employee within
+      // the same date range in edge cases — last one wins (most recent, the
+      // rows are already ordered desc by year/month in buildPayrollReport).
+      if (!payrollByEmp.has(key)) payrollByEmp.set(key, { gross: r.grossSalary, deductions: r.deductions, net: r.netSalary, status: r.status });
+    }
+  }
+
+  const allEmpIds = new Set<string>([...attByEmp.keys(), ...leaveByEmp.keys(), ...payrollByEmp.keys()]);
+  // If a module returned zero matching rows but the employee is in scope,
+  // still list them (e.g. present every day → attendance has no leave rows).
+  if (allEmpIds.size === 0) targetUserIds.forEach((id) => allEmpIds.add(String(id)));
+
+  const rows = Array.from(allEmpIds).map((key) => {
+    const emp = employeeMap.get(Number(key)) || {};
+    const a = attByEmp.get(key);
+    const l = leaveByEmp.get(key);
+    const p = payrollByEmp.get(key);
+    const attendancePct = a && a.totalDays > 0 ? Math.round((a.present / a.totalDays) * 100) : null;
+    return {
+      id: key,
+      employeeId: Number(key),
+      employeeName: emp.name || emp.email || 'Employee',
+      department: emp.department || 'General',
+      designation: emp.designation || emp.role || 'Staff',
+      attendancePct,
+      presentDays: a ? a.present : null,
+      lateCount: a ? a.late : null,
+      workingHours: a ? Math.round(a.workingHours * 10) / 10 : null,
+      overtimeHours: a ? Math.round(a.overtimeHours * 10) / 10 : null,
+      leaveTaken: l ? l.taken : null,
+      grossPay: p ? p.gross : null,
+      deductions: p ? p.deductions : null,
+      netPay: p ? p.net : null,
+      payrollStatus: p ? p.status : null,
+    };
+  });
+
+  const deptMap = new Map<string, { employees: number; present: number; totalDays: number; leaveTaken: number; grossPay: number; netPay: number }>();
+  for (const r of rows) {
+    if (!deptMap.has(r.department)) deptMap.set(r.department, { employees: 0, present: 0, totalDays: 0, leaveTaken: 0, grossPay: 0, netPay: 0 });
+    const d = deptMap.get(r.department)!;
+    d.employees += 1;
+    if (r.presentDays !== null) { d.present += r.presentDays; d.totalDays += (attByEmp.get(String(r.employeeId))?.totalDays || 0); }
+    if (r.leaveTaken !== null) d.leaveTaken += r.leaveTaken;
+    if (r.grossPay !== null) d.grossPay += r.grossPay;
+    if (r.netPay !== null) d.netPay += r.netPay;
+  }
+
+  const summary = {
+    totalEmployees: rows.length,
+    presentCount: attendance?.summary.presentCount ?? null,
+    absentCount: attendance?.summary.absentCount ?? null,
+    leaveTakenTotal: rows.reduce((n, r) => n + (r.leaveTaken || 0), 0),
+    totalGross: payroll?.summary.totalGross ?? null,
+    totalDeductions: payroll?.summary.totalDeductions ?? null,
+    totalPayout: payroll?.summary.totalPayout ?? null,
+  };
+
+  return {
+    type: 'consolidated',
+    modules,
+    summary,
+    rows,
+    charts: { departmentBreakdown: Array.from(deptMap.entries()).map(([department, d]) => ({ department, ...d })) },
   };
 }
 

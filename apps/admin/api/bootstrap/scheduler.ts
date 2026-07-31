@@ -9,7 +9,7 @@ import { computeAttendancePercent, getHierarchyAlertRecipients } from '../servic
 import { logToAuditLedger } from '../services/audit';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { raiseAttendanceAlert } from '../services/alerts';
-import { resolveNextEscalation } from '../services/escalation';
+import { resolveNextEscalation, resolveEscalationAssignee } from '../services/escalation';
 import { notifyUser, notifyUsers } from '../services/notifications';
 import { queue } from '../services/queue';
 import { isPlatformFeatureAllowed } from '../auth/rbac';
@@ -19,6 +19,8 @@ import { resolveApprovers } from '../services/approvalRouting';
 import { localDateKey } from '../services/dateUtils';
 import { tenantDateKey, tenantParts } from '../services/tenantTime';
 import { registerReportSchedulerHandler, enqueueDueReportSchedules } from '../services/reportScheduler';
+import { notify, registerNotificationDeliveryHandler } from '../services/notificationService';
+import { registerPayrollBatchCalculationHandler } from '../services/payrollBatchCalculation';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
@@ -43,6 +45,8 @@ export function runBackgroundScheduler() {
   // report (see services/reportScheduler.ts) — must happen before the poll
   // loop below starts picking up jobs.
   registerReportSchedulerHandler();
+  registerNotificationDeliveryHandler();
+  registerPayrollBatchCalculationHandler();
 
   // 0. Background job queue poll (services/queue) — runs only on this
   // (leader) instance, same guarantee every other job in this function
@@ -221,14 +225,18 @@ export function runBackgroundScheduler() {
                 message: `${emp.name} was auto-marked Absent — no check-in detected by 11:00 AM.`,
               });
 
-              if (emp.email) {
-                await sendAutoAbsentAlertEmail(emp.email, emp.name, emp.name, tTodayKey, true).catch(() => undefined);
-              }
-              if (alert?.currentAssigneeUserId) {
-                const assigneeRows = await db.select().from(schema.users).where(eq(schema.users.id, alert.currentAssigneeUserId)).limit(1);
-                const assignee = assigneeRows[0];
-                if (assignee?.email) {
-                  await sendAutoAbsentAlertEmail(assignee.email, assignee.name, emp.name, tTodayKey, false).catch(() => undefined);
+              if (isPlatformFeatureAllowed(tenant, 'unified_notifications')) {
+                await notify(tenant.id, 'attendance_auto_absent', { subjectUserId: emp.id, subjectName: emp.name, data: { date: tTodayKey } }).catch(() => undefined);
+              } else {
+                if (emp.email) {
+                  await sendAutoAbsentAlertEmail(emp.email, emp.name, emp.name, tTodayKey, true).catch(() => undefined);
+                }
+                if (alert?.currentAssigneeUserId) {
+                  const assigneeRows = await db.select().from(schema.users).where(eq(schema.users.id, alert.currentAssigneeUserId)).limit(1);
+                  const assignee = assigneeRows[0];
+                  if (assignee?.email) {
+                    await sendAutoAbsentAlertEmail(assignee.email, assignee.name, emp.name, tTodayKey, false).catch(() => undefined);
+                  }
                 }
               }
             }
@@ -319,9 +327,13 @@ export function runBackgroundScheduler() {
                 type: 'auto_checkout_unverified',
                 message: `${row.user_name} missed checkout and their departure couldn't be verified ${graceMins} minute(s) after shift end. Their attendance is Pending Checkout Verification.`,
               });
-              const approvers = await resolveApprovers(tenant.id, 'missed_checkout', row.user_id as number, ['attendance.approve', 'attendance.edit']);
-              if (approvers.length > 0) {
-                await notifyUsers(approvers.map((a: any) => a.id), 'Missed checkout — verification needed', `${row.user_name} did not check out and their departure couldn't be confirmed. Review and resolve via Attendance > Edit Record.`);
+              if (isPlatformFeatureAllowed(tenant, 'unified_notifications')) {
+                await notify(tenant.id, 'attendance_missed_checkout', { subjectUserId: row.user_id as number, subjectName: row.user_name as string, data: { graceMins } }).catch(() => undefined);
+              } else {
+                const approvers = await resolveApprovers(tenant.id, 'missed_checkout', row.user_id as number, ['attendance.approve', 'attendance.edit']);
+                if (approvers.length > 0) {
+                  await notifyUsers(approvers.map((a: any) => a.id), 'Missed checkout — verification needed', `${row.user_name} did not check out and their departure couldn't be confirmed. Review and resolve via Attendance > Edit Record.`);
+                }
               }
             }
           }
@@ -397,6 +409,13 @@ export function runBackgroundScheduler() {
               type: 'auto_checkout_unverified',
               message: `${row.user_name} was auto-checked-out at end-of-day, but their location couldn't be confirmed as outside the office. Please review.`,
             });
+            // This legacy path previously never notified anyone (in-app or
+            // email) — closing that gap for tenants that opt in, without
+            // changing behavior for tenants that haven't.
+            const rowTenant = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, row.tenant_id as number)).limit(1))[0];
+            if (rowTenant && isPlatformFeatureAllowed(rowTenant, 'unified_notifications')) {
+              await notify(row.tenant_id as number, 'attendance_missed_checkout', { subjectUserId: row.user_id as number, subjectName: row.user_name as string, data: {} }).catch(() => undefined);
+            }
           }
         }
       }
@@ -596,6 +615,53 @@ export function runBackgroundScheduler() {
       console.error('Error in ticket/alert auto-escalation job:', err);
     }
   }, 60000);
+
+  // 4. Leave request 24h auto-escalation — same manager -> GM -> tenant_admin
+  // walk as tickets/alerts above, applied to approvals sitting unactioned.
+  // Escalating resets lastEscalatedAt so the same row naturally stops
+  // matching for another 24h; a request created and never escalated has
+  // lastEscalatedAt=null, so it's compared against createdAt instead.
+  setInterval(async () => {
+    try {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const staleLeave = await db.select().from(schema.leaveRequests).where(
+        and(
+          eq(schema.leaveRequests.status, 'pending'),
+          sql`COALESCE(${schema.leaveRequests.lastEscalatedAt}, ${schema.leaveRequests.createdAt}) < ${cutoff}`,
+        )
+      );
+      for (const req of staleLeave) {
+        const next = await resolveNextEscalation(req.tenantId, req.userId, req.escalationLevel as 0 | 1 | 2);
+        if (!next) continue; // already at tenant_admin — nowhere further to go
+        const previousAssignee = req.escalationLevel > 0 ? await resolveEscalationAssignee(req.tenantId, req.userId, req.escalationLevel as 0 | 1 | 2).catch(() => null) : null;
+        await db.update(schema.leaveRequests).set({ escalationLevel: next.level, lastEscalatedAt: new Date() }).where(eq(schema.leaveRequests.id, req.id));
+        await db.insert(schema.leaveEscalationHistory).values({
+          leaveRequestId: req.id, fromUserId: previousAssignee?.userId ?? null, toUserId: next.userId,
+          fromLevel: req.escalationLevel, toLevel: next.level, reason: 'auto_24h_timeout',
+        });
+        await logToAuditLedger({ tenantId: req.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'LEAVE_REQUEST_AUTO_ESCALATED', details: { leaveRequestId: req.id, toLevel: next.level, toUserId: next.userId } });
+        await notifyUser(next.userId, `Leave request auto-escalated to you`, `A pending leave request wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+      }
+    } catch (err) {
+      console.error('Error in leave request auto-escalation job:', err);
+    }
+  }, 60000);
+
+  // 5. Delegation auto-expiry — purely cosmetic for audit history (the
+  // actual access grant already stops working the instant endDate passes,
+  // since hasActiveDelegatedPrivilege checks the date range live). This
+  // just flips status so the delegations list doesn't show a stale
+  // "active" badge on something that no longer grants anything.
+  setInterval(async () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await db.update(schema.delegations)
+        .set({ status: 'expired' })
+        .where(and(eq(schema.delegations.status, 'active'), sql`${schema.delegations.endDate} < ${today}`));
+    } catch (err) {
+      console.error('Error in delegation auto-expiry job:', err);
+    }
+  }, 3600000);
 }
 
 // Start the background scheduler only on the instance that wins leadership, so

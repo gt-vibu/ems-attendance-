@@ -122,11 +122,21 @@ router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
         shift: u.shiftId ? shiftById.get(u.shiftId) ?? null : null,
         checkedInToday: checkedInToday.has(u.id),
       })),
-      staffByRole: roster.reduce((acc: Record<string, number>, u: any) => {
-        const r = u.role || 'employee';
-        acc[r] = (acc[r] || 0) + 1;
-        return acc;
-      }, {}),
+      // Grouped case-insensitively — see tenant.routes.ts's identical fix
+      // for why (inconsistent role casing across onboarding paths was
+      // splitting one role into multiple display buckets).
+      staffByRole: (() => {
+        const byLowerKey: Record<string, { label: string; count: number }> = {};
+        for (const u of roster) {
+          const raw = u.role || 'employee';
+          const key = raw.toLowerCase();
+          if (!byLowerKey[key]) byLowerKey[key] = { label: raw, count: 0 };
+          byLowerKey[key].count += 1;
+        }
+        const result: Record<string, number> = {};
+        for (const { label, count } of Object.values(byLowerKey)) result[label] = count;
+        return result;
+      })(),
       todaysAttendance: {
         presentToday: checkedInToday.size,
         absentToday: Math.max(0, roster.length - checkedInToday.size),

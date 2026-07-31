@@ -16,6 +16,7 @@ import { router as shiftRouter } from './shift.routes';
 import { router as rolesRouter } from './roles.routes';
 import { router as leaveRouter } from './leave.routes';
 import { router as payrollRouter } from './payroll.routes';
+import { router as payrollExtrasRouter } from './payrollExtras.routes';
 import { router as holidaysRouter } from './holidays.routes';
 import { router as employeesRouter } from './employees.routes';
 import { router as shiftOverridesRouter } from './shiftOverrides.routes';
@@ -33,6 +34,10 @@ import { router as ticketsRouter } from './tickets.routes';
 import { router as pushRouter } from './push.routes';
 import { router as approvalRoutingRouter } from './approvalRouting.routes';
 import { router as reportsRouter } from './reports.routes';
+import { router as configHealthRouter } from './configHealth.routes';
+import { router as slaDashboardRouter } from './slaDashboard.routes';
+import { router as delegationRouter } from './delegation.routes';
+import { router as businessCalendarRouter } from './businessCalendar.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -58,6 +63,7 @@ export function registerRoutes(app: Express) {
   app.use(rolesRouter);
   app.use(leaveRouter);
   app.use(payrollRouter);
+  app.use(payrollExtrasRouter);
   app.use(holidaysRouter);
   app.use(employeesRouter);
   app.use(shiftOverridesRouter);
@@ -75,4 +81,8 @@ export function registerRoutes(app: Express) {
   app.use(pushRouter);
   app.use(approvalRoutingRouter);
   app.use(reportsRouter);
+  app.use(configHealthRouter);
+  app.use(slaDashboardRouter);
+  app.use(delegationRouter);
+  app.use(businessCalendarRouter);
 }

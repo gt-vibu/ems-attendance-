@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
+import { hasPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
+import { notify } from '../services/notificationService';
 import { localDateKey } from '../services/dateUtils';
 
 export const router = Router();
@@ -90,11 +91,20 @@ router.post('/api/tenant/employees/:id/shift-override', authenticate, async (req
       details: { employeeId: employee.id, overrideId: inserted.id, shiftId, startDate, endDate },
     });
 
-    await notifyUser(
-      employee.id,
-      'Your shift has been temporarily changed',
-      `Your shift has been temporarily changed to ${shift.name} ${formatDateRange(startDate, endDate)}.`
-    );
+    const tenantRowForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowForNotify, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'shift_changed', {
+        subjectUserId: employee.id,
+        subjectName: employee.name,
+        data: { shiftName: shift.name, range: formatDateRange(startDate, endDate) },
+      }).catch(() => undefined);
+    } else {
+      await notifyUser(
+        employee.id,
+        'Your shift has been temporarily changed',
+        `Your shift has been temporarily changed to ${shift.name} ${formatDateRange(startDate, endDate)}.`
+      );
+    }
 
     res.json({ success: true, override: inserted });
   } catch (err: any) {
@@ -183,11 +193,20 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
       details: { employeeId: employee.id, overrideId, shiftId: override.shiftId, startDate: override.startDate, endDate: override.endDate },
     });
 
-    await notifyUser(
-      employee.id,
-      'Your temporary shift change was cancelled',
-      `Your temporary shift change to ${shiftName} ${formatDateRange(override.startDate, override.endDate)} has been cancelled. Your regular shift applies again.`
-    );
+    const tenantRowForCancelNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowForCancelNotify, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'shift_changed', {
+        subjectUserId: employee.id,
+        subjectName: employee.name,
+        data: { shiftName: 'your regular shift', range: formatDateRange(override.startDate, override.endDate), cancelled: true },
+      }).catch(() => undefined);
+    } else {
+      await notifyUser(
+        employee.id,
+        'Your temporary shift change was cancelled',
+        `Your temporary shift change to ${shiftName} ${formatDateRange(override.startDate, override.endDate)} has been cancelled. Your regular shift applies again.`
+      );
+    }
 
     res.json({ success: true });
   } catch (err: any) {

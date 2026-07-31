@@ -170,6 +170,13 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
       .where(eq(schema.rolePrivilegeDefaults.id, roleId))
       .returning();
 
+    // Granted/revoked diff (not just the final list) — this is what makes
+    // the audit ledger entry actually useful for a permissions audit later:
+    // "what changed" is the question someone reviewing this asks, not just
+    // "what's the current state" (which the role's own row already answers).
+    const granted = finalPrivileges.filter((p) => !currentPrivileges.includes(p));
+    const revoked = currentPrivileges.filter((p) => !finalPrivileges.includes(p));
+
     await logToAuditLedger({
       tenantId: req.user.tenantId,
       actorId: req.user.userId,
@@ -177,7 +184,7 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
       action: 'ROLE_UPDATED',
       ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
       deviceInfo: req.headers['user-agent'] || '',
-      details: { roleId, roleName: roleRows[0].roleName, privileges: finalPrivileges },
+      details: { roleId, roleName: roleRows[0].roleName, privileges: finalPrivileges, granted, revoked },
     });
 
     res.json({ success: true, role: updated });

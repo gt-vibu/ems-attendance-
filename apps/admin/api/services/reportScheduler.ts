@@ -16,6 +16,8 @@ import { queue } from './queue';
 import { sendEmail } from '../../mail.js';
 import { buildReportData, type ReportFilters } from './reportData';
 import { buildCsv } from './reportExport';
+import { notify } from './notificationService';
+import { isPlatformFeatureAllowed } from '../auth/rbac';
 
 interface ScheduledReportJobPayload {
   scheduleId: number;
@@ -49,6 +51,20 @@ export function registerReportSchedulerHandler() {
         </div>`,
         attachments: [{ filename: fileName, content: csv, contentType: 'text/csv' }],
       }).catch((err) => logger.error('reportScheduler: delivery failed', { scheduleId: schedule.id, to, error: err?.message }));
+    }
+
+    // recipients is a free-text list of emails (not necessarily app users),
+    // so it always gets the actual attachment delivered directly above —
+    // notify() can't replace that. This just also gives the creator an
+    // in-app + email "your scheduled report ran" ping through the unified
+    // service, finally giving report_generation_completed a real caller.
+    const tenantRowSched = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, schedule.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowSched, 'unified_notifications')) {
+      await notify(schedule.tenantId, 'report_generation_completed', {
+        subjectUserId: creator.id,
+        subjectName: creator.name,
+        data: { reportName: schedule.reportName, recordCount: data.rows.length },
+      }).catch(() => undefined);
     }
 
     await db.update(schema.reportSchedules).set({

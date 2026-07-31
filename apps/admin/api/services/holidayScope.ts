@@ -13,7 +13,7 @@ import { db, schema } from '../../db';
 export async function getHolidaysForEmployee(tenantId: number, userId: number): Promise<Array<{ id: number; date: string; name: string }>> {
   const [employeeRows, allHolidays, overrides] = await Promise.all([
     db.select({ branchId: schema.users.branchId, department: schema.users.department }).from(schema.users).where(eq(schema.users.id, userId)).limit(1),
-    db.select().from(schema.holidays).where(eq(schema.holidays.tenantId, tenantId)),
+    db.select().from(schema.holidays).where(and(eq(schema.holidays.tenantId, tenantId), eq(schema.holidays.isArchived, false))),
     db.select().from(schema.holidayEmployeeOverrides).where(eq(schema.holidayEmployeeOverrides.userId, userId)),
   ]);
 

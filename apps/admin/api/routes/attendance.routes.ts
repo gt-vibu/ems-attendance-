@@ -16,6 +16,7 @@ import { authenticate } from '../middleware/authenticate';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, getScopedBranchIds } from '../auth/rbac';
+import { notify } from '../services/notificationService';
 import { editAttendanceDay } from '../services/recordEdits';
 import { raiseAttendanceAlert } from '../services/alerts';
 import { localDateKey } from '../services/dateUtils';
@@ -654,16 +655,25 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
           }
         } else {
           const checkInTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          for (const approver of approvers) {
-            await sendLateArrivalApprovalRequestEmail(
-              approver.email,
-              approver.name,
-              user.name,
-              new Date().toLocaleDateString(),
-              checkInTimeStr,
-              shiftStartStr,
-              explanation
-            );
+          const tenantRowLate = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId || 1)).limit(1))[0];
+          if (isPlatformFeatureAllowed(tenantRowLate, 'unified_notifications')) {
+            await notify(user.tenantId || 1, 'late_arrival_requested', {
+              subjectUserId: user.id,
+              subjectName: user.name,
+              data: { date: new Date().toLocaleDateString(), checkInTime: checkInTimeStr, shiftStart: shiftStartStr, explanation },
+            }).catch(() => undefined);
+          } else {
+            for (const approver of approvers) {
+              await sendLateArrivalApprovalRequestEmail(
+                approver.email,
+                approver.name,
+                user.name,
+                new Date().toLocaleDateString(),
+                checkInTimeStr,
+                shiftStartStr,
+                explanation
+              );
+            }
           }
         }
       }

@@ -3,8 +3,9 @@ import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
-import { getScopedBranchIds, hasPrivilege } from '../auth/rbac';
+import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
+import { notify } from '../services/notificationService';
 import {
   toDateOnly,
   buildPayrollSummary,
@@ -13,38 +14,17 @@ import {
   computeCompensationDiff,
   splitLeaveDaysForPayroll,
   NO_LEAVE_DAYS,
+  resolveOvertimeHours,
+  resolveAttendanceDrivenInputs,
 } from './leavePayrollShared';
 import { computeEmployeeEarnings } from '../services/earnings';
 import { resolveMonthStatuses, computeAttendanceDrivenPayrollInputs } from '../services/attendanceDayStatus';
-import { isPlatformFeatureAllowed } from '../auth/rbac';
 import type { AttendanceDrivenInputs } from './leavePayrollShared';
 import { logToAuditLedger } from '../services/audit';
+import { scanBatchExceptions, validateBatchForApproval, checkCalendarGate, getPendingAdjustmentsForBatch } from '../services/payrollBatch';
+import { queue } from '../services/queue';
 
 export const router = Router();
-
-// Real overtime is computed day-by-day from actual worked minutes (see
-// services/earnings.ts / services/attendancePolicy.ts) — expensive relative
-// to a flat 0, so it only runs at all once a tenant admin has explicitly
-// opted in via tenant.overtimePayrollEnabled (default false). Until then,
-// every payroll number here stays byte-for-byte identical to before this
-// feature existed (overtimeHours always 0).
-async function resolveOvertimeHours(overtimePayrollEnabled: boolean, userId: number, tenantId: number, year: number, month: number): Promise<number> {
-  if (!overtimePayrollEnabled) return 0;
-  const earnings = await computeEmployeeEarnings(userId, tenantId, year, month);
-  return earnings.summary?.totalOvertimeHours || 0;
-}
-
-// Attendance-driven payroll (Phase 6) — same opt-in shape as overtime
-// above: every payroll number stays byte-for-byte identical to before this
-// feature existed unless the tenant explicitly enabled
-// 'payroll_attendance_driven'. Only applied to real per-employee payroll
-// views (mine/history/employee detail) — the tenant-wide overview and
-// role-default template views have no specific employee's attendance to
-// read, same reasoning that already applies to overtime there.
-async function resolveAttendanceDrivenInputs(tenant: any, userId: number, tenantId: number, year: number, month: number): Promise<AttendanceDrivenInputs | null> {
-  if (!isPlatformFeatureAllowed(tenant, 'payroll_attendance_driven')) return null;
-  return computeAttendanceDrivenPayrollInputs(tenantId, userId, year, month);
-}
 
 router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
   try {
@@ -154,7 +134,8 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
         netPay: summary.monthlyNet,
         breakdown: summary.annualBreakdown,
         status: 'generated',
-      }).onConflictDoNothing({ target: [schema.payrollRuns.userId, schema.payrollRuns.year, schema.payrollRuns.month] });
+        version: 1,
+      }).onConflictDoNothing({ target: [schema.payrollRuns.userId, schema.payrollRuns.year, schema.payrollRuns.month, schema.payrollRuns.version] });
     }
 
     const history = await db.select().from(schema.payrollRuns)
@@ -239,6 +220,36 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
       appliedAt: new Date(),
     }).where(eq(schema.payrollAdjustments.id, id));
 
+    // Versioned Payslips: applying an adjustment against an already-
+    // released/locked period never overwrites the original payslip row —
+    // it inserts a new version pointing back at the one it supersedes, so
+    // both the original and the revised payslip stay downloadable (see
+    // GET /api/payroll/history/:runId/pdf, which is keyed by runId and
+    // therefore already works unchanged for either version). Skipped
+    // entirely when applyToNextCycle is true — that path intentionally
+    // folds into the NEXT period's calculation instead of revising this one.
+    if (!applyToNextCycle) {
+      const latestVersions = await db.select().from(schema.payrollRuns)
+        .where(eq(schema.payrollRuns.id, adjustment.payrollRunId))
+        .limit(1);
+      const originalRun = latestVersions[0];
+      if (originalRun) {
+        const allVersions = await db.select().from(schema.payrollRuns).where(
+          and(eq(schema.payrollRuns.userId, originalRun.userId), eq(schema.payrollRuns.year, originalRun.year), eq(schema.payrollRuns.month, originalRun.month))
+        ).orderBy(desc(schema.payrollRuns.version));
+        const latest = allVersions[0] || originalRun;
+        const newBreakdown = [...(Array.isArray(latest.breakdown) ? latest.breakdown : []), { type: 'adjustment', amount: adjustment.amountDelta, reason: adjustment.reason }];
+        await db.insert(schema.payrollRuns).values({
+          tenantId: latest.tenantId, userId: latest.userId, profileId: latest.profileId, year: latest.year, month: latest.month,
+          batchId: latest.batchId, version: latest.version + 1, supersedesRunId: latest.id,
+          workingDays: latest.workingDays, approvedLeaveDays: latest.approvedLeaveDays, unpaidAbsenceDays: latest.unpaidAbsenceDays,
+          lopDeduction: latest.lopDeduction, overtimeHours: latest.overtimeHours, grossPay: latest.grossPay,
+          leaveDeduction: latest.leaveDeduction, overtimePay: latest.overtimePay,
+          netPay: latest.netPay + adjustment.amountDelta, breakdown: newBreakdown, status: latest.status,
+        });
+      }
+    }
+
     await logToAuditLedger({
       tenantId: req.user.tenantId,
       actorId: req.user.userId,
@@ -246,6 +257,20 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
       action: 'PAYROLL_ADJUSTMENT_APPLIED',
       details: { adjustmentId: id, subjectUserId: adjustment.userId, amountDelta: adjustment.amountDelta, applyToNextCycle },
     });
+
+    const employeeRowsAdj = await db.select().from(schema.users).where(eq(schema.users.id, adjustment.userId)).limit(1);
+    if (employeeRowsAdj.length > 0) {
+      const tenantRowAdj = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRowAdj, 'unified_notifications')) {
+        await notify(req.user.tenantId, 'payroll_salary_changed', {
+          subjectUserId: adjustment.userId,
+          subjectName: employeeRowsAdj[0].name,
+          data: { amountDelta: adjustment.amountDelta, applyToNextCycle, reason: 'Payroll adjustment applied' },
+        }).catch(() => undefined);
+      } else {
+        await notifyUser(adjustment.userId, 'Payroll adjustment applied', `A payroll adjustment of ${adjustment.amountDelta} has been applied to your record${applyToNextCycle ? ' and will be reflected in your next payroll cycle' : ''}.`);
+      }
+    }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -347,6 +372,7 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
       incomeTaxSlabs: Array.isArray(req.body?.incomeTaxSlabs) ? req.body.incomeTaxSlabs : current.incomeTaxSlabs,
       tdsStandardDeduction: Number(req.body?.tdsStandardDeduction ?? current.tdsStandardDeduction),
       statutoryBasicPercentOfGross: Number(req.body?.statutoryBasicPercentOfGross ?? current.statutoryBasicPercentOfGross),
+      blockPayrollReleaseOnPendingAdjustments: req.body?.blockPayrollReleaseOnPendingAdjustments !== undefined ? !!req.body.blockPayrollReleaseOnPendingAdjustments : current.blockPayrollReleaseOnPendingAdjustments,
       updatedAt: new Date(),
     };
     const [updated] = await db.update(schema.payrollSettings).set(patch).where(eq(schema.payrollSettings.id, current.id)).returning();
@@ -431,7 +457,16 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       fieldChanges,
     });
 
-    await notifyUser(userId, 'Your salary has been updated', `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`);
+    const tenantForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantForNotify, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'payroll_salary_changed', {
+        subjectUserId: userId,
+        subjectName: employeeRows[0].name,
+        data: { effectiveFrom: payload.effectiveFrom },
+      }).catch(() => undefined);
+    } else {
+      await notifyUser(userId, 'Your salary has been updated', `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`);
+    }
     res.json({ success: true, profile, components: freshComponents });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -829,7 +864,17 @@ router.post('/api/tenant/payroll/role-defaults/:roleName', authenticate, async (
       const overriddenIds = new Set(overrides.map((o: any) => o.userId));
       inheritingUserIds = roleUserIds.filter((id: number) => !overriddenIds.has(id));
     }
-    await notifyUsers(inheritingUserIds, 'Your salary structure has been updated', `The standard ${roleName} compensation package has changed. Check Payroll for your new breakdown.`);
+    const tenantForRoleNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantForRoleNotify, 'unified_notifications')) {
+      const inheritingUsers = inheritingUserIds.length > 0
+        ? await db.select().from(schema.users).where(inArray(schema.users.id, inheritingUserIds))
+        : [];
+      await Promise.all(inheritingUsers.map((u: any) =>
+        notify(tenantId, 'payroll_salary_changed', { subjectUserId: u.id, subjectName: u.name, data: { role: roleName } }).catch(() => undefined)
+      ));
+    } else {
+      await notifyUsers(inheritingUserIds, 'Your salary structure has been updated', `The standard ${roleName} compensation package has changed. Check Payroll for your new breakdown.`);
+    }
 
     res.json({ success: true, roleDefault, components: freshComponents });
   } catch (err: any) {
@@ -853,3 +898,236 @@ router.delete('/api/tenant/payroll/role-defaults/:roleName', authenticate, async
     res.status(500).json({ error: err.message });
   }
 });
+
+// ============================================================================
+// Payroll Batches (P1) — a first-class Payroll Run for a whole employee
+// population, gated behind the 'payroll_batches' platform feature. Every
+// route below is additive: a tenant that hasn't opted in never sees these
+// endpoints do anything, and the pre-existing lazy per-employee payrollRuns
+// path (above) is completely untouched. See services/payrollBatch.ts for
+// the Exception Center / Validation Engine / calendar-gating logic.
+// ============================================================================
+
+async function requireBatchFeature(req: any, res: any): Promise<boolean> {
+  const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+  if (!isPlatformFeatureAllowed(tenantRow, 'payroll_batches')) {
+    res.status(403).json({ error: 'Payroll Batches is not enabled for your organization.' });
+    return false;
+  }
+  return true;
+}
+
+router.get('/api/tenant/payroll/calendar', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const rows = await db.select().from(schema.payrollCalendars).where(eq(schema.payrollCalendars.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollCalendars.year), desc(schema.payrollCalendars.month));
+    res.json({ calendars: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tenant/payroll/calendar', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.calendar.manage')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const { year, month, attendanceFreezeDate, calculationDate, hrReviewDate, financeReviewDate, releaseDate, salaryCreditDate } = req.body || {};
+    if (!year || !month) return res.status(400).json({ error: 'year and month are required.' });
+
+    const existing = await db.select().from(schema.payrollCalendars).where(and(eq(schema.payrollCalendars.tenantId, req.user.tenantId), eq(schema.payrollCalendars.year, Number(year)), eq(schema.payrollCalendars.month, Number(month)))).limit(1);
+    const payload = { attendanceFreezeDate, calculationDate, hrReviewDate, financeReviewDate, releaseDate, salaryCreditDate };
+    let saved;
+    if (existing.length > 0) {
+      [saved] = await db.update(schema.payrollCalendars).set(payload).where(eq(schema.payrollCalendars.id, existing[0].id)).returning();
+    } else {
+      [saved] = await db.insert(schema.payrollCalendars).values({ tenantId: req.user.tenantId, year: Number(year), month: Number(month), ...payload }).returning();
+    }
+    res.json({ calendar: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tenant/payroll/batches', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollBatches.year), desc(schema.payrollBatches.month));
+    res.json({ batches: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/tenant/payroll/batches/:id/exceptions', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
+    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const exceptions = await scanBatchExceptions(req.user.tenantId, rows[0].year, rows[0].month);
+
+    // Pending Payroll Adjustments (e.g. an attendance correction approved
+    // against an already-locked prior period) are surfaced here explicitly
+    // instead of living only on a separate screen HR might never check.
+    // Whether this BLOCKS release or only warns is the tenant's own choice
+    // (payroll_settings.blockPayrollReleaseOnPendingAdjustments) — the
+    // exception itself is always shown either way.
+    const pendingAdjustments = await getPendingAdjustmentsForBatch(rows[0].id);
+    if (pendingAdjustments.length > 0) {
+      const settings = await getOrCreatePayrollSettings(req.user.tenantId);
+      exceptions.push({
+        userId: 0, userName: 'Multiple', type: 'pending_adjustments',
+        message: `${pendingAdjustments.length} payroll adjustment(s) are pending and have not been applied yet.`,
+        blocking: !!settings?.blockPayrollReleaseOnPendingAdjustments,
+      });
+    }
+
+    res.json({ exceptions, blockingCount: exceptions.filter((e) => e.blocking).length, pendingAdjustments: pendingAdjustments.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tenant/payroll/batches', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireBatchFeature(req, res)) return;
+    if (!await hasPrivilege(req.user, 'payroll.batch.create')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const { year, month } = req.body || {};
+    if (!year || !month) return res.status(400).json({ error: 'year and month are required.' });
+
+    const existing = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.tenantId, req.user.tenantId), eq(schema.payrollBatches.year, Number(year)), eq(schema.payrollBatches.month, Number(month)))).limit(1);
+    if (existing.length > 0) return res.status(400).json({ error: 'A payroll batch already exists for this period.' });
+
+    const [batch] = await db.insert(schema.payrollBatches).values({
+      tenantId: req.user.tenantId, year: Number(year), month: Number(month), createdByUserId: req.user.userId,
+    }).returning();
+
+    await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_BATCH_CREATED', details: { batchId: batch.id, year, month } });
+    res.json({ batch });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Calculates every eligible employee's payroll for the batch's period.
+// P2: runs off the request thread via the existing Postgres-backed job
+// queue (services/queue) instead of a synchronous loop, so a 1,000+
+// employee tenant's calculate action returns immediately instead of
+// blocking the HTTP request — see services/payrollBatchCalculation.ts for
+// the actual loop (reuses buildPayrollSummary unchanged, plus the P2
+// proration engine for mid-month joins).
+router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireBatchFeature(req, res)) return;
+    if (!await hasPrivilege(req.user, 'payroll.batch.create')) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    const batchRows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
+    if (batchRows.length === 0 || batchRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const batch = batchRows[0];
+    if (batch.status !== 'draft' && batch.status !== 'calculated') {
+      return res.status(400).json({ error: `Cannot calculate a batch in status '${batch.status}'.` });
+    }
+    const gateMsg = await checkCalendarGate(req.user.tenantId, batch.year, batch.month, 'calculating');
+    if (gateMsg) return res.status(400).json({ error: gateMsg });
+
+    await db.update(schema.payrollBatches).set({ status: 'calculating' }).where(eq(schema.payrollBatches.id, batch.id));
+    await queue.enqueue('calculate_payroll_batch', { batchId: batch.id, actorId: req.user.userId, actorName: req.user.name }, { tenantId: req.user.tenantId });
+
+    res.json({ batch: { ...batch, status: 'calculating' }, queued: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// One shared handler for the remaining simple state transitions — each
+// just checks the previous state, any calendar gate, records who/when, and
+// moves forward. 'approve' and 'release' additionally run the Validation
+// Engine and refuse to proceed on failure.
+function makeTransitionRoute(opts: {
+  path: string;
+  fromStatus: string;
+  toStatus: string;
+  privilege: string;
+  auditAction: string;
+  reviewerField?: 'hrReviewedByUserId' | 'financeReviewedByUserId' | 'approvedByUserId' | 'releasedByUserId';
+  reviewerAtField?: 'hrReviewedAt' | 'financeReviewedAt' | 'approvedAt' | 'releasedAt' | 'lockedAt';
+  requireValidation?: boolean;
+  notifyEvent?: string;
+}) {
+  router.post(`/api/tenant/payroll/batches/:id/${opts.path}`, authenticate, async (req: any, res: any) => {
+    try {
+      if (!await requireBatchFeature(req, res)) return;
+      if (!await hasPrivilege(req.user, opts.privilege)) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
+      const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
+      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+      const batch = rows[0];
+      if (batch.status !== opts.fromStatus) {
+        return res.status(400).json({ error: `This batch is in status '${batch.status}'; expected '${opts.fromStatus}' for this action.` });
+      }
+      const gateMsg = await checkCalendarGate(req.user.tenantId, batch.year, batch.month, opts.toStatus);
+      if (gateMsg) return res.status(400).json({ error: gateMsg });
+
+      if (opts.path === 'release') {
+        const pendingAdjustments = await getPendingAdjustmentsForBatch(batch.id);
+        if (pendingAdjustments.length > 0) {
+          const settingsForRelease = await getOrCreatePayrollSettings(req.user.tenantId);
+          if (settingsForRelease?.blockPayrollReleaseOnPendingAdjustments) {
+            return res.status(400).json({ error: `Cannot release: ${pendingAdjustments.length} payroll adjustment(s) are still pending. Apply or dismiss them first, or disable "block release on pending adjustments" in Payroll Settings.` });
+          }
+        }
+      }
+
+      if (opts.requireValidation) {
+        const validation = await validateBatchForApproval(batch);
+        if (!validation.valid) {
+          return res.status(400).json({ error: 'Batch failed validation.', failures: validation.failures });
+        }
+      }
+
+      const updateSet: Record<string, any> = { status: opts.toStatus };
+      if (opts.reviewerField) updateSet[opts.reviewerField] = req.user.userId;
+      if (opts.reviewerAtField) updateSet[opts.reviewerAtField] = new Date();
+      const [updated] = await db.update(schema.payrollBatches).set(updateSet).where(eq(schema.payrollBatches.id, batch.id)).returning();
+
+      await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: opts.auditAction, details: { batchId: batch.id, fromStatus: opts.fromStatus, toStatus: opts.toStatus } });
+
+      if (opts.notifyEvent) {
+        const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+        if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
+          if (opts.notifyEvent === 'payroll_batch_released') {
+            // Employee-facing — one notify() per employee whose payslip is now visible.
+            const lineItems = await db.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.batchId, batch.id));
+            const employees = lineItems.length > 0 ? await db.select().from(schema.users).where(inArray(schema.users.id, lineItems.map((r: any) => r.userId))) : [];
+            await Promise.all(employees.map((u: any) =>
+              notify(req.user.tenantId, 'payroll_batch_released', { subjectUserId: u.id, subjectName: u.name, data: { batchId: batch.id, year: batch.year, month: batch.month } }).catch(() => undefined)
+            ));
+          } else {
+            await notify(req.user.tenantId, opts.notifyEvent, { subjectUserId: req.user.userId, subjectName: req.user.name, data: { batchId: batch.id, year: batch.year, month: batch.month } }).catch(() => undefined);
+          }
+        }
+      }
+
+      res.json({ batch: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+}
+
+makeTransitionRoute({ path: 'submit-hr', fromStatus: 'calculated', toStatus: 'pending_hr_review', privilege: 'payroll.batch.create', auditAction: 'PAYROLL_BATCH_SUBMITTED_HR' });
+makeTransitionRoute({ path: 'submit-finance', fromStatus: 'pending_hr_review', toStatus: 'pending_finance_review', privilege: 'payroll.review.hr', auditAction: 'PAYROLL_BATCH_SUBMITTED_FINANCE', reviewerField: 'hrReviewedByUserId', reviewerAtField: 'hrReviewedAt' });
+makeTransitionRoute({ path: 'approve', fromStatus: 'pending_finance_review', toStatus: 'approved', privilege: 'payroll.review.finance', auditAction: 'PAYROLL_BATCH_APPROVED', reviewerField: 'financeReviewedByUserId', reviewerAtField: 'financeReviewedAt', requireValidation: true, notifyEvent: 'payroll_batch_approved' });
+makeTransitionRoute({ path: 'generate-payslips', fromStatus: 'approved', toStatus: 'payslips_generated', privilege: 'payroll.approve', auditAction: 'PAYROLL_BATCH_PAYSLIPS_GENERATED', reviewerField: 'approvedByUserId', reviewerAtField: 'approvedAt' });
+makeTransitionRoute({ path: 'release', fromStatus: 'payslips_generated', toStatus: 'released', privilege: 'payroll.release', auditAction: 'PAYROLL_BATCH_RELEASED', reviewerField: 'releasedByUserId', reviewerAtField: 'releasedAt', requireValidation: true, notifyEvent: 'payroll_batch_released' });
+makeTransitionRoute({ path: 'lock', fromStatus: 'released', toStatus: 'locked', privilege: 'payroll.lock', auditAction: 'PAYROLL_BATCH_LOCKED', reviewerAtField: 'lockedAt' });
