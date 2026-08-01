@@ -40,6 +40,7 @@ const PayrollHistoryPage = lazy(() => import('./pages/PayrollHistoryPage'));
 const PayrollBatchPage = lazy(() => import('./pages/PayrollBatchPage'));
 const NotificationPoliciesPage = lazy(() => import('./pages/NotificationPoliciesPage'));
 const DelegationPage = lazy(() => import('./pages/DelegationPage'));
+const PlanFeaturesPage = lazy(() => import('./pages/PlanFeaturesPage'));
 const BusinessCalendarPage = lazy(() => import('./pages/BusinessCalendarPage'));
 const EmployeeDirectory = lazy(() => import('./pages/EmployeeDirectory'));
 const TeamsPage = lazy(() => import('./pages/TeamsPage'));
@@ -155,6 +156,7 @@ export default function AdminApp() {
           <Route path="/tenant/payroll/batches" element={user && canSeeDashboard(user.role) ? <PayrollBatchPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/notification-policies" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/super/plan-features/:tenantId" element={user && user.role === 'super_admin' ? <PlanFeaturesPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/directory" element={user && canSeeDashboard(user.role) ? <EmployeeDirectory user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/teams" element={user && canManageTeams(user.role) ? <TeamsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />

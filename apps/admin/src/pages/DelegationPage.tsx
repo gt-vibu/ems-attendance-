@@ -132,12 +132,12 @@ export default function DelegationPage({ user }: { user: User }) {
 
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
-              <UserCog size={20} className="text-white" />
+            <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center">
+              <UserCog size={16} className="text-[var(--color-nexus-primary)]" />
             </div>
             <div>
-              <h1 className="font-sans text-2xl font-bold text-gradient inline-block">Delegation</h1>
-              <p className="text-sm text-[var(--color-nexus-muted)] mt-1">Hand off specific approvals for a set window — e.g. while you're on leave.</p>
+              <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Delegation</h1>
+              <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Hand off specific approvals for a set window — e.g. while you're on leave.</p>
             </div>
           </div>
           <button

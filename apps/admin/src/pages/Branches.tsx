@@ -54,17 +54,17 @@ export default function Branches({ user }: { user: User }) {
 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
-              <Building2 size={20} className="text-white" />
+            <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center">
+              <Building2 size={16} className="text-[var(--color-nexus-primary)]" />
             </div>
             <div>
-              <h1 className="font-sans text-2xl font-bold text-gradient inline-block">Branches</h1>
-              <p className="text-sm text-[var(--color-nexus-muted)] mt-1">Outlets, headcount, and attendance at a glance.</p>
+              <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Branches</h1>
+              <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Outlets, headcount, and attendance at a glance.</p>
             </div>
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors shadow-[0_8px_24px_rgba(37,99,235,0.3)]"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors"
           >
             <Plus size={14} /> Add Branch
           </button>

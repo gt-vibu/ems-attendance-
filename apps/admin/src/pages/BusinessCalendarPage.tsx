@@ -68,12 +68,12 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 shrink-0 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
-              <CalendarDays size={20} className="text-white" />
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center">
+              <CalendarDays size={16} className="text-[var(--color-nexus-primary)]" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-sans text-2xl font-bold text-gradient inline-block">Business Calendar</h1>
-              <p className="text-sm text-[var(--color-nexus-muted)] mt-1">Holidays, leave, and payroll milestones in one place.</p>
+              <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Business Calendar</h1>
+              <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Holidays, leave, and payroll milestones in one place.</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">

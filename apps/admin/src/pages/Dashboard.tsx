@@ -238,8 +238,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData, handleToggleTenantStatus, handleDeleteTenant, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
-    editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
-    openEditFeatures, toggleEditFeature, handleSaveEditFeatures,
   } = useSuperAdminData(token, setLoading, setError, setSuccess, setNotifications);
 
   // ==========================================
@@ -2094,7 +2092,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                                   Manage Admins
                                 </button>
                                 <button
-                                  onClick={() => openEditFeatures(t)}
+                                  onClick={() => navigate(`/super/plan-features/${t.id}`)}
                                   className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
                                 >
                                   Edit Features
@@ -2351,70 +2349,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
           </div>
         )}
 
-        {/* Edit Features modal — the platform layer, above everything else
-            in the app: whatever module isn't checked here, no tenant admin
-            at this company can ever turn on or delegate, regardless of
-            their own privileges. An unchecked box that was already on
-            before this edit disables the module immediately for everyone
-            at that tenant; runtime enforcement stays in the tenant-side
-            routes (config.routes.ts etc.), this only edits the whitelist. */}
-        {editFeaturesTenant && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setEditFeaturesTenant(null)}>
-            <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Plan Features — {editFeaturesTenant.name}</h3>
-              <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Only modules checked here can ever be turned on or delegated by this tenant's admin. Unchecking a module the tenant is already using disables it immediately.</p>
-
-              <div className="space-y-4 mb-4 max-h-96 overflow-y-auto">
-                {groupPlatformFeatures(platformFeatures).map((group) => (
-                  <div key={group.category}>
-                    <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest mb-1.5">{group.category}</span>
-                    <div className="space-y-2">
-                      {group.features.map((f) => (
-                        <label
-                          key={f.key}
-                          className="flex items-start gap-3 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={editFeaturesSelected.includes(f.key)}
-                            onChange={() => toggleEditFeature(f.key)}
-                            className="mt-0.5 w-4 h-4 accent-[var(--color-nexus-primary)]"
-                          />
-                          <div>
-                            <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{f.label}</span>
-                            <span className="text-[10px] text-[var(--color-nexus-muted)]">{f.description}</span>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {unmetPlatformDependencies(editFeaturesSelected, platformFeatureDependencies, platformFeatures).length > 0 && (
-                <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 space-y-1">
-                  {unmetPlatformDependencies(editFeaturesSelected, platformFeatureDependencies, platformFeatures).map((w, i) => <div key={i}>⚠ {w}</div>)}
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setEditFeaturesTenant(null)}
-                  className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEditFeatures}
-                  disabled={editFeaturesSaving}
-                  className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all disabled:opacity-50"
-                >
-                  {editFeaturesSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Edit Features moved to its own page (PlanFeaturesPage.tsx),
+            reached via the "Edit Features" button above — a plan's feature
+            list runs to 20+ items and a max-w-md modal was too cramped to
+            review it properly. */}
 
         {/* ======================================================== */}
         {/* TENANT ADMIN WORKSPACE */}

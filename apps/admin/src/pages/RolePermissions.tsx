@@ -145,12 +145,12 @@ export default function RolePermissions({ user }: { user: User }) {
         </button>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
-            <ShieldCheck size={20} className="text-white" />
+          <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
+            <ShieldCheck size={16} className="text-[var(--color-nexus-primary)]" />
           </div>
           <div>
-            <h1 className="font-sans text-2xl font-bold text-gradient inline-block">Roles &amp; Permissions</h1>
-            <p className="text-sm text-[var(--color-nexus-muted)] mt-1">Pick a role, toggle what it gets — changes apply instantly to everyone already in that role.</p>
+            <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Roles &amp; Permissions</h1>
+            <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Pick a role, toggle what it gets — changes apply instantly to everyone already in that role.</p>
           </div>
         </div>
 
