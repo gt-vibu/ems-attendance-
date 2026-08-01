@@ -272,15 +272,15 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
       {success && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-nexus-success-text)]/20 font-medium">{success}</div>}
 
       <div className="space-y-6">
-        <section className="rounded-[28px] border border-[var(--color-nexus-border)] bg-gradient-to-r from-[var(--color-nexus-primary-fixed)] via-white/80 to-[var(--color-nexus-secondary-container)] p-6">
+        <section className="nexus-card p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="font-sans text-2xl font-bold text-[var(--color-nexus-ink)]">Employee Compensation Workspace</h2>
-              <p className="mt-2 max-w-2xl text-sm text-[var(--color-nexus-muted)]">This is now a dedicated payroll area. Pick an employee first, then move through separate setup pages for CTC, salary structure, PF, and final review.</p>
+              <h2 className="font-sans text-[17px] font-bold text-[var(--color-nexus-ink)]">Employee Compensation</h2>
+              <p className="mt-1 max-w-2xl text-[13px] text-[var(--color-nexus-muted)]">Pick an employee, then move through setup for CTC, salary structure, PF, and final review.</p>
             </div>
             <button
               onClick={() => employees[0] && navigate(`/tenant/payroll/setup/employee/${employees[0].id}/salary`)}
-              className="rounded-xl bg-[var(--color-nexus-primary)] px-4 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
+              className="rounded-lg bg-[var(--color-nexus-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
               disabled={employees.length === 0}
             >
               Start Payroll Setup

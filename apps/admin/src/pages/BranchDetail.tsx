@@ -120,32 +120,33 @@ export default function BranchDetail({ user }: { user: User }) {
           <ArrowLeft size={14} /> Back to Branches
         </button>
 
-        {/* Hero header */}
-        <div className="relative overflow-hidden rounded-xl mb-6 p-6 bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] shadow-[0_16px_40px_rgba(37,99,235,0.3)]">
-          <div className="absolute top-0 right-0 w-56 h-56 bg-white/10 rounded-full -mr-20 -mt-20 pointer-events-none" />
-          <div className="relative flex flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
-                  <MapPin size={16} className="text-white" />
-                </div>
-                {branch?.isMainBranch && (
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/25 text-white uppercase tracking-wider">Main Branch</span>
-                )}
+        {/* Header */}
+        <div className="nexus-card mb-6 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
+                <MapPin size={16} className="text-[var(--color-nexus-primary)]" />
               </div>
-              <h1 className="font-sans text-2xl font-bold text-white truncate">{branch?.name}</h1>
-              <p className="text-sm text-white/80 mt-1 truncate">{branch?.address || 'No location set yet'}</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)] truncate">{branch?.name}</h1>
+                  {branch?.isMainBranch && (
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] uppercase tracking-wider">Main Branch</span>
+                  )}
+                </div>
+                <p className="text-[13px] text-[var(--color-nexus-muted)] truncate">{branch?.address || 'No location set yet'}</p>
+              </div>
             </div>
-            <div className="flex gap-2.5 shrink-0">
+            <div className="flex gap-2 shrink-0">
               <button
                 onClick={() => setShowEditModal(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white transition-colors"
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold text-xs uppercase tracking-wider border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-ink)] transition-colors"
               >
                 <Pencil size={14} /> Edit
               </button>
               <button
                 onClick={() => navigate(`/dashboard?tab=recruitment&branchId=${id}`)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider bg-white text-[var(--color-nexus-primary)] hover:bg-white/90 transition-colors shadow-lg"
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold text-xs uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors"
               >
                 <Plus size={14} /> Onboard Employee
               </button>

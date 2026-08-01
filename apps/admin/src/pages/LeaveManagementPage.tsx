@@ -491,15 +491,15 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
         <div className="space-y-6">
           {overviewView === 'catalog' && (
             <>
-              <section className="rounded-[28px] border border-[var(--color-nexus-border)] bg-gradient-to-r from-[var(--color-nexus-primary-fixed)] via-white/80 to-[var(--color-nexus-secondary-container)] p-6">
+              <section className="nexus-card p-5">
                 <div className="flex items-start justify-between gap-6">
                   <div>
-                    <h2 className="font-sans text-2xl font-bold text-[var(--color-nexus-ink)]">Professional Leave Desk</h2>
-                    <p className="mt-2 max-w-2xl text-sm text-[var(--color-nexus-muted)]">Create clear leave policies, review approval queues, and keep annual deduction rules visible in one focused workspace instead of a crammed dashboard card.</p>
+                    <h2 className="font-sans text-[17px] font-bold text-[var(--color-nexus-ink)]">Leave Desk</h2>
+                    <p className="mt-1 max-w-2xl text-[13px] text-[var(--color-nexus-muted)]">Create policies, review approval queues, and keep annual deduction rules visible in one place.</p>
                   </div>
                   <button
                     onClick={() => setOverviewView('create-policy')}
-                    className="shrink-0 rounded-xl bg-[var(--color-nexus-primary)] px-4 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+                    className="shrink-0 rounded-lg bg-[var(--color-nexus-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
                   >
                     Create Policy
                   </button>
