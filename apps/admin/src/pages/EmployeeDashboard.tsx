@@ -253,6 +253,38 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     URL.revokeObjectURL(url);
   };
 
+  // Self-service attendance report download — hits the same /api/reports/export
+  // the admin Reports page uses, unscoped by employeeId: getPermittedUserIds
+  // (services/reportData.ts) already restricts a plain 'employee' role caller
+  // to their own records only, so no admin privilege is needed here.
+  const [downloadingMyReport, setDownloadingMyReport] = useState<'pdf' | 'xlsx' | null>(null);
+  const handleDownloadMyReport = async (format: 'pdf' | 'xlsx') => {
+    setDownloadingMyReport(format);
+    try {
+      const year = attendanceCalendarMonth.getFullYear();
+      const month = attendanceCalendarMonth.getMonth();
+      const startDate = new Date(year, month, 1).toISOString().slice(0, 10);
+      const endDate = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+      const params = new URLSearchParams({ type: 'attendance', startDate, endDate, format });
+      const res = await fetch(`/api/reports/export?${params.toString()}`, { headers: authHeaders });
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `my-attendance-report-${startDate}-to-${endDate}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Silent — this is a convenience download, not a critical action;
+      // nothing else on the page depends on it succeeding.
+    } finally {
+      setDownloadingMyReport(null);
+    }
+  };
+
   const refreshOptionalHolidayData = async () => {
     const optionalRes = await fetch('/api/tenant/holidays/optional', { headers: authHeaders });
     if (!optionalRes.ok) throw new Error('Failed to load optional holidays.');
@@ -1241,14 +1273,34 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Attendance Calendar</h2>
                 <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1">Month view with the same status colors used by admins.</p>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
-                  <ChevronLeft size={16} />
-                </button>
-                <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-                <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
-                  <ChevronRight size={16} />
-                </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                  <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadMyReport('pdf')}
+                    disabled={downloadingMyReport !== null}
+                    className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50"
+                  >
+                    {downloadingMyReport === 'pdf' ? 'Downloading…' : 'Download PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadMyReport('xlsx')}
+                    disabled={downloadingMyReport !== null}
+                    className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50"
+                  >
+                    {downloadingMyReport === 'xlsx' ? 'Downloading…' : 'Download Excel'}
+                  </button>
+                </div>
               </div>
             </div>
 

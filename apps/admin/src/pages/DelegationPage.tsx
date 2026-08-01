@@ -56,7 +56,7 @@ export default function DelegationPage({ user }: { user: User }) {
       ]);
       setCatalog(catalogData);
       const empList = Array.isArray(empRes.employees) ? empRes.employees : Array.isArray(empRes) ? empRes : [];
-      setEmployees(empList.filter((e: any) => e.id !== user.userId).map((e: any) => ({ id: e.id, name: e.name })));
+      setEmployees(empList.filter((e: any) => e.id !== user.id).map((e: any) => ({ id: e.id, name: e.name })));
       setDelegations(Array.isArray(delRes.delegations) ? delRes.delegations : []);
     } catch (err: any) {
       setError(err.message || 'Failed to load delegations');
@@ -119,8 +119,8 @@ export default function DelegationPage({ user }: { user: User }) {
     revoked: 'bg-rose-100 text-rose-700',
   };
 
-  const given = delegations.filter(d => d.delegatedByUserId === user.userId);
-  const received = delegations.filter(d => d.delegatedToUserId === user.userId);
+  const given = delegations.filter(d => d.delegatedByUserId === user.id);
+  const received = delegations.filter(d => d.delegatedToUserId === user.id);
 
   return (
     <div className="min-h-screen premium-mesh-bg font-sans p-6">

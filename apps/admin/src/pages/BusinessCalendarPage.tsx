@@ -102,7 +102,7 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
                   <div className="text-[10px] font-bold uppercase text-[var(--color-nexus-muted)]">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</div>
                 </div>
                 <div className="flex-1 space-y-1.5">
-                  {dayEvents.map((e, i) => (
+                  {(dayEvents as CalendarEvent[]).map((e, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm text-[var(--color-nexus-ink)]">
                       <span className={`w-2 h-2 rounded-full shrink-0 ${TYPE_STYLE[e.type]?.dot || 'bg-[var(--color-nexus-muted)]'}`} />
                       {e.label}

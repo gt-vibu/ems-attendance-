@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ShieldCheck, Plus, Check, Eye, X } from 'lucide-react';
+import {
+  ArrowLeft, ShieldCheck, Plus, Check, Eye, X,
+  Users, Clock, Coffee, ScrollText, Smartphone, Building2, QrCode, Home, AlertTriangle,
+  CalendarDays, Banknote, Users2, Megaphone, Ticket,
+  type LucideIcon,
+} from 'lucide-react';
+
+// Same name -> component map FeatureCatalogGrid.tsx uses — catalog.icon is
+// a Lucide icon NAME string (see featureCatalog.ts), never a literal
+// glyph to print as text.
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  Users, Clock, Coffee, ScrollText, Smartphone, Building2, QrCode, Home, AlertTriangle, CalendarDays, Banknote, Users2, Megaphone, ShieldCheck, Ticket,
+};
 import { User } from '../lib/auth';
 import PageChrome from '../components/PageChrome';
 import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
@@ -301,10 +313,12 @@ function AccessPreviewModal({
           </div>
         ) : (
           <div className="space-y-3 mb-4">
-            {accessibleCategories.map((c) => (
+            {accessibleCategories.map((c) => {
+              const CatIcon = CATEGORY_ICONS[c.icon] || Building2;
+              return (
               <div key={c.category} className="rounded-xl border border-[var(--color-nexus-border)] p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{c.icon} {c.category}</span>
+                  <span className="text-sm font-bold text-[var(--color-nexus-ink)] flex items-center gap-1.5"><CatIcon size={15} /> {c.category}</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
                     {c.grantedFeatures.length}/{c.total}
                   </span>
@@ -321,7 +335,8 @@ function AccessPreviewModal({
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -331,14 +346,17 @@ function AccessPreviewModal({
               No access in these areas
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {noAccessCategories.map((c) => (
+              {noAccessCategories.map((c) => {
+                const CatIcon = CATEGORY_ICONS[c.icon] || Building2;
+                return (
                 <span
                   key={c.category}
-                  className="text-[10px] font-semibold px-2 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]"
+                  className="text-[10px] font-semibold px-2 py-1 rounded-full bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] flex items-center gap-1"
                 >
-                  {c.icon} {c.category}
+                  <CatIcon size={11} /> {c.category}
                 </span>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

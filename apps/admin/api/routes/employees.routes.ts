@@ -162,6 +162,7 @@ router.get('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
         role: employee.role,
         isKycCompleted: !!employee.isKycCompleted,
         createdAt: employee.createdAt,
+        privileges: Array.isArray(employee.privileges) ? employee.privileges : [],
       }
     });
   } catch (err: any) {

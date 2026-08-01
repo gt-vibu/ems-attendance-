@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, ChevronRight, Banknote, CalendarDays, Pencil, Check } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Banknote, CalendarDays, Pencil, Check, ShieldCheck } from 'lucide-react';
 import DateSelect from './DateSelect';
 import TimeSelect from './TimeSelect';
+import FeatureCatalogGrid from './FeatureCatalogGrid';
+import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 
 // Reusable, self-contained employee detail overlay. Given just a userId, it
 // fetches everything it needs (basic profile, a navigable month calendar
@@ -156,6 +158,49 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
   const hasPriv = (...keys: string[]) => myPrivileges === 'ALL' || keys.some((k) => myPrivileges.includes(k));
   const canEditDetails = hasPriv('employee.edit', 'employee.create');
   const canEditAttendance = hasPriv('attendance.edit');
+  const canEditAccess = hasPriv('employee.edit', 'employee.create', 'roles.manage');
+
+  // Per-employee Access — same FeatureCatalogGrid used by the hire form and
+  // Roles & Permissions, but editing ONE person's own `privileges` array on
+  // top of their role default, not a role's defaults. This is the
+  // per-person override the role-level editor can't give you: two people
+  // with the same role can end up with different individual access.
+  const [catalog, setCatalog] = useState<FeatureCatalogCategory[]>([]);
+  const [dependencies, setDependencies] = useState<FeatureDependencies>({});
+  useEffect(() => {
+    fetchFeatureCatalog().then(setCatalog).catch(() => {});
+    fetchFeatureDependencies().then(setDependencies).catch(() => {});
+  }, []);
+  const [editingAccess, setEditingAccess] = useState(false);
+  const [accessDraft, setAccessDraft] = useState<string[]>([]);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [accessError, setAccessError] = useState('');
+
+  const startEditingAccess = () => {
+    setAccessDraft(Array.isArray(employee?.privileges) ? employee.privileges : []);
+    setAccessError('');
+    setEditingAccess(true);
+  };
+
+  const handleSaveAccess = async () => {
+    setAccessSaving(true);
+    setAccessError('');
+    try {
+      const res = await fetch(`/api/tenant/employees/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ privileges: accessDraft }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save access changes.');
+      setEmployee(data.employee || { ...employee, privileges: accessDraft });
+      setEditingAccess(false);
+    } catch (err: any) {
+      setAccessError(err.message || 'Could not save access changes.');
+    } finally {
+      setAccessSaving(false);
+    }
+  };
 
   // Edit Details — toggles the profile grid into editable inputs; saved via
   // PUT /api/tenant/employees/:id (the endpoint already accepted these
@@ -589,6 +634,64 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                 </div>
               </dl>
             )}
+
+            {/* Per-employee Access — overrides ON TOP of this person's role
+                default, editable per-person so two people with the same
+                role can end up with different individual access. Saves via
+                the same PUT /api/tenant/employees/:id, just the `privileges`
+                field instead of profile fields. */}
+            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-[var(--color-nexus-primary)]" />
+                  <div>
+                    <h4 className="text-sm font-bold text-[var(--color-nexus-ink)] font-sans">Access</h4>
+                    <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">
+                      {Array.isArray(employee.privileges) && employee.privileges.length > 0
+                        ? `${employee.privileges.length} feature(s) granted to this person specifically, on top of their role default.`
+                        : 'This person only has their role default — no individual overrides.'}
+                    </p>
+                  </div>
+                </div>
+                {canEditAccess && !editingAccess && (
+                  <button onClick={startEditingAccess} className="shrink-0 flex items-center gap-1.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)]">
+                    <Pencil className="h-3 w-3" /> Edit Access
+                  </button>
+                )}
+              </div>
+
+              {editingAccess ? (
+                <div className="space-y-3">
+                  {accessError && <p className="text-xs font-semibold text-[var(--color-nexus-error)]">{accessError}</p>}
+                  <FeatureCatalogGrid
+                    catalog={catalog}
+                    selected={accessDraft}
+                    onChange={setAccessDraft}
+                    allowedKeys={myPrivileges}
+                    dependencies={dependencies}
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={handleSaveAccess} disabled={accessSaving} className="flex items-center gap-1.5 rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                      <Check className="h-3.5 w-3.5" /> {accessSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => setEditingAccess(false)} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : Array.isArray(employee.privileges) && employee.privileges.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {employee.privileges.map((key: string) => {
+                    const feature = catalog.flatMap((c) => c.features).find((f) => f.key === key);
+                    return (
+                      <span key={key} title={feature?.description} className="text-[10px] font-semibold px-2 py-1 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
+                        {feature?.label || key}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
 
             {/* Shift + temporary shift change — additive alongside the
                 permanent shift (still changed via the employee edit form,
