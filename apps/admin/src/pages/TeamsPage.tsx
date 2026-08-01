@@ -147,9 +147,9 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
         {loading ? (
           <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading your team…</div>
         ) : !team ? (
-          <section className="nexus-card rounded-3xl p-8 max-w-md">
+          <section className="nexus-card rounded-xl p-6 max-w-md">
             <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
                 <Users2 size={20} />
               </div>
               <div>
@@ -162,12 +162,12 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 placeholder="e.g. Frontend Squad"
-                className="flex-1 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2.5 text-sm focus:outline-none"
+                className="flex-1 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2.5 text-sm focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={creating || !newTeamName.trim()}
-                className="rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
+                className="rounded-xl bg-[var(--color-nexus-primary)] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
               >
                 {creating ? 'Creating…' : 'Create Team'}
               </button>
@@ -189,13 +189,13 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
             </section>
 
             {members.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
+              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
                 No members yet — add colleagues from your department to get started.
               </div>
             ) : (
               <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {members.map((m) => (
-                  <div key={m.id} className=" nexus-card rounded-3xl p-5">
+                  <div key={m.id} className=" nexus-card rounded-xl p-5">
                     <button onClick={() => setDetailUserId(m.id)} className="w-full text-left">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-nexus-primary-fixed)] text-sm font-bold text-[var(--color-nexus-primary)]">
@@ -230,7 +230,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
       {showAddPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowAddPanel(false)}>
-          <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-3xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Add from your department</h3>
               <button onClick={() => setShowAddPanel(false)} aria-label="Close" className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
@@ -241,13 +241,13 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
             {candidatesLoading ? (
               <div className="py-10 text-center text-sm text-[var(--color-nexus-muted)]">Loading…</div>
             ) : candidates.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[var(--color-nexus-border)] p-6 text-center text-xs text-[var(--color-nexus-muted)]">
+              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-6 text-center text-xs text-[var(--color-nexus-muted)]">
                 {candidatesReason || 'No one else in your department is available to add right now.'}
               </div>
             ) : (
               <div className="space-y-2">
                 {candidates.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--color-nexus-border)] px-4 py-3">
+                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-nexus-border)] px-4 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-[var(--color-nexus-ink)]">{c.name}</p>
                       <p className="truncate text-xs text-[var(--color-nexus-muted)]">{c.designation || c.role}</p>

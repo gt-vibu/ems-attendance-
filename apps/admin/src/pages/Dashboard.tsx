@@ -785,7 +785,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id)}
-                      className="text-left nexus-card  rise-in rounded-2xl p-5 group"
+                      className="text-left nexus-card  rise-in rounded-xl p-5 group"
                       style={{ animationDelay: `${i * 60}ms` }}
                     >
                       <div className="flex items-start justify-between mb-3">
@@ -838,7 +838,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Left columns: Punch Card & Break manager */}
                   <div className="lg:col-span-2 space-y-6">
                     {/* Punch clock widget */}
-                    <div className="nexus-card  rounded-2xl p-6 relative overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+                    <div className="nexus-card  rounded-xl p-6 relative overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
                       <div className="space-y-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center text-[var(--color-nexus-primary)]">
@@ -905,7 +905,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
                     {/* Break Management */}
                     {selfCheckInTime && (
-                      <div className="nexus-card rounded-2xl p-6 space-y-4">
+                      <div className="nexus-card rounded-xl p-6 space-y-4">
                         <div className="flex items-center justify-between">
                           <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Break Management</h3>
                           <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{selfRemainingMins}m left of {selfBudgetMins}m budget</span>
@@ -981,7 +981,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Right column: Leave balance & correction trigger */}
                   <div className="space-y-6">
                     {/* Leave Balance widget */}
-                    <div className="nexus-card rounded-2xl p-6 space-y-4">
+                    <div className="nexus-card rounded-xl p-6 space-y-4">
                       <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Leave Balances</h3>
                       <div className="grid grid-cols-3 gap-2">
                         <div className="p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-center">
@@ -1008,7 +1008,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     </div>
 
                     {/* Personal Logs & Correction Request Tracker */}
-                    <div className="nexus-card rounded-2xl p-6 space-y-4">
+                    <div className="nexus-card rounded-xl p-6 space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">My Requests</h3>
                         <button
@@ -1049,6 +1049,19 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               {/* ======================================================== */}
               {homeTabMode === 'organization' && (
                 <div className="space-y-6">
+                  {(() => {
+                    const hour = new Date().getHours();
+                    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+                    const firstName = (user.name || '').split(' ')[0];
+                    return (
+                      <div>
+                        <h2 className="text-[20px] font-bold text-[var(--color-nexus-ink)] tracking-tight">
+                          {greeting}{firstName ? `, ${firstName}` : ''} <span aria-hidden="true">👋</span>
+                        </h2>
+                        <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Here's what's happening across your organization today.</p>
+                      </div>
+                    );
+                  })()}
                   {user.role === 'tenant_admin' && <ConfigHealthWidget />}
                   {(user.role === 'tenant_admin' || user.role === 'manager') && <SlaDashboardWidget />}
                   {/* Stat card row — single responsive row of equal-width
@@ -1343,7 +1356,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     const avatarPalette = ['bg-sky-500', 'bg-orange-500', 'bg-violet-500', 'bg-emerald-500', 'bg-pink-500', 'bg-teal-500'];
                     const initialsOf = (name: string) => (name || '?').split(' ').filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join('');
                     return (
-                      <div className="nexus-card rounded-2xl p-5 space-y-4">
+                      <div className="nexus-card rounded-xl p-5 space-y-4">
                         <div>
                           <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Your Team</h3>
                           <span className="text-[10px] text-[var(--color-nexus-muted)] block mt-0.5">Snapshot of your direct reports, today</span>
@@ -1417,7 +1430,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       newLocation: r.newAddress || (r.newLatitude != null ? `${Number(r.newLatitude).toFixed(4)}, ${Number(r.newLongitude).toFixed(4)}` : '—'),
                       reason: r.reason,
                     }));
-                    const wfhCard = 'text-left nexus-card  rounded-2xl p-4 cursor-pointer transition-all hover:bg-[var(--color-nexus-primary-fixed)]/20 w-full';
+                    const wfhCard = 'text-left nexus-card  rounded-xl p-4 cursor-pointer transition-all hover:bg-[var(--color-nexus-primary-fixed)]/20 w-full';
                     return (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <button
@@ -1473,7 +1486,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   })()}
 
                   {/* Zoho approvals inbox queue */}
-                  <div className="nexus-card rounded-2xl p-5 space-y-4">
+                  <div className="nexus-card rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between border-b border-[var(--color-nexus-border)]/50 pb-3">
                       <div>
                         <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Approvals Inbox</h3>
@@ -1592,7 +1605,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Visual charts analytics panel */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Area trend line */}
-                    <div className="nexus-card rounded-2xl p-5 space-y-4">
+                    <div className="nexus-card rounded-xl p-5 space-y-4">
                       <div>
                         <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Attendance & Lateness Trend</h3>
                         <span className="text-[10px] text-[var(--color-nexus-muted)] block mt-0.5">30-day historical check-in percentages</span>
@@ -1643,7 +1656,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     </div>
 
                     {/* Role doughnut pie */}
-                    <div className="nexus-card rounded-2xl p-5 space-y-4">
+                    <div className="nexus-card rounded-xl p-5 space-y-4">
                       <div>
                         <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Staff Role Distribution</h3>
                         <span className="text-[10px] text-[var(--color-nexus-muted)] block mt-0.5">Headcount shares across administrative and operational roles</span>
@@ -1711,10 +1724,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         setActiveTab('attendance');
                         setAttendanceSubTab('status');
                       }}
-                      className="text-left nexus-card  rounded-2xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
+                      className="text-left nexus-card  rounded-xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
+                        <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
                           <Clock size={22} className="text-[var(--color-nexus-primary)] group-hover:text-white transition-colors" />
                         </div>
                       </div>
@@ -1733,10 +1746,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <button
                       type="button"
                       onClick={() => navigate('/tenant/leave')}
-                      className="text-left nexus-card  rounded-2xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
+                      className="text-left nexus-card  rounded-xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
+                        <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
                           <CalendarDays size={22} className="text-[var(--color-nexus-primary)] group-hover:text-white transition-colors" />
                         </div>
                       </div>
@@ -1752,10 +1765,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     <button
                       type="button"
                       onClick={() => navigate('/tenant/payroll')}
-                      className="text-left nexus-card  rounded-2xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
+                      className="text-left nexus-card  rounded-xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
+                        <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
                           <Banknote size={22} className="text-[var(--color-nexus-primary)] group-hover:text-white transition-colors" />
                         </div>
                       </div>
@@ -1774,10 +1787,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         setActiveTab('administration');
                         setAdminSubTab(null);
                       }}
-                      className="text-left nexus-card  rounded-2xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
+                      className="text-left nexus-card  rounded-xl p-6 group transition-all hover:border-[var(--color-nexus-primary)]/50"
                     >
                       <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
+                        <div className="w-12 h-12 rounded-xl bg-[var(--color-nexus-primary-fixed)] group-hover:bg-[var(--color-nexus-primary)] flex items-center justify-center transition-colors">
                           <ShieldCheck size={22} className="text-[var(--color-nexus-primary)] group-hover:text-white transition-colors" />
                         </div>
                       </div>
@@ -1796,7 +1809,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
               {/* Correction Request Modal for Self Service */}
               {showSelfCorrectionModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
-                  <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
+                  <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
                     {selfCorrectionSubmitted ? (
                       <div className="text-center py-6">
                         <p className="text-[var(--color-nexus-success-text)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
@@ -1882,7 +1895,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {activeTab === 'analytics' && superAnalytics && (
               <div className="space-y-6">
                 {systemHealth && (
-                  <div className="nexus-card rounded-2xl p-5">
+                  <div className="nexus-card rounded-xl p-5">
                     <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">System Health</h3>
                     <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Platform operating condition — checked live, not cached.</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1902,25 +1915,25 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
                 )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="nexus-card  rise-in rounded-2xl p-4" style={{ animationDelay: '0ms' }}>
+                  <div className="nexus-card  rise-in rounded-xl p-4" style={{ animationDelay: '0ms' }}>
                     <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Total Tenants</span>
                     <span className="text-2xl font-black text-[var(--color-nexus-ink)] block mt-1">{superAnalytics.totalTenants}</span>
                   </div>
-                  <div className="nexus-card  rise-in rounded-2xl p-4" style={{ animationDelay: '60ms' }}>
+                  <div className="nexus-card  rise-in rounded-xl p-4" style={{ animationDelay: '60ms' }}>
                     <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Active Tenants</span>
                     <span className="text-2xl font-black text-[var(--color-nexus-success-text)] block mt-1">{superAnalytics.activeTenants}</span>
                   </div>
-                  <div className="nexus-card  rise-in rounded-2xl p-4" style={{ animationDelay: '120ms' }}>
+                  <div className="nexus-card  rise-in rounded-xl p-4" style={{ animationDelay: '120ms' }}>
                     <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Suspended</span>
                     <span className="text-2xl font-black text-[var(--color-nexus-error)] block mt-1">{superAnalytics.suspendedTenants}</span>
                   </div>
-                  <div className="nexus-card  rise-in rounded-2xl p-4" style={{ animationDelay: '180ms' }}>
+                  <div className="nexus-card  rise-in rounded-xl p-4" style={{ animationDelay: '180ms' }}>
                     <span className="text-[10px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Total Staff (All Tenants)</span>
                     <span className="text-2xl font-black text-[var(--color-nexus-ink)] block mt-1">{superAnalytics.totalEmployees}</span>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="nexus-card rounded-2xl p-5">
+                  <div className="nexus-card rounded-xl p-5">
                     <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">This Month, Across All Tenants</h3>
                     <p className="text-[10px] text-[var(--color-nexus-muted)] mb-3">Approved check-ins vs. rejected verification attempts</p>
                     {(superAnalytics.monthlyCheckInEvents + superAnalytics.monthlyRejectedEvents) > 0 ? (
@@ -1953,7 +1966,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       <span className="text-xs text-[var(--color-nexus-muted)] flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--color-nexus-error)] inline-block" /> Rejected ({superAnalytics.monthlyRejectedEvents})</span>
                     </div>
                   </div>
-                  <div className="nexus-card rounded-2xl p-5">
+                  <div className="nexus-card rounded-xl p-5">
                     <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">Plan Breakdown</h3>
                     <p className="text-[10px] text-[var(--color-nexus-muted)] mb-3">Tenants grouped by subscription plan</p>
                     {Object.keys(superAnalytics.planBreakdown || {}).length > 0 ? (
@@ -1974,7 +1987,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
                 </div>
 
-                <div className="nexus-card rounded-2xl p-5 mt-6">
+                <div className="nexus-card rounded-xl p-5 mt-6">
                   <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">Feature Usage Analytics</h3>
                   <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Adoption (tenants with the module enabled) vs. actual usage in the last 30 days.</p>
                   {featureUsage.length === 0 ? (
@@ -1998,7 +2011,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </div>
 
                 {jobScheduler && (
-                  <div className="nexus-card rounded-2xl p-5 mt-6">
+                  <div className="nexus-card rounded-xl p-5 mt-6">
                     <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-1">Job Scheduler</h3>
                     <p className="text-[10px] text-[var(--color-nexus-muted)] mb-4">Live view of the background job queue (background_jobs), last 500 rows.</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
@@ -2043,7 +2056,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Manage Tenants: suspend / reactivate */}
             {activeTab === 'tenants' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-6 font-sans">All Tenants</h2>
                 {allTenants.length === 0 ? (
                   <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No tenants onboarded yet.</p>
@@ -2111,7 +2124,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tenancy Requests List */}
             {activeTab === 'requests' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-6 font-sans">Inbound Tenant Registrations</h2>
                 {tenancyRequests.length === 0 ? (
                   <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No pending registration requests found.</p>
@@ -2165,14 +2178,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Super Admin Notifications */}
             {activeTab === 'notifications' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-6 font-sans">Admin Inbox</h2>
                 {notifications.length === 0 ? (
                   <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No notifications found.</p>
                 ) : (
                   <div className="space-y-4">
                     {notifications.map((notif) => (
-                      <div key={notif.id} className="p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)] flex justify-between items-start gap-4">
+                      <div key={notif.id} className="p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)] flex justify-between items-start gap-4">
                         <div>
                           <h4 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">{notif.title}</h4>
                           <p className="text-xs text-[var(--color-nexus-muted)] mt-1">{notif.message}</p>
@@ -2193,7 +2206,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             send. See handleApproveRequest in useSuperAdminData.ts. */}
         {undeliveredActivation && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="nexus-card rounded-3xl p-8 max-w-lg w-full shadow-2xl">
+            <div className="nexus-card rounded-xl p-6 max-w-lg w-full shadow-2xl">
               <h3 className="text-lg font-bold text-[var(--color-nexus-error)] mb-2 font-sans">Approved — but the email could not be sent</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-4">
                 <strong>{undeliveredActivation.companyName}</strong> was onboarded successfully, but the confirmation
@@ -2227,7 +2240,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         {/* Approval Modal */}
         {showApprovalModal && selectedRequest && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Approve Tenancy Onboarding</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Assign feature capabilities and privileges for <strong>{selectedRequest.companyName}</strong>.</p>
 
@@ -2300,7 +2313,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             touch the tenant or its employees/data, only that one login. */}
         {manageAdminsTenant && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setManageAdminsTenant(null)}>
-            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Manage Admins — {manageAdminsTenant.name}</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Deleting an admin account revokes their access immediately and cannot be undone. It does not affect the tenant, its employees, or its data.</p>
 
@@ -2347,7 +2360,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             routes (config.routes.ts etc.), this only edits the whitelist. */}
         {editFeaturesTenant && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setEditFeaturesTenant(null)}>
-            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Plan Features — {editFeaturesTenant.name}</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Only modules checked here can ever be turned on or delegated by this tenant's admin. Unchecking a module the tenant is already using disables it immediately.</p>
 
@@ -2437,7 +2450,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {activeTab === 'attendance' && tenantAnalytics && (() => {
               const bd = tenantAnalytics.breakdown;
               const clickable = !!bd;
-              const cardClass = (extra: string) => `text-left nexus-card  rounded-2xl p-4 ${clickable ? 'cursor-pointer' : 'cursor-default'} ${extra}`;
+              const cardClass = (extra: string) => `text-left nexus-card  rounded-xl p-4 ${clickable ? 'cursor-pointer' : 'cursor-default'} ${extra}`;
               return (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('All Staff', bd.total, simplePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
@@ -2469,7 +2482,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 data (tenantAnalytics.breakdown counts, tenantTrends). */}
             {activeTab === 'attendance' && tenantAnalytics && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <div className="nexus-card rounded-2xl p-5">
+                <div className="nexus-card rounded-xl p-5">
                   <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">Today's Status Breakdown</h3>
                   {(tenantAnalytics.presentToday + tenantAnalytics.absentToday + tenantAnalytics.lateToday) === 0 ? (
                     <div className="h-52 flex items-center justify-center text-xs text-[var(--color-nexus-muted)]">No attendance data for today yet.</div>
@@ -2496,7 +2509,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   )}
                 </div>
 
-                <div className="nexus-card rounded-2xl p-5">
+                <div className="nexus-card rounded-xl p-5">
                   <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">30-Day Attendance Trend</h3>
                   {tenantTrends.length === 0 ? (
                     <div className="h-52 flex items-center justify-center text-xs text-[var(--color-nexus-muted)]">No trend statistics available.</div>
@@ -2544,7 +2557,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 newLocation: r.newAddress || (r.newLatitude != null ? `${Number(r.newLatitude).toFixed(4)}, ${Number(r.newLongitude).toFixed(4)}` : '—'),
                 reason: r.reason,
               }));
-              const wfhCard = 'text-left nexus-card  rounded-2xl p-4 cursor-pointer';
+              const wfhCard = 'text-left nexus-card  rounded-xl p-4 cursor-pointer';
               return (
               <div className="mb-6">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2567,7 +2580,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </div>
 
                 {(wfhStats.officeVsWfh30d.office > 0 || wfhStats.officeVsWfh30d.wfh > 0) && (
-                  <div className="nexus-card rounded-2xl p-5 mt-3">
+                  <div className="nexus-card rounded-xl p-5 mt-3">
                     <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">Office vs. Work From Home (Last 30 Days)</h3>
                     <ResponsiveContainer width="100%" height={180}>
                       <BarChart data={[{ name: 'Check-ins', Office: wfhStats.officeVsWfh30d.office, WFH: wfhStats.officeVsWfh30d.wfh }]} layout="vertical">
@@ -2593,7 +2606,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {activeTab === 'attendance' && (
               <div className="space-y-6 mb-8">
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="nexus-card rounded-2xl p-5">
+                  <div className="nexus-card rounded-xl p-5">
                     <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">Monthly Report</h3>
                     {tenantAnalytics ? (
                       <div className="flex gap-6">
@@ -2610,7 +2623,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       <p className="text-xs text-[var(--color-nexus-muted)]">No data yet this month.</p>
                     )}
                   </div>
-                  <button type="button" onClick={() => navigate('/tenant/branches')} className="text-left nexus-card  rounded-2xl p-5">
+                  <button type="button" onClick={() => navigate('/tenant/branches')} className="text-left nexus-card  rounded-xl p-5">
                     <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-1">Shifts</h3>
                     <p className="text-[11px] text-[var(--color-nexus-muted)]">Named shifts (Morning, Night, etc.) are managed per-branch — open Branches to view or edit them.</p>
                   </button>
@@ -2643,7 +2656,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                           key={opt.id}
                           type="button"
                           onClick={() => setOtherOptionsTab(isActive ? null : opt.id)}
-                          className={`text-left nexus-card  rounded-2xl p-4 ${isActive ? '!bg-[var(--color-nexus-primary)] text-white' : ''}`}
+                          className={`text-left nexus-card  rounded-xl p-4 ${isActive ? '!bg-[var(--color-nexus-primary)] text-white' : ''}`}
                         >
                           <div className="flex items-center justify-between mb-2">
                             <Icon size={18} className={isActive ? 'text-white' : 'text-[var(--color-nexus-primary)]'} />
@@ -2656,7 +2669,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       );
                     })}
                     {hasAnyPrivilege('leave.read', 'leave.approve') && (
-                      <button type="button" onClick={() => navigate('/tenant/leave')} className="text-left nexus-card  rounded-2xl p-4">
+                      <button type="button" onClick={() => navigate('/tenant/leave')} className="text-left nexus-card  rounded-xl p-4">
                         <div className="flex items-center justify-between mb-2">
                           <CalendarDays size={18} className="text-[var(--color-nexus-primary)]" />
                         </div>
@@ -2670,7 +2683,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Attendance Corrections (regularization requests) */}
             {activeTab === 'attendance' && otherOptionsTab === 'corrections' && (
-              <div className="nexus-card rounded-3xl p-6 mb-8">
+              <div className="nexus-card rounded-xl p-6 mb-8">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Attendance Corrections</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Requests from staff to regularize a missed check-in/out or flag a wrong location. Approving here does not silently rewrite the original record — it's logged as its own reviewed decision.</p>
                 {corrections.length === 0 ? (
@@ -2678,7 +2691,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {corrections.map((c) => (
-                      <div key={c.id} className="flex flex-col gap-3 p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={c.id} className="flex flex-col gap-3 p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -2744,7 +2757,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Late Arrivals (check-ins pending manager approval) */}
             {activeTab === 'attendance' && otherOptionsTab === 'late-arrivals' && (
-              <div className="nexus-card rounded-3xl p-6 mb-8">
+              <div className="nexus-card rounded-xl p-6 mb-8">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Late Arrivals &amp; Work From Home</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Late check-ins with an explanation, and WFH check-ins awaiting approval, both land here. Approving finalizes the check-in; rejecting marks the day absent.</p>
                 {pendingAttendance.length === 0 ? (
@@ -2752,7 +2765,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {pendingAttendance.map((l) => (
-                      <div key={l.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={l.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{l.userName}</span>
@@ -2798,7 +2811,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: WFH Home-Location Change Requests */}
             {activeTab === 'attendance' && otherOptionsTab === 'wfh-locations' && (
-              <div className="nexus-card rounded-3xl p-6 mb-8">
+              <div className="nexus-card rounded-xl p-6 mb-8">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">WFH Home Location Requests</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Employees cannot change their registered Work From Home location themselves — approving one of these replaces it going forward.</p>
                 {wfhLocationRequests.length === 0 ? (
@@ -2806,7 +2819,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {wfhLocationRequests.map((r) => (
-                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.userName}</span>
@@ -2843,7 +2856,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: WFH Ledger — per-employee/per-day record */}
             {activeTab === 'attendance' && otherOptionsTab === 'wfh-ledger' && (
-              <div className="nexus-card rounded-3xl p-6 mb-8">
+              <div className="nexus-card rounded-xl p-6 mb-8">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Work From Home Ledger</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Every WFH check-in over the last 90 days — search by employee, sort or filter by role/date, and page through the records.</p>
                 <DataTable
@@ -2867,7 +2880,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Tab: QR Attendance session history + scan logs */}
             {activeTab === 'attendance' && otherOptionsTab === 'qr-logs' && (
               <div className="space-y-6">
-                <div className="nexus-card rounded-3xl p-6">
+                <div className="nexus-card rounded-xl p-6">
                   <h2 className="text-lg font-bold text-gradient mb-2 font-sans">QR Session History</h2>
                   <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Every Start/Stop session, most recent first — search by who started it, sort any column, page through.</p>
                   <DataTable
@@ -2881,7 +2894,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   />
                 </div>
 
-                <div className="nexus-card rounded-3xl p-6">
+                <div className="nexus-card rounded-xl p-6">
                   <h2 className="text-lg font-bold text-gradient mb-2 font-sans">QR Scan Attempts</h2>
                   <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Every scan attempt — successful, failed, or expired — traceable by employee, device, and IP.</p>
                   <DataTable
@@ -2900,7 +2913,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Timing Violations (break overstays, geofence exits) */}
             {activeTab === 'attendance' && otherOptionsTab === 'violations' && (
-              <div className="nexus-card rounded-3xl p-6 mb-8">
+              <div className="nexus-card rounded-xl p-6 mb-8">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Timing &amp; Break Violations</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Raised automatically when someone exceeds the daily break budget or returns from break outside the office boundary. Only visible to people granted &quot;Receive Alerts&quot;; accepting/rejecting requires the matching privilege.</p>
                 {attendanceAlerts.length === 0 ? (
@@ -2908,7 +2921,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {attendanceAlerts.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={a.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{a.userName}</span>
@@ -2985,7 +2998,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                         key={opt.id}
                         type="button"
                         onClick={() => opt.navigateTo ? navigate(opt.navigateTo) : setAdminSubTab(isActive ? null : opt.id)}
-                        className={`text-left nexus-card  rounded-2xl p-4 ${isActive ? '!bg-[var(--color-nexus-primary)] text-white' : ''}`}
+                        className={`text-left nexus-card  rounded-xl p-4 ${isActive ? '!bg-[var(--color-nexus-primary)] text-white' : ''}`}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <Icon size={18} className={isActive ? 'text-white' : 'text-[var(--color-nexus-primary)]'} />
@@ -3003,7 +3016,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Settings */}
             {activeTab === 'administration' && adminSubTab === 'settings' && (
-              <div className="nexus-card rounded-3xl p-8">
+              <div className="nexus-card rounded-xl p-6">
                 <div className="mb-8">
                   <h2 className="text-xl font-bold text-gradient font-sans">Office Boundary Rules</h2>
                   <p className="text-sm text-[var(--color-nexus-muted)] mt-1">Configure Geofence coordinates and public network IP values.</p>
@@ -3011,7 +3024,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 
                 <form onSubmit={handleSaveConfig} className="space-y-6">
                   {/* Network Requirement */}
-                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                     <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)] mb-2 flex items-center gap-2">
                       Corporate Network Locking
                     </h3>
@@ -3061,7 +3074,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
 
                   {/* Geofence Requirement */}
-                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)]">Geofence Coordinates</h3>
                       <button 
@@ -3183,7 +3196,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Attendance Policy — actually consumed by the backend's
                       late-arrival, half-day, and break-budget calculations,
                       which previously had no way to be configured. */}
-                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                     <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)] mb-4">Attendance &amp; Break Policy</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
@@ -3336,7 +3349,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* Work From Home (WFH) Policy — additive attendance mode,
                       disabled by default so existing tenants see no change
                       until this is explicitly turned on. */}
-                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                     <label className="flex items-center gap-2.5 cursor-pointer select-none mb-4">
                       <input
                         type="checkbox"
@@ -3470,7 +3483,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     (PUT /api/qr/config), separate from the office/WFH
                     policy form above. Disabled by default so existing
                     tenants see no change until this is explicitly turned on. */}
-                <form onSubmit={handleSaveQrConfig} className="mt-8 p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                <form onSubmit={handleSaveQrConfig} className="mt-8 p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                   <label className="flex items-center gap-2.5 cursor-pointer select-none mb-4">
                     <input
                       type="checkbox"
@@ -3536,7 +3549,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </form>
 
                 {/* Holiday Calendar — its own section since it's a list, not a single form submit */}
-                <div className="mt-8 p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                <div className="mt-8 p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                   <h3 className="text-sm font-semibold text-[var(--color-nexus-ink)] mb-1">Holiday Calendar</h3>
                   <p className="text-[11px] text-[var(--color-nexus-muted)] mb-4">Days marked here show as "Holiday" instead of "Absent" in attendance status, for everyone in the organization.</p>
                   <form onSubmit={handleAddHoliday} className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -3586,7 +3599,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     it's a convenience nudge, not the only place this ever
                     surfaces (see the persistent list right below it). */}
                 {newRolePrompt && (
-                  <div className="rounded-2xl border border-[var(--color-nexus-primary)]/30 bg-[var(--color-nexus-primary-fixed)] p-5 flex items-start justify-between gap-4">
+                  <div className="rounded-xl border border-[var(--color-nexus-primary)]/30 bg-[var(--color-nexus-primary-fixed)] p-5 flex items-start justify-between gap-4">
                     <div>
                       <p className="text-sm font-bold text-[var(--color-nexus-ink)]">You just created a new role "{newRolePrompt}" — set up its permissions and salary.</p>
                       <p className="text-xs text-[var(--color-nexus-muted)] mt-1">It's already usable with whatever was granted at this hire — this just makes it official and repeatable for the next person in this role. You can do this now or later.</p>
@@ -3609,7 +3622,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     this loads, so it's still here next session even if the
                     one-time prompt above was dismissed or never seen. */}
                 {rolesNeedingPayrollSetup.length > 0 && (
-                  <div className="rounded-2xl border border-[var(--color-nexus-secondary)]/30 bg-[var(--color-nexus-secondary-container)] p-5">
+                  <div className="rounded-xl border border-[var(--color-nexus-secondary)]/30 bg-[var(--color-nexus-secondary-container)] p-5">
                     <p className="text-sm font-bold text-[var(--color-nexus-ink)]">Roles without a standard salary package yet</p>
                     <p className="text-xs text-[var(--color-nexus-muted)] mt-1 mb-3">Anyone in these roles is only paid whatever was set individually at hire — set a role default so every future hire into it inherits the same package automatically.</p>
                     <div className="flex flex-wrap gap-2">
@@ -3630,7 +3643,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <BulkHireImport hireBranches={hireBranches} onDone={fetchTenantAdminData} />
 
                 {/* Recruit User Form */}
-                <div className="nexus-card rounded-3xl p-6">
+                <div className="nexus-card rounded-xl p-6">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">Recruit Team Member</h2>
                   <form onSubmit={handleHireUser} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3754,7 +3767,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 </div>
 
                 {/* Team Members List */}
-                <div className="nexus-card rounded-3xl p-6">
+                <div className="nexus-card rounded-xl p-6">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">Organization Directory</h2>
                   <DataTable
                     data={recruitedUsers}
@@ -3772,7 +3785,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {/* Tab: Device approvals */}
             {activeTab === 'administration' && adminSubTab === 'devices' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-6 font-sans">Pending Device Migrations</h2>
                 {deviceRequests.length === 0 ? (
                   <p className="text-sm text-[var(--color-nexus-muted)] text-center py-12">No pending device approvals found.</p>
@@ -3822,7 +3835,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 Approving here immediately terminates the employee (session
                 revoked); rejecting leaves them untouched. */}
             {activeTab === 'administration' && adminSubTab === 'terminations' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Termination Requests</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Submitted by someone other than you who holds the Terminate Employees permission. The employee is not removed until you approve.</p>
                 {terminationRequests.length === 0 ? (
@@ -3830,7 +3843,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {terminationRequests.map((r: any) => (
-                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.employeeName}</span>
@@ -3866,7 +3879,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 colleagues already agreed (ShiftSwapWidget.tsx); approving
                 here applies a one-day shiftOverride to each of them. */}
             {activeTab === 'administration' && adminSubTab === 'shift-swaps' && (
-              <div className="nexus-card rounded-3xl p-6">
+              <div className="nexus-card rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gradient mb-2 font-sans">Shift Swap Requests</h2>
                 <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Both employees already agreed — this is the final policy sign-off.</p>
                 {shiftSwapRequests.length === 0 ? (
@@ -3874,7 +3887,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 ) : (
                   <div className="space-y-3">
                     {shiftSwapRequests.map((r: any) => (
-                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.requesterName} ({r.requesterShiftName || 'no shift'}) ↔ {r.targetName} ({r.targetShiftName || 'no shift'})</span>
@@ -3936,7 +3949,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             permission strings for one already-hired employee. */}
         {accessEditingUser && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-            <div className="nexus-card rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-1 font-sans">Feature Access</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-6">Grant or revoke delegable features for <strong>{accessEditingUser.name}</strong>.</p>
               <div className="space-y-3 mb-8">
@@ -3975,7 +3988,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             clicked stat, rendered through the shared DataTable. */}
         {drillDown && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6" onClick={() => setDrillDown(null)}>
-            <div className="nexus-card rounded-3xl p-6 max-w-3xl w-full shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="nexus-card rounded-xl p-6 max-w-3xl w-full shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] font-sans">{drillDown.title} <span className="text-[var(--color-nexus-muted)] font-normal text-sm">({drillDown.rows.length})</span></h3>
                 <button onClick={() => setDrillDown(null)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1"><X size={18} /></button>

@@ -209,7 +209,7 @@ export default function BranchFormModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="max-w-2xl w-full max-h-[90vh] overflow-y-auto nexus-card rounded-3xl p-6 relative"
+        className="max-w-2xl w-full max-h-[90vh] overflow-y-auto nexus-card rounded-xl p-6 relative"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">

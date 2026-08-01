@@ -117,12 +117,12 @@ export default function ApprovalRoutingPage({ user }: { user: User }) {
         </p>
 
         {!accessible ? (
-          <div className="nexus-card rounded-2xl p-8 text-center text-sm text-[var(--color-nexus-muted)]">
+          <div className="nexus-card rounded-xl p-6 text-center text-sm text-[var(--color-nexus-muted)]">
             Configurable Approval Routing is not enabled for this organization, or you don't have access to it.
           </div>
         ) : (
           <>
-            <div className="nexus-card rounded-2xl p-6 mb-6">
+            <div className="nexus-card rounded-xl p-6 mb-6">
               <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-4">Add Routing Rule</h2>
               <form onSubmit={handleAddRule} className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                 <div className="flex-1 min-w-[150px]">
@@ -167,7 +167,7 @@ export default function ApprovalRoutingPage({ user }: { user: User }) {
               {success && <p className="mt-3 text-[11px] text-[var(--color-nexus-secondary)]">{success}</p>}
             </div>
 
-            <div className="nexus-card rounded-2xl p-6">
+            <div className="nexus-card rounded-xl p-6">
               <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-4">Configured Rules</h2>
               {loading ? (
                 <p className="text-sm text-[var(--color-nexus-muted)] text-center py-8">Loading…</p>

@@ -23,18 +23,18 @@ export default function StatCard({ label, value, caption, icon: Icon, iconBg, ic
     <Wrapper
       type={onClick ? 'button' : undefined}
       onClick={onClick}
-      className={`nexus-card p-4 text-left w-full ${onClick ? 'cursor-pointer' : ''}`}
+      className={`nexus-card p-5 text-left w-full ${onClick ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[12px] font-semibold text-[var(--color-nexus-muted)] uppercase tracking-wider">{label}</span>
+        <span className="text-[12px] font-semibold text-[var(--color-nexus-muted)] tracking-wide">{label}</span>
         <span
-          className="rounded-md p-1 shrink-0"
+          className="rounded-lg p-1.5 shrink-0"
           style={{ background: iconBg || 'var(--color-nexus-primary-fixed)', color: iconColor || 'var(--color-nexus-ink)' }}
         >
-          <Icon size={16} />
+          <Icon size={15} />
         </span>
       </div>
-      <div className="text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)]">{value}</div>
+      <div className="text-[24px] leading-tight font-bold text-[var(--color-nexus-ink)] tracking-tight">{value}</div>
       {caption && (
         <div
           className="mt-1.5 text-[12px] font-medium flex items-center gap-1"

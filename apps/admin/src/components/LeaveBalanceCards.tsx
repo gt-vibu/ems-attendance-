@@ -60,7 +60,7 @@ export default function LeaveBalanceCards({
             key={balance.id ?? balance.code ?? balance.name}
             type={onSelect ? 'button' : undefined}
             onClick={onSelect ? () => onSelect(balance) : undefined}
-            className={`shrink-0 w-56 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] p-4 text-left ${onSelect ? 'hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer' : ''}`}
+            className={`shrink-0 w-56 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] p-4 text-left ${onSelect ? 'hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer' : ''}`}
           >
             <div className={`w-10 h-10 rounded-xl ${palette.bg} ${palette.fg} flex items-center justify-center mb-3`}>
               <Icon size={18} />

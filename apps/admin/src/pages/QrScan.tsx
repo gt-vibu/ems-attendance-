@@ -252,7 +252,7 @@ export default function QrScan({ user }: { user: User }) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full nexus-card rounded-3xl p-8 relative z-10"
+        className="max-w-md w-full nexus-card rounded-xl p-6 relative z-10"
       >
         <div className="text-center mb-6">
           <h1 className="font-sans text-2xl font-bold tracking-tight text-gradient inline-block">QR Attendance</h1>
@@ -260,11 +260,11 @@ export default function QrScan({ user }: { user: User }) {
         </div>
 
         {step === 'scanning' && (
-          <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-4 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
+          <div className="relative rounded-xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-square mb-4 flex items-center justify-center border-2 border-[var(--color-nexus-border)]">
             <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 w-full h-full object-cover" />
             <canvas ref={canvasRef} className="hidden" />
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-              <div className="w-56 h-56 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-2xl"></div>
+              <div className="w-56 h-56 border-2 border-dashed border-[var(--color-nexus-secondary)]/60 rounded-xl"></div>
             </div>
           </div>
         )}
@@ -313,7 +313,7 @@ export default function QrScan({ user }: { user: User }) {
         )}
 
         {step === 'success' && (
-          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-3">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-xl text-center space-y-3">
             <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center pulse-ring">
               <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />

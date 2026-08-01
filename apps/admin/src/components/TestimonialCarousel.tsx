@@ -129,7 +129,7 @@ export default function TestimonialCarousel() {
           </h2>
         </div>
 
-        <div className="flex items-center gap-2 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] px-4 py-2 rounded-2xl">
+        <div className="flex items-center gap-2 bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] px-4 py-2 rounded-xl">
           <div className="flex gap-0.5 text-[var(--color-premium-warning)]">
             {[...Array(5)].map((_, i) => (
               <Star key={i} className="w-4 h-4 fill-current" />
@@ -176,7 +176,7 @@ export default function TestimonialCarousel() {
             {SCROLL_ITEMS.map((item, idx) => (
               <div
                 key={`${item.name}-${idx}`}
-                className="w-[427.5px] shrink-0 bg-white/[0.04] border border-white/10 rounded-3xl p-8 flex flex-col justify-between h-[230px] shadow-lg"
+                className="w-[427.5px] shrink-0 bg-white/[0.04] border border-white/10 rounded-xl p-8 flex flex-col justify-between h-[230px] shadow-lg"
               >
                 <div>
                   <Quote className="w-5 h-5 text-[var(--color-premium-accent-2)] mb-4 opacity-70" />

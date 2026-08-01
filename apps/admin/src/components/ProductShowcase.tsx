@@ -20,7 +20,7 @@ const TIMELINE_EVENTS = [
 
 function TimelineCard() {
   return (
-    <div className="glass-card rounded-3xl p-6 h-full">
+    <div className="glass-card rounded-xl p-6 h-full">
       <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-premium-accent)]">Attendance Timeline</span>
       <h4 className="mt-1 font-display font-semibold text-lg text-[var(--color-premium-ink)]">A day, event by event</h4>
       <div className="mt-5 space-y-4">
@@ -60,7 +60,7 @@ function PayrollCard() {
   }).join(', ');
 
   return (
-    <div className="glass-card rounded-3xl p-6 h-full">
+    <div className="glass-card rounded-xl p-6 h-full">
       <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-premium-accent)]">Payroll Breakdown</span>
       <h4 className="mt-1 font-display font-semibold text-lg text-[var(--color-premium-ink)]">Every component, itemized</h4>
       <div className="mt-5 flex items-center gap-5">
@@ -89,7 +89,7 @@ function PayrollCard() {
 
 function VerificationCard() {
   return (
-    <div className="glass-card rounded-3xl p-6 h-full flex flex-col">
+    <div className="glass-card rounded-xl p-6 h-full flex flex-col">
       <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-premium-accent)]">Identity Verification</span>
       <h4 className="mt-1 font-display font-semibold text-lg text-[var(--color-premium-ink)]">Face, device, and location, together</h4>
       <div className="mt-5 flex-1 flex flex-col items-center justify-center gap-4">

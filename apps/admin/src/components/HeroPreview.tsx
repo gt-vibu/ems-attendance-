@@ -33,14 +33,14 @@ export default function HeroPreview() {
         <div className="p-5 space-y-4">
           {/* Stat tiles */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-[var(--color-premium-border)] p-3.5">
+            <div className="rounded-xl border border-[var(--color-premium-border)] p-3.5">
               <div className="flex items-center gap-1.5 text-[var(--color-premium-muted)]">
                 <Users size={14} />
                 <span className="text-[10px] font-bold uppercase tracking-wider">Active Now</span>
               </div>
               <p className="mt-1.5 text-2xl font-display font-bold text-[var(--color-premium-ink)]">128</p>
             </div>
-            <div className="rounded-2xl border border-[var(--color-premium-border)] p-3.5">
+            <div className="rounded-xl border border-[var(--color-premium-border)] p-3.5">
               <div className="flex items-center gap-1.5 text-[var(--color-premium-muted)]">
                 <TrendingUp size={14} />
                 <span className="text-[10px] font-bold uppercase tracking-wider">Attendance</span>
@@ -50,7 +50,7 @@ export default function HeroPreview() {
           </div>
 
           {/* Live check-in list */}
-          <div className="rounded-2xl border border-[var(--color-premium-border)] p-3.5 space-y-2.5">
+          <div className="rounded-xl border border-[var(--color-premium-border)] p-3.5 space-y-2.5">
             <div className="flex items-center gap-1.5 text-[var(--color-premium-muted)]">
               <ShieldCheck size={14} />
               <span className="text-[10px] font-bold uppercase tracking-wider">Verified Check-Ins</span>

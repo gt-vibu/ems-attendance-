@@ -157,7 +157,7 @@ export default function QrAttendanceDisplay() {
   return (
     <div
       ref={containerRef}
-      className={`nexus-card rounded-3xl ${isFullscreen ? 'fixed inset-0 z-50 flex flex-col items-center justify-center rounded-none' : 'p-8'}`}
+      className={`nexus-card rounded-xl ${isFullscreen ? 'fixed inset-0 z-50 flex flex-col items-center justify-center rounded-none' : 'p-6'}`}
     >
       {error && (
         <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-3 rounded-xl mb-4 border border-[var(--color-nexus-error)]/20 font-medium max-w-md mx-auto">{error}</div>
@@ -196,7 +196,7 @@ export default function QrAttendanceDisplay() {
           </div>
 
           {qrImageUrl && (
-            <div className="relative p-4 rounded-3xl bg-white border-2 border-[var(--color-nexus-primary-fixed)] shadow-[0_10px_40px_-12px_rgba(37,99,235,0.35)]">
+            <div className="relative p-4 rounded-xl bg-white border-2 border-[var(--color-nexus-primary-fixed)] shadow-[0_10px_40px_-12px_rgba(37,99,235,0.35)]">
               <img src={qrImageUrl} alt="Scan to mark attendance" className={isFullscreen ? 'w-[70vmin] h-[70vmin]' : 'w-72 h-72 md:w-96 md:h-96'} />
               <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-[var(--color-nexus-primary)] text-white text-xs font-mono font-bold px-4 py-1.5 rounded-full shadow-lg">
                 {secondsLeft}s

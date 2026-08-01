@@ -17,7 +17,7 @@ export default function LedgerTab({
 }) {
   return (
     <div className="space-y-6">
-      <div className="nexus-card rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="nexus-card rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-gradient font-sans">Immutable Cryptographic Audit Ledger</h2>
@@ -52,8 +52,8 @@ export default function LedgerTab({
       </div>
 
       {ledgerVerificationResult && (
-        <div className={`p-5 rounded-3xl border flex items-start gap-4 ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10 border-[color:var(--color-nexus-success-text)]/20 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)]/20 text-[var(--color-nexus-error)]'}`}>
-          <div className={`p-2 rounded-2xl ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10' : 'bg-[var(--color-nexus-error-soft)]'}`}>
+        <div className={`p-5 rounded-xl border flex items-start gap-4 ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10 border-[color:var(--color-nexus-success-text)]/20 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-error-soft)] border-[var(--color-nexus-error)]/20 text-[var(--color-nexus-error)]'}`}>
+          <div className={`p-2 rounded-xl ${ledgerVerificationResult.isValid ? 'bg-[color:var(--color-nexus-success-text)]/10' : 'bg-[var(--color-nexus-error-soft)]'}`}>
             {ledgerVerificationResult.isValid ? (
               <svg className="w-6 h-6 text-[var(--color-nexus-success-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
             ) : (
@@ -72,7 +72,7 @@ export default function LedgerTab({
         </div>
       )}
 
-      <div className="nexus-card rounded-3xl p-6">
+      <div className="nexus-card rounded-xl p-6">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>

@@ -528,7 +528,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-[var(--color-nexus-surface)] p-6 shadow-2xl border border-[var(--color-nexus-border)]"
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-2xl border border-[var(--color-nexus-border)]"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -536,7 +536,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
         ) : error && !employee ? (
           <div className="space-y-4">
             <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>
-            <button onClick={onClose} className="w-full rounded-2xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Close</button>
+            <button onClick={onClose} className="w-full rounded-xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Close</button>
           </div>
         ) : employee ? (
           <div className="space-y-6">
@@ -573,7 +573,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                 shiftId — this just exposes the rest of the fields it
                 always accepted. */}
             {editingDetails ? (
-              <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 space-y-3">
+              <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 space-y-3">
                 {detailsError && <p className="text-xs font-semibold text-[var(--color-nexus-error)]">{detailsError}</p>}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -616,19 +616,19 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
               </div>
             ) : (
               <dl className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                   <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Email</dt>
                   <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.email}</dd>
                 </div>
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                   <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Role</dt>
                   <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5 capitalize">{employee.role}</dd>
                 </div>
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                   <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Department</dt>
                   <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.department || '—'}</dd>
                 </div>
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                   <dt className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)]">Joined</dt>
                   <dd className="truncate font-semibold text-[var(--color-nexus-ink)] mt-0.5">{employee.dateOfJoining ? new Date(employee.dateOfJoining).toLocaleDateString() : '—'}</dd>
                 </div>
@@ -640,7 +640,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                 role can end up with different individual access. Saves via
                 the same PUT /api/tenant/employees/:id, just the `privileges`
                 field instead of profile fields. */}
-            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+            <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-[var(--color-nexus-primary)]" />
@@ -696,7 +696,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
             {/* Shift + temporary shift change — additive alongside the
                 permanent shift (still changed via the employee edit form,
                 which calls PUT /api/tenant/employees/:id with shiftId). */}
-            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+            <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div>
                   <h4 className="text-sm font-bold text-[var(--color-nexus-ink)] font-sans">Shift</h4>
@@ -716,7 +716,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
               </div>
 
               {showOverrideForm && (
-                <form onSubmit={handleCreateOverride} className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-3 rounded-2xl bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)]">
+                <form onSubmit={handleCreateOverride} className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-3 rounded-xl bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)]">
                   <div className="sm:col-span-2">
                     <label className="block text-[11px] font-semibold text-[var(--color-nexus-muted)] mb-1 uppercase tracking-wider">Shift</label>
                     <select
@@ -782,7 +782,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
             </div>
 
             {/* Month calendar */}
-            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+            <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-[var(--color-nexus-primary)]" />
@@ -845,7 +845,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                   edit endpoint and ticket resolution use, so this reflects
                   in attendance history, leave, and payroll immediately. */}
               {editingDate && (
-                <div className="mt-4 p-4 rounded-2xl border border-[var(--color-nexus-primary)]/30 bg-[var(--color-nexus-primary-fixed)]/30 space-y-3">
+                <div className="mt-4 p-4 rounded-xl border border-[var(--color-nexus-primary)]/30 bg-[var(--color-nexus-primary-fixed)]/30 space-y-3">
                   <p className="text-xs font-bold text-[var(--color-nexus-ink)]">Correct attendance for {editingDate}</p>
                   {dayError && <p className="text-xs font-semibold text-[var(--color-nexus-error)]">{dayError}</p>}
                   <div className="flex flex-wrap items-center gap-2">
@@ -880,7 +880,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
             </div>
 
             {/* Leave balance */}
-            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+            <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
               <h4 className="text-sm font-bold text-[var(--color-nexus-ink)] font-sans mb-3">Leave Balance</h4>
               {!leaveBalance || leaveBalance.balances.length === 0 ? (
                 <p className="text-sm text-[var(--color-nexus-muted)]">No leave policy has been assigned yet.</p>
@@ -910,7 +910,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                 chargeableLeaveDays * dailyRate * excessLeavePenaltyPercent),
                 so the take-home figure shown here is the real number after
                 this month's approved leave — never a flat CTC/12 guess. */}
-            <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+            <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Banknote className="h-4 w-4 text-[var(--color-nexus-secondary)]" />
                 <h4 className="text-sm font-bold text-[var(--color-nexus-ink)] font-sans">Payroll Breakdown</h4>
@@ -953,7 +953,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] px-4 py-3">
+                  <div className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] px-4 py-3">
                     <div>
                       <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-secondary)] tracking-wider">Take-Home (This Month)</span>
                       <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">CTC {Math.round(summary.annualCtc).toLocaleString()}/yr • Gross {Math.round(summary.monthlyGross).toLocaleString()}/mo</span>
@@ -974,7 +974,7 @@ export default function EmployeeDetailPanel({ userId, onClose }: EmployeeDetailP
 
             <button
               onClick={onClose}
-              className="w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+              className="w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
             >
               Close
             </button>

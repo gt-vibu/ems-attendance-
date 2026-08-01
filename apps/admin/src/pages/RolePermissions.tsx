@@ -145,7 +145,7 @@ export default function RolePermissions({ user }: { user: User }) {
         </button>
 
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
             <ShieldCheck size={20} className="text-white" />
           </div>
           <div>
@@ -159,13 +159,13 @@ export default function RolePermissions({ user }: { user: User }) {
         {loading ? (
           <div className="text-xs text-[var(--color-nexus-muted)] font-semibold">Loading…</div>
         ) : myPrivileges !== 'ALL' && !myPrivileges.includes('roles.manage') ? (
-          <div className="nexus-card rounded-2xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
+          <div className="nexus-card rounded-xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
             You don't have access to manage roles &amp; permissions. Ask your tenant admin to grant it.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
             {/* Role list */}
-            <div className="nexus-card rounded-2xl p-3 h-fit">
+            <div className="nexus-card rounded-xl p-3 h-fit">
               <div className="space-y-1">
                 {roles.map((r) => (
                   <button
@@ -241,7 +241,7 @@ export default function RolePermissions({ user }: { user: User }) {
                   />
                 </>
               ) : (
-                <div className="nexus-card rounded-2xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
+                <div className="nexus-card rounded-xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
                   No roles yet — add one to get started.
                 </div>
               )}
@@ -288,7 +288,7 @@ function AccessPreviewModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="nexus-card rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6"
+        className="nexus-card rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-1">

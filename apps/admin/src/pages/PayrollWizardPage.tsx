@@ -447,14 +447,14 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
         title="Payroll Setup Wizard"
         fallbackHref="/tenant/payroll"
       >
-        <div className="nexus-card rounded-3xl p-10 text-center">
+        <div className="nexus-card rounded-xl p-10 text-center">
           <h2 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Access Denied</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-nexus-muted)]">
             You can't set up your own payroll, even with payroll permissions — this is a standard segregation-of-duties control. Ask a tenant admin or another payroll manager to configure it for you.
           </p>
           <button
             onClick={() => navigate('/tenant/payroll')}
-            className="mt-6 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+            className="mt-6 rounded-xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
           >
             Back to Payroll
           </button>
@@ -478,10 +478,10 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
       {success && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[color:var(--color-nexus-success-text)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-nexus-success-text)]/20 font-medium">{success}</div>}
 
       {loading ? (
-        <div className="nexus-card rounded-3xl p-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading payroll builder…</div>
+        <div className="nexus-card rounded-xl p-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading payroll builder…</div>
       ) : (
         <div className="space-y-6">
-          <section className="nexus-card rounded-3xl p-6">
+          <section className="nexus-card rounded-xl p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -522,7 +522,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                 <button
                   key={item}
                   onClick={() => goToStep(item)}
-                  className={`rounded-2xl border px-4 py-4 text-left transition-colors ${
+                  className={`rounded-xl border px-4 py-4 text-left transition-colors ${
                     activeStep === item
                       ? 'border-[var(--color-nexus-primary)] bg-[var(--color-nexus-primary-fixed)]'
                       : 'border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]'
@@ -538,7 +538,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
           </section>
 
           {activeStep === 'salary' && (
-            <section className="nexus-card rounded-3xl p-6">
+            <section className="nexus-card rounded-xl p-6">
               <div className="mb-5">
                 <h3 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Salary Structure</h3>
                 <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Start with the annual CTC and split the earnings the way you showed: basic, HRA (if applicable), and an auto-balanced fixed allowance.</p>
@@ -547,7 +547,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
               <div className={`grid grid-cols-1 gap-5 ${mode === 'employee' ? 'md:grid-cols-3' : 'md:max-w-xs'}`}>
                 <div>
                   <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Annual CTC</label>
-                  <input type="number" min="0" value={draft.annualCtc} onChange={(e) => updateDraft('annualCtc', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                  <input type="number" min="0" value={draft.annualCtc} onChange={(e) => updateDraft('annualCtc', e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                 </div>
                 {mode === 'employee' && (
                   <>
@@ -557,13 +557,13 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                     </div>
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Overtime Hourly Rate</label>
-                      <input type="number" min="0" step="0.01" value={draft.overtimeHourlyRate} onChange={(e) => updateDraft('overtimeHourlyRate', e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                      <input type="number" min="0" step="0.01" value={draft.overtimeHourlyRate} onChange={(e) => updateDraft('overtimeHourlyRate', e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                     </div>
                   </>
                 )}
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--color-nexus-border)]">
+              <div className="mt-6 overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
                 <div className="grid grid-cols-[1.3fr_1fr_1fr_1fr] bg-[var(--color-nexus-surface-alt)] px-5 py-4 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">
                   <span>Salary Components</span>
                   <span>Calculation Type</span>
@@ -683,7 +683,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                 <button
                   onClick={() => goToStep('statutory')}
                   disabled={annualCtc <= 0 || salaryOverAllocated}
-                  className="rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
+                  className="rounded-xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
                 >
                   Continue to PF & Deductions
                 </button>
@@ -692,13 +692,13 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
           )}
 
           {activeStep === 'statutory' && (
-            <section className="nexus-card rounded-3xl p-6">
+            <section className="nexus-card rounded-xl p-6">
               <div className="mb-5">
                 <h3 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">PF & Statutory Deductions</h3>
                 <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">This is the part that was missing before: proper places for PF percentages and tax deductions.</p>
               </div>
 
-              <label className="mb-5 flex items-center gap-2.5 cursor-pointer select-none rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+              <label className="mb-5 flex items-center gap-2.5 cursor-pointer select-none rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
                 <input
                   type="checkbox"
                   checked={draft.pfEnabled}
@@ -712,7 +712,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
               </label>
 
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
                   <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Employee Deductions</h4>
                   <div className="mt-4 space-y-4">
                     {draft.pfEnabled && (
@@ -736,7 +736,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                       />
                     </div>
                     {draft.customDeductions.map((row) => (
-                      <div key={row.id} className="rounded-2xl border border-[var(--color-nexus-border)] bg-white p-3">
+                      <div key={row.id} className="rounded-xl border border-[var(--color-nexus-border)] bg-white p-3">
                         <input
                           type="text"
                           value={row.name}
@@ -775,7 +775,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
                   <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Employer Contributions</h4>
                   <div className="mt-4 space-y-4">
                     {draft.pfEnabled ? (
@@ -789,7 +789,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                             onValueChange={(v) => updateDraft('employerPfValue', v)}
                           />
                         </div>
-                        <div className="rounded-2xl bg-white p-4 text-sm text-[var(--color-nexus-muted)]">
+                        <div className="rounded-xl bg-white p-4 text-sm text-[var(--color-nexus-muted)]">
                           Employer-side contributions are previewed separately so HR can review true cost without mixing them into the employee's take-home.
                         </div>
                       </>
@@ -801,25 +801,25 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Employee PF / month</span>
                   <span className="mt-1 block text-xl font-black text-[var(--color-nexus-ink)]">{formatMoney(employeePfAnnual / 12)}</span>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Employer PF / month</span>
                   <span className="mt-1 block text-xl font-black text-[var(--color-nexus-ink)]">{formatMoney(employerPfAnnual / 12)}</span>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Projected Monthly Net</span>
                   <span className="mt-1 block text-xl font-black text-[color:var(--color-nexus-success-text)]">{formatMoney(monthlyNet)}</span>
                 </div>
               </div>
 
               <div className="mt-6 flex justify-between">
-                <button onClick={() => goToStep('salary')} className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
+                <button onClick={() => goToStep('salary')} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
                   Back
                 </button>
-                <button onClick={() => goToStep('review')} className="rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]">
+                <button onClick={() => goToStep('review')} className="rounded-xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]">
                   Continue to Review
                 </button>
               </div>
@@ -827,13 +827,13 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
           )}
 
           {activeStep === 'review' && (
-            <section className="nexus-card rounded-3xl p-6">
+            <section className="nexus-card rounded-xl p-6">
               <div className="mb-5">
                 <h3 className="font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Review & Save</h3>
                 <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Final confirmation page before writing the salary structure back to payroll.</p>
               </div>
 
-              <div className="overflow-hidden rounded-3xl border border-[var(--color-nexus-border)]">
+              <div className="overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
                 <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr] bg-[var(--color-nexus-surface-alt)] px-5 py-4 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">
                   <span>Component</span>
                   <span>Section</span>
@@ -853,35 +853,35 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Annual CTC</span>
                   <span className="mt-1 block text-xl font-black text-[var(--color-nexus-ink)]">{formatMoney(annualCtc)}</span>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Monthly Gross</span>
                   <span className="mt-1 block text-xl font-black text-[var(--color-nexus-ink)]">{formatMoney(monthlyGross)}</span>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Monthly Deductions</span>
                   <span className="mt-1 block text-xl font-black text-[var(--color-nexus-error)]">{formatMoney(monthlyDeductions)}</span>
                 </div>
-                <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
+                <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-4">
                   <span className="block text-[10px] uppercase tracking-wider text-[var(--color-nexus-muted)]">Monthly Net</span>
                   <span className="mt-1 block text-xl font-black text-[color:var(--color-nexus-success-text)]">{formatMoney(monthlyNet)}</span>
                 </div>
               </div>
 
               {detail?.summary && (
-                <div className="mt-6 rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-primary-fixed)] p-5 text-sm text-[var(--color-nexus-ink)]">
+                <div className="mt-6 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-primary-fixed)] p-5 text-sm text-[var(--color-nexus-ink)]">
                   Existing saved profile: gross {formatMoney(detail.summary.monthlyGross || 0)}, net {formatMoney(detail.summary.monthlyNet || 0)}, leave cut {formatMoney(detail.summary.leaveDeduction || 0)}.
                 </div>
               )}
 
               <div className="mt-6 flex justify-between">
-                <button onClick={() => goToStep('statutory')} className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
+                <button onClick={() => goToStep('statutory')} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">
                   Back
                 </button>
-                <button onClick={saveProfile} disabled={saving || annualCtc <= 0 || salaryOverAllocated} className="rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                <button onClick={saveProfile} disabled={saving || annualCtc <= 0 || salaryOverAllocated} className="rounded-xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
                   {saving ? 'Saving…' : 'Save Payroll Structure'}
                 </button>
               </div>

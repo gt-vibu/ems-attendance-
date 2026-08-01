@@ -53,7 +53,7 @@ export default function BreakReconciliation() {
   };
 
   return (
-    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-xl max-w-3xl mx-auto backdrop-blur-md">
+    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-xl p-6 shadow-xl max-w-3xl mx-auto backdrop-blur-md">
       <div className="flex justify-between items-center mb-5 pb-3 border-b border-[var(--color-nexus-border)]/40">
         <div>
           <h4 className="font-sans font-bold text-sm tracking-tight text-[var(--color-nexus-ink)] uppercase flex items-center gap-1.5">
@@ -77,7 +77,7 @@ export default function BreakReconciliation() {
           return (
             <div
               key={session.id}
-              className={`p-5 rounded-2xl border transition-all duration-500 relative ${
+              className={`p-5 rounded-xl border transition-all duration-500 relative ${
                 isResolved
                   ? 'bg-[var(--color-nexus-surface-alt)]/50 border-[var(--color-nexus-border)] opacity-60'
                   : hasSignificantGap

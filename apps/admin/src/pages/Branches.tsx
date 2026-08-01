@@ -54,7 +54,7 @@ export default function Branches({ user }: { user: User }) {
 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
               <Building2 size={20} className="text-white" />
             </div>
             <div>
@@ -75,8 +75,8 @@ export default function Branches({ user }: { user: User }) {
         {loading ? (
           <div className="text-xs text-[var(--color-nexus-muted)] font-semibold">Loading…</div>
         ) : branches.length === 0 ? (
-          <div className="nexus-card rounded-3xl p-12 text-center">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center mb-4">
+          <div className="nexus-card rounded-xl p-12 text-center">
+            <div className="w-16 h-16 mx-auto rounded-xl bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center mb-4">
               <Building2 size={28} className="text-[var(--color-nexus-primary)]" />
             </div>
             <h3 className="font-sans font-bold text-lg text-[var(--color-nexus-ink)] mb-1">No branches yet</h3>
@@ -97,12 +97,12 @@ export default function Branches({ user }: { user: User }) {
                 <button
                   key={b.id}
                   onClick={() => navigate(`/tenant/branches/${b.id}`)}
-                  className="text-left nexus-card  rounded-2xl p-5 group relative overflow-hidden"
+                  className="text-left nexus-card  rounded-xl p-5 group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 w-28 h-28 bg-gradient-to-br from-[var(--color-nexus-primary)]/10 to-transparent rounded-full -mr-10 -mt-10 pointer-events-none" />
 
                   <div className="flex items-start justify-between mb-4 relative">
-                    <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_6px_16px_rgba(37,99,235,0.28)]">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_6px_16px_rgba(37,99,235,0.28)]">
                       <Building2 size={19} className="text-white" />
                     </div>
                     <div className="flex items-center gap-1.5">

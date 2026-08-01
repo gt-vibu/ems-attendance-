@@ -75,7 +75,7 @@ export default function PartnerSection() {
               top: `${t.y}px`,
               transform: `translate(-50%, -50%) rotate(${t.rotation}deg)`,
             }}
-            className="absolute w-10 h-10 rounded-2xl bg-[var(--color-premium-accent)] text-white flex items-center justify-center font-display font-bold text-sm pointer-events-none shadow-md animate-fade-scale-down z-20"
+            className="absolute w-10 h-10 rounded-xl bg-[var(--color-premium-accent)] text-white flex items-center justify-center font-display font-bold text-sm pointer-events-none shadow-md animate-fade-scale-down z-20"
           >
             {t.letter}
           </div>

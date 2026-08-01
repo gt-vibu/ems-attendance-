@@ -260,7 +260,7 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-xl w-full nexus-card rounded-3xl p-8 relative z-10"
+        className="max-w-xl w-full nexus-card rounded-xl p-6 relative z-10"
       >
         <div className="text-center mb-6">
           <h1 className="font-sans text-2xl font-semibold tracking-tight text-[var(--color-nexus-ink)]">Face Enrollment</h1>
@@ -285,7 +285,7 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
           </div>
         )}
 
-        <div className="relative rounded-2xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-video mb-4 flex items-center justify-center border-4 border-[var(--color-nexus-border)]">
+        <div className="relative rounded-xl overflow-hidden bg-[var(--color-nexus-ink)] aspect-video mb-4 flex items-center justify-center border-4 border-[var(--color-nexus-border)]">
           <video
             ref={videoRef}
             autoPlay
@@ -312,7 +312,7 @@ export default function FaceEnrollment({ user, updateSession, onUseDeviceInstead
           )}
         </div>
 
-        <div className="mb-4 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 text-center">
+        <div className="mb-4 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 text-center">
           {recording ? (
             <>
               <p className="text-[10px] tracking-widest uppercase font-extrabold text-[var(--color-nexus-secondary)] mb-1">

@@ -45,10 +45,10 @@ export const SlaDashboardWidget: React.FC = () => {
   };
 
   return (
-    <div className="nexus-card rounded-2xl p-5">
+    <div className="nexus-card rounded-xl p-5">
       <button type="button" onClick={() => setExpanded((v) => !v)} className="w-full flex items-center justify-between gap-4 text-left">
         <div className="flex items-center gap-3">
-          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${summary.breached > 0 ? 'bg-rose-100' : summary.warning > 0 ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${summary.breached > 0 ? 'bg-rose-100' : summary.warning > 0 ? 'bg-amber-100' : 'bg-emerald-100'}`}>
             {summary.breached > 0
               ? <AlertOctagon className="w-5 h-5 text-rose-600" />
               : <Clock className="w-5 h-5 text-amber-600" />}

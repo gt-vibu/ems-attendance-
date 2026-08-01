@@ -65,7 +65,7 @@ export default function RegisterDevice({ user, updateSession }: { user: User, up
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-xl w-full nexus-card rounded-3xl p-8 relative z-10"
+        className="max-w-xl w-full nexus-card rounded-3xl p-6 relative z-10"
       >
         <div className="text-center mb-6">
           <h1 className="font-sans text-2xl font-semibold tracking-tight text-[var(--color-nexus-ink)]">Register This Device</h1>

@@ -813,7 +813,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   }
 
   const alreadyDone = todayState === 'checked_out';
-  const tile = 'nexus-card  rise-in rounded-2xl p-5';
+  const tile = 'nexus-card  rise-in rounded-xl p-5';
 
   return (
     <PortalShell
@@ -886,7 +886,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               In / Hours Worked" strip that used to sit here was dropped —
               it duplicated the status-tile row further down this page. */}
           {todayState === 'checked_in' && (
-            <div className="nexus-card rounded-3xl p-6 space-y-4">
+            <div className="nexus-card rounded-xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-[var(--color-nexus-muted)] uppercase tracking-widest font-mono">Break Management</h3>
                 <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{remainingMins}m left of {budgetMins}m</span>
@@ -895,7 +895,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 <motion.div initial={{ width: 0 }} animate={{ width: `${budgetUsedPct}%` }} transition={{ duration: 0.6 }} className={`h-1.5 rounded-full ${budgetUsedPct >= 100 ? 'bg-[var(--color-nexus-error)]' : 'bg-[var(--color-nexus-secondary)]'}`} />
               </div>
               {activeBreak && (
-                <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
+                <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-xl flex justify-between items-center">
                   <div>
                     <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">On Break ({activeBreak.breakType})</span>
                     <span className="text-2xl font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">{breakTimer}</span>
@@ -973,7 +973,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               is made with that context in view, not just the bare form. */}
           {showTakeBreakModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowTakeBreakModal(false)}>
-              <div className="nexus-card rounded-3xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+              <div className="nexus-card rounded-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Take a Break</h2>
                   <button type="button" onClick={() => setShowTakeBreakModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1">
@@ -1267,7 +1267,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             );
           })()}
 
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
               <div>
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Attendance Calendar</h2>
@@ -1332,7 +1332,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           </div>
 
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">My Attendance History</h2>
             <DataTable
               data={attendanceHistory}
@@ -1436,9 +1436,9 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   {/* Mobile: same data, one stacked card per request. */}
                   <div className="md:hidden space-y-3">
                     {(leaveData?.requests || []).length === 0 ? (
-                      <div className="nexus-card rounded-2xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No leave requests yet.</div>
+                      <div className="nexus-card rounded-xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No leave requests yet.</div>
                     ) : (leaveData?.requests || []).map((request: any) => (
-                      <div key={request.id} className="nexus-card rounded-2xl p-4">
+                      <div key={request.id} className="nexus-card rounded-xl p-4">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{request.leaveType}</span>
                           <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'error' : 'warning'} dot>{request.status}</StatusPill>
@@ -1507,7 +1507,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               rather than dropped, since they're not cosmetic. */}
           {applyLeaveModalOpen && (
             <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 backdrop-blur-sm p-4 sm:p-8" onClick={() => setApplyLeaveModalOpen(false)}>
-              <div className="nexus-card rounded-3xl p-6 w-full max-w-lg my-8" onClick={(e) => e.stopPropagation()}>
+              <div className="nexus-card rounded-xl p-6 w-full max-w-lg my-8" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="text-lg font-bold text-[var(--color-nexus-ink)] font-sans">Apply Leave</h2>
                   <button type="button" onClick={() => setApplyLeaveModalOpen(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1">
@@ -1552,7 +1552,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   ) : null}
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1.5">Reason For Leave</label>
-                    <textarea value={leaveReason} onChange={e => setLeaveReason(e.target.value)} rows={3} placeholder="Tell your manager what this leave is for..." className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-2xl px-4 py-3 text-sm focus:outline-none resize-none" required />
+                    <textarea value={leaveReason} onChange={e => setLeaveReason(e.target.value)} rows={3} placeholder="Tell your manager what this leave is for..." className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-4 py-3 text-sm focus:outline-none resize-none" required />
                   </div>
                   <div className="flex justify-end gap-3 pt-1">
                     <button type="button" onClick={() => setApplyLeaveModalOpen(false)} className="border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl px-5 py-3 text-xs font-bold uppercase tracking-wider hover:bg-[var(--color-nexus-surface-alt)] transition-colors">
@@ -1567,7 +1567,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Optional Holidays</h2>
@@ -1583,7 +1583,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               <div className="space-y-3">
                 <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
                   {optionalHolidayData.holidays.map((holiday: any) => (
-                    <label key={holiday.id} className="flex items-start gap-3 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm">
+                    <label key={holiday.id} className="flex items-start gap-3 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm">
                       <input
                         type="checkbox"
                         checked={selectedOptionalHolidayIds.includes(holiday.id)}
@@ -1638,7 +1638,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           comment above the 'leave' tab for why. */}
       {tab === 'payroll' && (
         <div className="space-y-6">
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payroll Breakup</h2>
             {!payrollData?.summary ? (
               <p className="text-sm text-[var(--color-nexus-muted)]">Payroll structure has not been configured yet.</p>
@@ -1649,7 +1649,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   <span className="font-bold text-[var(--color-nexus-ink)]">{Math.round(payrollData.summary.annualCtc).toLocaleString()}</span>
                 </div>
 
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
                   <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-success-text)] tracking-wider mb-2">Earnings</span>
                   <div className="space-y-1.5">
                     {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'earning').map((component: any) => (
@@ -1661,7 +1661,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
                   <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-error)] tracking-wider mb-2">Deductions</span>
                   <div className="space-y-1.5">
                     {payrollData.summary.annualBreakdown.filter((c: any) => c.componentType === 'deduction').map((component: any) => (
@@ -1682,7 +1682,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] p-4 flex items-center justify-between">
+                <div className="rounded-xl border border-[var(--color-nexus-secondary)]/40 bg-[var(--color-nexus-secondary-container)] p-4 flex items-center justify-between">
                   <div>
                     <span className="block text-[10px] uppercase font-bold text-[var(--color-nexus-secondary)] tracking-wider">Net Pay (Monthly)</span>
                     <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">Gross {Math.round(payrollData.summary.monthlyGross).toLocaleString()}</span>
@@ -1699,7 +1699,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               <h3 className="text-base font-bold mt-2">Secure Payout</h3>
               <p className="text-sm text-white/70 mt-2 leading-relaxed">Your salary is processed through encrypted financial channels.</p>
             </div>
-            <div className="nexus-card rounded-3xl p-6 lg:col-span-2">
+            <div className="nexus-card rounded-xl p-6 lg:col-span-2">
               <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payslip History</h2>
               <DataTable
                 data={payslipHistory}
@@ -1719,7 +1719,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
       {/* MY REQUESTS */}
       {tab === 'requests' && (
-        <div className="nexus-card rounded-3xl p-6 space-y-4">
+        <div className="nexus-card rounded-xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Correction Requests</h2>
             <button onClick={() => setShowCorrectionModal(true)} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors">New Request</button>
@@ -1745,7 +1745,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       {/* Correction request modal */}
       {showCorrectionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowCorrectionModal(false)}>
-          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={e => e.stopPropagation()}>
+          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={e => e.stopPropagation()}>
             {correctionSubmitted ? (
               <div className="text-center py-6">
                 <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>

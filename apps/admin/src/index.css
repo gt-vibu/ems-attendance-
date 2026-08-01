@@ -30,13 +30,16 @@
   --color-premium-info: #2563EB;
   --color-premium-info-soft: #DBEAFE;
 
-  
-  --shadow-elevation-1: 0px 1px 3px rgba(0, 0, 0, 0.05), 0px 10px 20px rgba(0, 0, 0, 0.02);
-  --shadow-elevation-2: 0px 4px 12px rgba(0, 0, 0, 0.06), 0px 20px 40px rgba(0, 0, 0, 0.08);
-  --shadow-elevation-3: 0px 32px 64px rgba(0, 0, 0, 0.12);
 
-  
-  --radius-card: 20px;
+  /* Tightened for an enterprise-density feel (Linear/Stripe-style) — very
+     faint elevation instead of "floating card" drop shadows. Elevation
+     should read from spacing/borders first, shadow second. */
+  --shadow-elevation-1: 0px 1px 2px rgba(15, 23, 42, 0.04), 0px 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-elevation-2: 0px 4px 10px rgba(15, 23, 42, 0.06), 0px 1px 3px rgba(15, 23, 42, 0.05);
+  --shadow-elevation-3: 0px 16px 32px rgba(15, 23, 42, 0.12);
+
+
+  --radius-card: 12px;
   --radius-control: 8px;
 
   
@@ -68,8 +71,17 @@
   --color-nexus-ai-accent: #7C3AED;
   --color-nexus-ai-accent-soft: #F3ECFF;
 
-  --radius-nexus-card: 20px;
+  --radius-nexus-card: 12px;
   --radius-nexus-control: 8px;
+
+  /* 8-point spacing scale, named so page rewrites reference one source of
+     truth instead of picking arbitrary Tailwind spacing values. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 20px;
+  --space-5: 24px;
+  --space-6: 32px;
 }
 
 .nexus-card {
@@ -77,10 +89,11 @@
   border: 1px solid var(--color-nexus-border);
   border-radius: var(--radius-nexus-card);
   box-shadow: var(--shadow-elevation-1);
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .nexus-card:hover {
-  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.06), 0px 20px 40px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-elevation-2);
+  border-color: #D7DEE8;
 }
 
 .glass-panel {

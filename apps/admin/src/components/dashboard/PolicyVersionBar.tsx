@@ -21,7 +21,7 @@ export default function PolicyVersionBar() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 select-none mb-4">
-      <div className="glass-panel rounded-2xl border border-[var(--color-nexus-border)] shadow-sm overflow-hidden">
+      <div className="glass-panel rounded-xl border border-[var(--color-nexus-border)] shadow-sm overflow-hidden">
         {/* Banner strip */}
         <div
           onClick={() => setIsOpen(!isOpen)}

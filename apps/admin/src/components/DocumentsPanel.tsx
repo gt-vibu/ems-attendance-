@@ -106,7 +106,7 @@ export default function DocumentsPanel({ userId, canUpload = true, canDelete = t
   if (!enabled) return null;
 
   return (
-    <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+    <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-xs font-bold uppercase tracking-widest text-[var(--color-nexus-muted)]">Documents</h4>
         {canUpload && (

@@ -121,7 +121,7 @@ export default function BranchDetail({ user }: { user: User }) {
         </button>
 
         {/* Hero header */}
-        <div className="relative overflow-hidden rounded-3xl mb-6 p-6 bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] shadow-[0_16px_40px_rgba(37,99,235,0.3)]">
+        <div className="relative overflow-hidden rounded-xl mb-6 p-6 bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] shadow-[0_16px_40px_rgba(37,99,235,0.3)]">
           <div className="absolute top-0 right-0 w-56 h-56 bg-white/10 rounded-full -mr-20 -mt-20 pointer-events-none" />
           <div className="relative flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
@@ -178,26 +178,26 @@ export default function BranchDetail({ user }: { user: User }) {
         {tab === 'overview' && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="nexus-card rounded-2xl p-4">
+              <div className="nexus-card rounded-xl p-4">
                 <div className="flex items-center gap-2 text-[var(--color-nexus-muted)] text-[11px] font-semibold uppercase tracking-wider mb-1"><Users size={13} /> Headcount</div>
                 <div className="text-2xl font-bold text-[var(--color-nexus-ink)]">{detail?.headcount ?? 0}</div>
               </div>
-              <div className="nexus-card rounded-2xl p-4">
+              <div className="nexus-card rounded-xl p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Present Today</div>
                 <div className="text-2xl font-bold text-[var(--color-nexus-ink)]">{detail?.todaysAttendance?.presentToday ?? 0}</div>
               </div>
-              <div className="nexus-card rounded-2xl p-4">
+              <div className="nexus-card rounded-xl p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Late Today</div>
                 <div className="text-2xl font-bold text-[var(--color-nexus-ink)]">{detail?.todaysAttendance?.lateToday ?? 0}</div>
               </div>
-              <div className="nexus-card rounded-2xl p-4">
+              <div className="nexus-card rounded-xl p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Pending Approval</div>
                 <div className="text-2xl font-bold text-[var(--color-nexus-ink)]">{detail?.todaysAttendance?.pendingToday ?? 0}</div>
               </div>
             </div>
 
             {/* Policy summary */}
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-4 flex items-center gap-2"><ShieldCheck size={16} className="text-[var(--color-nexus-primary)]" /> Policy Summary</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]">
@@ -216,7 +216,7 @@ export default function BranchDetail({ user }: { user: User }) {
             </div>
 
             {/* Staff by role */}
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-3">Roster by Role</h3>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(detail?.staffByRole || {}).map(([role, count]: any) => (
@@ -231,7 +231,7 @@ export default function BranchDetail({ user }: { user: User }) {
         )}
 
         {tab === 'roster' && (
-          <div className="nexus-card rounded-2xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-4">Roster</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -262,7 +262,7 @@ export default function BranchDetail({ user }: { user: User }) {
         )}
 
         {tab === 'shifts' && (
-          <div className="nexus-card rounded-2xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <Clock size={16} className="text-[var(--color-nexus-primary)]" />
               <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Shifts</h3>
@@ -301,7 +301,7 @@ export default function BranchDetail({ user }: { user: User }) {
         )}
 
         {tab === 'trends' && (
-          <div className="nexus-card rounded-2xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <TrendingUp size={16} className="text-[var(--color-nexus-primary)]" />
@@ -336,7 +336,7 @@ export default function BranchDetail({ user }: { user: User }) {
         )}
 
         {tab === 'settings' && branch && (
-          <div className="nexus-card rounded-2xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Branch Settings</h3>
               <button

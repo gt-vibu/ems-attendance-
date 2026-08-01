@@ -54,17 +54,17 @@ export default function PortalShell({
 
   const SidebarContent = () => (
     <>
-      <div className="px-5 py-5 flex items-center gap-2.5 border-b border-[var(--color-nexus-border)]">
+      <div className="px-4 py-4 flex items-center gap-2.5 border-b border-[var(--color-nexus-border)]">
         <div className="w-8 h-8 rounded-lg bg-[var(--color-nexus-primary)] flex items-center justify-center shrink-0">
-          <Building2 className="w-4 h-4 text-white" size={16} />
+          <Building2 className="w-4 h-4 text-white" size={15} />
         </div>
         <div className="min-w-0">
-          <span className="font-sans font-bold text-sm text-[var(--color-nexus-ink)] tracking-tight block truncate leading-tight">Smart Teams</span>
-          <span className="text-[10px] text-[var(--color-nexus-muted)] tracking-wide block leading-tight">{roleLabel || user.role}</span>
+          <span className="font-sans font-bold text-[13px] text-[var(--color-nexus-ink)] tracking-tight block truncate leading-tight">Smart Teams EMS</span>
+          <span className="text-[10.5px] text-[var(--color-nexus-muted)] tracking-wide block leading-tight mt-0.5">Enterprise Management Suite</span>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-2.5 py-3 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           const Icon = item.icon;
@@ -72,16 +72,16 @@ export default function PortalShell({
             <button
               key={item.id}
               onClick={() => { onTabChange(item.id); setMobileOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-nexus-control)] text-[13px] font-semibold transition-colors ${
+              className={`w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-[var(--radius-nexus-control)] text-[13px] font-medium transition-colors ${
                 isActive
-                  ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-ink)]'
-                  : 'text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)]'
+                  ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] font-semibold'
+                  : 'text-[var(--color-nexus-secondary)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)]'
               }`}
             >
-              <Icon size={17} className="shrink-0" />
+              <Icon size={16} strokeWidth={2} className="shrink-0" />
               <span className="flex-1 text-left truncate">{item.label}</span>
               {typeof item.count === 'number' && item.count > 0 && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/70 text-[var(--color-nexus-ink)]' : 'bg-[var(--color-nexus-surface-sunken)] text-[var(--color-nexus-muted)]'}`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/70 text-[var(--color-nexus-primary)]' : 'bg-[var(--color-nexus-surface-sunken)] text-[var(--color-nexus-muted)]'}`}>
                   {item.count}
                 </span>
               )}
@@ -90,21 +90,21 @@ export default function PortalShell({
         })}
       </nav>
 
-      <div className="px-3 py-3 border-t border-[var(--color-nexus-border)]">
-        <div className="flex items-center gap-2.5 px-2 py-1.5 mb-1.5">
+      <div className="px-2.5 py-2.5 border-t border-[var(--color-nexus-border)]">
+        <div className="flex items-center gap-2.5 px-1.5 py-1.5 mb-1">
           <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary)] flex items-center justify-center text-xs font-bold text-white shrink-0">
             {(user.name || user.email || '?').charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <span className="text-[12px] font-bold text-[var(--color-nexus-ink)] block truncate leading-tight">{user.name || 'Account'}</span>
-            <span className="text-[10px] text-[var(--color-nexus-muted)] block truncate leading-tight">{roleLabel || user.role || user.email}</span>
+            <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate leading-tight">{user.name || 'Account'}</span>
+            <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate leading-tight mt-0.5">{roleLabel || user.role || user.email}</span>
           </div>
         </div>
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-3 px-2 py-2 rounded-[var(--radius-nexus-control)] text-xs font-semibold text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-error-soft)] hover:text-[var(--color-nexus-error)] transition-colors"
+          className="w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-[var(--radius-nexus-control)] text-[12.5px] font-medium text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-error-soft)] hover:text-[var(--color-nexus-error)] transition-colors"
         >
-          <LogOut size={16} />
+          <LogOut size={15} />
           Sign Out
         </button>
       </div>
@@ -114,7 +114,7 @@ export default function PortalShell({
   return (
     <div className="min-h-screen bg-[var(--color-nexus-bg)] font-sans text-[var(--color-nexus-ink)] flex">
       {/* Desktop fixed sidebar */}
-      <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-[var(--color-nexus-surface)] border-r border-[var(--color-nexus-border)] sticky top-0 h-screen z-30">
+      <aside className="hidden md:flex md:flex-col w-[236px] shrink-0 bg-[var(--color-nexus-surface)] border-r border-[var(--color-nexus-border)] sticky top-0 h-screen z-30">
         <SidebarContent />
       </aside>
 
@@ -135,33 +135,40 @@ export default function PortalShell({
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-4 md:px-6 h-14 flex justify-between items-center gap-4 sticky top-0 z-40">
+        <header className="bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-4 md:px-6 h-16 flex justify-between items-center gap-4 sticky top-0 z-40">
           <div className="flex items-center gap-3 min-w-0">
             <div className="min-w-0">
-              <h1 className="font-sans font-bold text-lg md:text-xl text-[var(--color-nexus-ink)] tracking-tight truncate">{title}</h1>
-              {subtitle && <p className="hidden sm:block text-xs text-[var(--color-nexus-muted)] truncate mt-0.5">{subtitle}</p>}
+              <h1 className="font-sans font-bold text-[17px] md:text-[19px] text-[var(--color-nexus-ink)] tracking-tight truncate leading-tight">{title}</h1>
+              {subtitle && <p className="hidden sm:block text-[12px] text-[var(--color-nexus-muted)] truncate mt-0.5">{subtitle}</p>}
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <form onSubmit={submitSearch} className="hidden sm:block relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--color-nexus-muted)]" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-nexus-muted)]" />
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search employees..."
-                className="w-56 rounded-full border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] py-2 pl-9 pr-4 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary-fixed)]"
+                placeholder="Search employees, modules, reports…"
+                className="w-64 rounded-lg border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] py-[7px] pl-9 pr-12 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary-fixed)] focus:bg-[var(--color-nexus-surface)]"
               />
+              <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-nexus-muted)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded px-1.5 py-0.5">⌘K</kbd>
             </form>
             <NotificationBell />
             <PageChrome fallbackHref={fallbackHref} variant="compact" />
             {headerActions}
-            <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center text-xs font-bold text-[var(--color-nexus-ink)] shrink-0" title={user.email}>
-              {(user.name || user.email || '?').charAt(0).toUpperCase()}
+            <div className="hidden sm:flex items-center gap-2.5 pl-3 border-l border-[var(--color-nexus-border)]">
+              <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center text-xs font-bold text-[var(--color-nexus-primary)] shrink-0" title={user.email}>
+                {(user.name || user.email || '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 leading-tight">
+                <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate max-w-[120px]">{user.name || 'Account'}</span>
+                <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate max-w-[120px]">{roleLabel || user.role}</span>
+              </div>
             </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto p-4 md:p-6 mt-2 md:mt-4 w-full mb-16 md:mb-0">
+        <main className="max-w-7xl mx-auto p-4 md:p-6 w-full mb-16 md:mb-0">
           {children}
         </main>
       </div>

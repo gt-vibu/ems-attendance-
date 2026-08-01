@@ -85,7 +85,7 @@ export default function BulkHireImport({ hireBranches, onDone }: { hireBranches:
   };
 
   return (
-    <div className="nexus-card rounded-3xl p-6">
+    <div className="nexus-card rounded-xl p-6">
       <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between">
         <div className="text-left">
           <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Bulk Import (CSV)</h2>

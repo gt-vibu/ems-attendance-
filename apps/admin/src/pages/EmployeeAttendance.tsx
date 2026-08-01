@@ -839,7 +839,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full nexus-card rounded-3xl p-8 relative z-10"
+        className="max-w-md w-full nexus-card rounded-xl p-6 relative z-10"
       >
 
         {/* Header */}
@@ -866,7 +866,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
         </div>
 
         {todayState === 'checked_out' ? (
-          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-4">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-xl text-center space-y-4">
             <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
               <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -905,7 +905,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
         )}
 
         {success ? (
-          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-2xl text-center space-y-4">
+          <div className="bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 p-8 rounded-xl text-center space-y-4">
             <div className="w-16 h-16 mx-auto bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-secondary)] rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(34,199,184,0.25)] pulse-ring">
               <svg className="w-8 h-8 text-[var(--color-nexus-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -960,14 +960,14 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={chooseOfficeMode}
-                    className=" flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
+                    className=" flex flex-col items-center gap-2 py-6 rounded-xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
                   >
                     <span className="text-2xl float-c">🏢</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Office</span>
                   </button>
                   <button
                     onClick={chooseWfhMode}
-                    className=" flex flex-col items-center gap-2 py-6 rounded-2xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
+                    className=" flex flex-col items-center gap-2 py-6 rounded-xl border-2 border-[var(--color-nexus-border)] hover:border-[var(--color-nexus-primary)] transition-colors"
                   >
                     <span className="text-2xl float-b">🏠</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Work From Home</span>
@@ -1195,7 +1195,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
                     renders in a production build. Lives only on this
                     dedicated Wi-Fi step now, not inline with the camera. */}
                 {import.meta.env.DEV && (
-                  <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-2xl text-left">
+                  <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-xl text-left">
                     <label className="block text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-2 font-mono">Network Context Simulator (Dev Only)</label>
                     <input
                       type="text"
@@ -1238,7 +1238,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
                 token/GPS/Wi-Fi plus this explanation. */}
             {step === 'late_reason' && (
               <div className="py-4 space-y-5">
-                <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-2xl text-center">
+                <div className="p-4 bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/40 rounded-xl text-center">
                   <p className="text-[9px] font-bold text-[var(--color-nexus-secondary)] uppercase tracking-widest mb-1 font-mono">Late Arrival</p>
                   <p className="text-xs text-[var(--color-nexus-ink)] font-medium">
                     You're checking in after the shift start time. Please explain why — your manager will review it, and you can keep working while it's pending.
@@ -1286,7 +1286,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
       {/* Correction request modal */}
       {showCorrectionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
-          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
+          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
             {correctionSubmitted ? (
               <div className="text-center py-6">
                 <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>

@@ -78,7 +78,7 @@ export default function ShiftSwapWidget({ colleagues }: { colleagues: Colleague[
   if (colleagues.length === 0 && requests.length === 0) return null;
 
   return (
-    <div className="nexus-card rounded-3xl p-6">
+    <div className="nexus-card rounded-xl p-6">
       <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-1">Shift Swap</h2>
       <p className="text-xs text-[var(--color-nexus-muted)] mb-4">Propose trading your shift with a colleague on a specific date — needs their acceptance, then manager approval.</p>
 

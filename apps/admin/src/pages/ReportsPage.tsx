@@ -1414,7 +1414,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
 
       {/* DYNAMIC REPORT DESIGNER PANEL (PULL-OUT / TOGGLE) */}
       {(designerOpen || activeCategory === 'builder') && (
-        <div className="bg-slate-900 text-slate-100 rounded-2xl p-6 mb-6 shadow-2xl border border-slate-800 space-y-6">
+        <div className="bg-slate-900 text-slate-100 rounded-xl p-6 mb-6 shadow-2xl border border-slate-800 space-y-6">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30">

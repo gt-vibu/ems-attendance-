@@ -71,9 +71,9 @@ export default function BenefitsStats() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: '-10% 0px' }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: idx * 0.08 }}
-            className="glass-card rounded-3xl p-6 flex flex-col items-center text-center gap-3"
+            className="glass-card rounded-xl p-6 flex flex-col items-center text-center gap-3"
           >
-            <span className="w-10 h-10 rounded-2xl bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)] flex items-center justify-center">
+            <span className="w-10 h-10 rounded-xl bg-[var(--color-premium-accent-soft)] text-[var(--color-premium-accent)] flex items-center justify-center">
               <stat.icon size={18} />
             </span>
             <CountUpNumber value={stat.value} suffix={stat.suffix} />

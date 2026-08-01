@@ -97,7 +97,7 @@ function FeatureCard({ feature, index }: { feature: FeatureItem; index: number }
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-10% 0px' }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: index * 0.08 }}
-      className="card-3d glass-card rounded-2xl p-4 md:p-5"
+      className="card-3d glass-card rounded-xl p-4 md:p-5"
     >
       <div
         className="w-9 h-9 rounded-xl flex items-center justify-center mb-3"

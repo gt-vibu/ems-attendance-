@@ -57,7 +57,7 @@ export default function CorrectionRequestView() {
   };
 
   return (
-    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-xl max-w-3xl mx-auto backdrop-blur-md relative overflow-hidden">
+    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-xl p-6 shadow-xl max-w-3xl mx-auto backdrop-blur-md relative overflow-hidden">
       <div className="absolute top-0 right-0 p-3 text-[9px] font-mono tracking-widest text-[var(--color-nexus-muted)] uppercase">
         STAGE_WORKFLOW_ENG
       </div>
@@ -94,7 +94,7 @@ export default function CorrectionRequestView() {
       <div className="space-y-6">
 
         {/* VISUAL WORKFLOW STEPPER */}
-        <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]/30 rounded-2xl p-4 flex justify-between items-center relative overflow-hidden">
+        <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]/30 rounded-xl p-4 flex justify-between items-center relative overflow-hidden">
           {steps.map((step, idx) => {
             const status = getStepStatus(idx, active.status);
             return (
@@ -140,7 +140,7 @@ export default function CorrectionRequestView() {
         <div className="grid md:grid-cols-2 gap-4">
 
           {/* Pre-Change Snapshot container (Read-only, immutable) */}
-          <div className="border border-[var(--color-nexus-border)] rounded-2xl p-4 bg-[var(--color-nexus-surface-alt)] relative">
+          <div className="border border-[var(--color-nexus-border)] rounded-xl p-4 bg-[var(--color-nexus-surface-alt)] relative">
             <div className="absolute top-0 right-0 p-2 text-[8px] font-mono text-[var(--color-nexus-muted)] tracking-widest uppercase font-bold">
               PRE_SNAPSHOT
             </div>
@@ -164,7 +164,7 @@ export default function CorrectionRequestView() {
           </div>
 
           {/* Requested Post-Change Updates */}
-          <div className="border border-[var(--color-nexus-border)] rounded-2xl p-4 bg-white shadow-sm relative">
+          <div className="border border-[var(--color-nexus-border)] rounded-xl p-4 bg-white shadow-sm relative">
             <div className="absolute top-0 right-0 p-2 text-[8px] font-mono text-[var(--color-nexus-info)] tracking-widest uppercase font-bold">
               PROPOSED_CHANGES
             </div>
@@ -207,7 +207,7 @@ export default function CorrectionRequestView() {
         </div>
 
         {/* Correction Notes / Statement of Reason */}
-        <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-2xl text-xs">
+        <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs">
           <span className="font-mono text-[9px] text-[var(--color-nexus-muted)] tracking-wider block mb-1 font-bold">STATEMENT_OF_REASON</span>
           <p className="font-sans text-[var(--color-nexus-muted)] leading-normal italic">
             &quot;{active.notes}&quot;
@@ -252,7 +252,7 @@ export default function CorrectionRequestView() {
             <button
               onClick={handleApproveStage}
               id={`approve-correction-btn-${active.id}`}
-              className="flex items-center gap-1 px-5 py-2 rounded-2xl bg-[var(--color-nexus-ink)] text-white hover:bg-[var(--color-nexus-ink)]/90 transition-all duration-300 text-xs font-semibold cursor-pointer shadow-sm shadow-[var(--color-nexus-border)]"
+              className="flex items-center gap-1 px-5 py-2 rounded-xl bg-[var(--color-nexus-ink)] text-white hover:bg-[var(--color-nexus-ink)]/90 transition-all duration-300 text-xs font-semibold cursor-pointer shadow-sm shadow-[var(--color-nexus-border)]"
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-[var(--color-nexus-success-text)]" />
               {active.status === 'SUBMITTED' ? 'Manager Sign-off' : 'HR Final Audit Apply'}
@@ -261,7 +261,7 @@ export default function CorrectionRequestView() {
         )}
 
         {active.status === 'APPLIED' && (
-          <div className="flex items-center justify-center gap-2 p-3 bg-[var(--color-nexus-success-soft)] border border-[var(--color-nexus-success-text)]/20 rounded-2xl text-[var(--color-nexus-success-text)] text-xs font-semibold animate-fade-in text-center">
+          <div className="flex items-center justify-center gap-2 p-3 bg-[var(--color-nexus-success-soft)] border border-[var(--color-nexus-success-text)]/20 rounded-xl text-[var(--color-nexus-success-text)] text-xs font-semibold animate-fade-in text-center">
             <CheckCircle2 className="w-4 h-4 text-[var(--color-nexus-success-text)] animate-bounce" />
             Correction request applied successfully. Original Timesheet row overridden and committed to historic audit ledgers.
           </div>

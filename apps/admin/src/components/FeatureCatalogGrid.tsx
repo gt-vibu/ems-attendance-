@@ -112,7 +112,7 @@ export default function FeatureCatalogGrid({ catalog, selected, onChange, allowe
         const checkedCount = cat.features.filter(f => selected.includes(f.key)).length;
         const isOpen = openCategories.has(cat.category);
         return (
-          <div key={cat.category} className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] overflow-hidden h-fit">
+          <div key={cat.category} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] overflow-hidden h-fit">
             <button
               type="button"
               onClick={() => toggleCategory(cat.category)}

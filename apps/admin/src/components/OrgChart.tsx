@@ -162,7 +162,7 @@ export default function OrgChart({ canEdit }: { canEdit: boolean }) {
   if (loading) return <p className="text-xs text-[var(--color-nexus-muted)] text-center py-12">Loading org chart…</p>;
 
   return (
-    <div className="nexus-card rounded-3xl p-6">
+    <div className="nexus-card rounded-xl p-6">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans flex items-center gap-2"><Users size={17} /> Org Chart</h2>
       </div>

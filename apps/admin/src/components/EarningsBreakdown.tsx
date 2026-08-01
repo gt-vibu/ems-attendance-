@@ -168,7 +168,7 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
           <CompensationHistoryList history={history || []} emptyLabel="Your compensation has never been set or changed." />
         )
       ) : noActiveProfile ? (
-        <div className="nexus-card rounded-2xl p-8 text-center">
+        <div className="nexus-card rounded-xl p-6 text-center">
           <Wallet className="w-8 h-8 mx-auto mb-3 text-[var(--color-nexus-muted)]" />
           <p className="text-sm font-bold text-[var(--color-nexus-ink)]">No compensation structure set up yet.</p>
           <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Once your employer configures your salary, your day-by-day and monthly earnings will show up here.</p>
@@ -190,9 +190,9 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
           {/* Mobile: same data, one stacked card per day instead of a row. */}
           <div className="md:hidden space-y-3">
             {visibleDays.length === 0 ? (
-              <div className="nexus-card rounded-2xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No attendance data for this month yet.</div>
+              <div className="nexus-card rounded-xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No attendance data for this month yet.</div>
             ) : visibleDays.map((day) => (
-              <div key={day.date} className="nexus-card rounded-2xl p-4">
+              <div key={day.date} className="nexus-card rounded-xl p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-[var(--color-nexus-ink)]">
                     {new Date(`${day.date}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}
@@ -235,22 +235,22 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
         <div className="space-y-5">
           {/* Headline cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <div className="flex items-center gap-2 text-[var(--color-nexus-muted)] mb-1"><Clock size={14} /><span className="text-[10px] font-bold uppercase tracking-wider">Hours Worked</span></div>
               <p className="text-xl font-bold text-[var(--color-nexus-ink)]">{s.totalHoursWorked.toFixed(1)}h</p>
               <p className="text-[11px] text-[var(--color-nexus-muted)] mt-0.5">{s.presentDays} day(s) present</p>
             </div>
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <div className="flex items-center gap-2 text-[var(--color-nexus-muted)] mb-1"><TrendingUp size={14} /><span className="text-[10px] font-bold uppercase tracking-wider">Overtime</span></div>
               <p className="text-xl font-bold text-[var(--color-nexus-ink)]">{s.totalOvertimeHours.toFixed(1)}h</p>
               <p className="text-[11px] font-bold text-[color:var(--color-nexus-success-text)] mt-0.5">+{money(s.totalOvertimePay)}</p>
             </div>
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <div className="flex items-center gap-2 text-[var(--color-nexus-muted)] mb-1"><Coffee size={14} /><span className="text-[10px] font-bold uppercase tracking-wider">Extra Breaks</span></div>
               <p className="text-xl font-bold text-[var(--color-nexus-ink)]">{s.totalExcessBreakMinutes}m</p>
               <p className="text-[11px] font-bold text-[var(--color-nexus-error)] mt-0.5">{s.totalExcessBreakDeduction > 0 ? `-${money(s.totalExcessBreakDeduction)}` : '—'}</p>
             </div>
-            <div className="nexus-card rounded-2xl p-5">
+            <div className="nexus-card rounded-xl p-5">
               <div className="flex items-center gap-2 text-[var(--color-nexus-muted)] mb-1"><CalendarOff size={14} /><span className="text-[10px] font-bold uppercase tracking-wider">Leaves Taken</span></div>
               <p className="text-xl font-bold text-[var(--color-nexus-ink)]">{s.leaveDays}</p>
               <p className="text-[11px] font-bold text-[var(--color-nexus-error)] mt-0.5">{s.leaveDeduction > 0 ? `-${money(s.leaveDeduction)}` : 'fully paid'}</p>
@@ -258,7 +258,7 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
           </div>
 
           {/* Full breakdown */}
-          <div className="nexus-card rounded-2xl p-6 space-y-3">
+          <div className="nexus-card rounded-xl p-6 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-2">Monthly Pay Breakdown</h3>
             {([
               ['Gross Pay (monthly salary components)', s.monthlyGross],

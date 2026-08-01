@@ -229,7 +229,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name or title..."
-              className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] py-3 pl-10 pr-4 text-sm focus:outline-none"
+              className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] py-3 pl-10 pr-4 text-sm focus:outline-none"
             />
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -264,7 +264,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
         {loading ? (
           <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading employees…</div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No employees match this search.</div>
+          <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No employees match this search.</div>
         ) : (
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((emp) => {
@@ -273,7 +273,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
                 <button
                   key={emp.id}
                   onClick={() => openEmployee(emp)}
-                  className="nexus-card rounded-3xl p-5 text-left transition-shadow hover:shadow-md"
+                  className="nexus-card rounded-xl p-5 text-left transition-shadow hover:shadow-md"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
@@ -299,7 +299,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSelected(null)}>
-          <div className="w-full max-w-sm rounded-3xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--color-nexus-primary-fixed)] text-base font-bold text-[var(--color-nexus-primary)]">
@@ -351,7 +351,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
             {user.role === 'tenant_admin' && selected.employeeStatus === 'terminated' && (
               <button
                 onClick={() => eraseEmployeeData(selected.id, selected.name)}
-                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-error)] py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
+                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-error)] py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
               >
                 Erase Personal Data (GDPR)
               </button>
@@ -359,13 +359,13 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
 
             <button
               onClick={() => setDetailUserId(selected.id)}
-              className="mt-6 w-full rounded-2xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
+              className="mt-6 w-full rounded-xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
             >
               View Full Calendar
             </button>
             <button
               onClick={() => navigate(`/tenant/reports?employeeId=${selected.id}&tab=attendance`)}
-              className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
+              className="mt-3 w-full rounded-xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
             >
               View Analytics
             </button>
@@ -373,7 +373,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
               <button
                 onClick={() => resetDevice(selected)}
                 disabled={resettingDeviceId === selected.id}
-                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-primary-fixed)] disabled:opacity-50"
+                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-primary-fixed)] disabled:opacity-50"
               >
                 {resettingDeviceId === selected.id ? 'Resetting…' : 'Reset Device Registration'}
               </button>
@@ -381,14 +381,14 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
             {canTerminate && selected.role !== 'tenant_admin' && selected.role !== 'super_admin' && selected.employeeStatus !== 'terminated' && (
               <button
                 onClick={() => { const emp = selected; setSelected(null); openTerminate(emp); }}
-                className="mt-3 w-full rounded-2xl border border-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
+                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
               >
                 Terminate
               </button>
             )}
             <button
               onClick={() => setSelected(null)}
-              className="mt-3 w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+              className="mt-3 w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
             >
               Close
             </button>
@@ -398,14 +398,14 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
 
       {terminateTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !terminateSubmitting && setTerminateTarget(null)}>
-          <div className="w-full max-w-sm rounded-3xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             {terminateResultMsg ? (
               <>
                 <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Done</h3>
                 <p className="mt-3 text-sm text-[var(--color-nexus-muted)]">{terminateResultMsg}</p>
                 <button
                   onClick={() => setTerminateTarget(null)}
-                  className="mt-6 w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
+                  className="mt-6 w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
                 >
                   Close
                 </button>
@@ -433,14 +433,14 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
                   <button
                     onClick={() => setTerminateTarget(null)}
                     disabled={terminateSubmitting}
-                    className="flex-1 rounded-2xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)] disabled:opacity-50"
+                    className="flex-1 rounded-xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)] disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={submitTerminate}
                     disabled={terminateSubmitting}
-                    className="flex-1 rounded-2xl bg-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-50"
+                    className="flex-1 rounded-xl bg-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-50"
                   >
                     {terminateSubmitting ? 'Submitting…' : user.role === 'tenant_admin' ? 'Terminate' : 'Submit Request'}
                   </button>

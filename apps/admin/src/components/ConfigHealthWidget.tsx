@@ -52,7 +52,7 @@ export const ConfigHealthWidget: React.FC = () => {
   const ringColor = score >= 90 ? '#059669' : score >= 70 ? '#d97706' : '#e11d48';
 
   return (
-    <div className="nexus-card rounded-2xl p-5">
+    <div className="nexus-card rounded-xl p-5">
       <button type="button" onClick={() => setExpanded((v) => !v)} className="w-full flex items-center justify-between gap-4 text-left">
         <div className="flex items-center gap-4">
           <div

@@ -68,7 +68,7 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 shrink-0 rounded-2xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
+            <div className="w-11 h-11 shrink-0 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
               <CalendarDays size={20} className="text-white" />
             </div>
             <div className="min-w-0">
@@ -92,11 +92,11 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
         {loading ? (
           <div className="text-xs text-[var(--color-nexus-muted)] font-semibold">Loading…</div>
         ) : Object.keys(grouped).length === 0 ? (
-          <div className="nexus-card rounded-2xl p-12 text-center text-sm text-[var(--color-nexus-muted)]">Nothing scheduled this month.</div>
+          <div className="nexus-card rounded-xl p-12 text-center text-sm text-[var(--color-nexus-muted)]">Nothing scheduled this month.</div>
         ) : (
           <div className="space-y-2">
             {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([date, dayEvents]) => (
-              <div key={date} className="nexus-card rounded-2xl p-4 flex items-start gap-4">
+              <div key={date} className="nexus-card rounded-xl p-4 flex items-start gap-4">
                 <div className="w-14 shrink-0 text-center">
                   <div className="text-lg font-black text-[var(--color-nexus-ink)]">{new Date(date + 'T00:00:00').getDate()}</div>
                   <div className="text-[10px] font-bold uppercase text-[var(--color-nexus-muted)]">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</div>

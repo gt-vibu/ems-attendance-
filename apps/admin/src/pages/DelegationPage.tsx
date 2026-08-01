@@ -132,7 +132,7 @@ export default function DelegationPage({ user }: { user: User }) {
 
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] flex items-center justify-center shadow-[0_8px_24px_rgba(37,99,235,0.3)]">
               <UserCog size={20} className="text-white" />
             </div>
             <div>
@@ -152,7 +152,7 @@ export default function DelegationPage({ user }: { user: User }) {
         {success && <div className="bg-emerald-50 text-emerald-700 text-xs p-3 rounded-lg mb-4 border border-emerald-200 font-medium flex items-center gap-1.5"><Check size={13} /> {success}</div>}
 
         {showForm && (
-          <form onSubmit={handleCreate} className="nexus-card rounded-2xl p-5 mb-6 space-y-4">
+          <form onSubmit={handleCreate} className="nexus-card rounded-xl p-5 mb-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1.5">Delegate to</label>
@@ -219,11 +219,11 @@ export default function DelegationPage({ user }: { user: User }) {
             <section>
               <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-3">Delegated by you</h2>
               {given.length === 0 ? (
-                <div className="nexus-card rounded-2xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">You haven't delegated anything.</div>
+                <div className="nexus-card rounded-xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">You haven't delegated anything.</div>
               ) : (
                 <div className="space-y-2">
                   {given.map(d => (
-                    <div key={d.id} className="nexus-card rounded-2xl p-4 flex items-center justify-between gap-4">
+                    <div key={d.id} className="nexus-card rounded-xl p-4 flex items-center justify-between gap-4">
                       <div>
                         <div className="text-sm font-bold text-[var(--color-nexus-ink)] flex items-center gap-2">
                           To {d.delegatedToName}
@@ -243,11 +243,11 @@ export default function DelegationPage({ user }: { user: User }) {
             <section>
               <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-3">Delegated to you</h2>
               {received.length === 0 ? (
-                <div className="nexus-card rounded-2xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">Nothing has been delegated to you.</div>
+                <div className="nexus-card rounded-xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">Nothing has been delegated to you.</div>
               ) : (
                 <div className="space-y-2">
                   {received.map(d => (
-                    <div key={d.id} className="nexus-card rounded-2xl p-4 flex items-center justify-between gap-4">
+                    <div key={d.id} className="nexus-card rounded-xl p-4 flex items-center justify-between gap-4">
                       <div>
                         <div className="text-sm font-bold text-[var(--color-nexus-ink)] flex items-center gap-2">
                           From {d.delegatedByName}

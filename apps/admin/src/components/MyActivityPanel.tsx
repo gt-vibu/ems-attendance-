@@ -38,7 +38,7 @@ export default function MyActivityPanel() {
   const visible = expanded ? entries : entries.slice(0, 5);
 
   return (
-    <div className="nexus-card rounded-3xl p-6">
+    <div className="nexus-card rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Activity</h2>

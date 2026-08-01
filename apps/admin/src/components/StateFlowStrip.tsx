@@ -34,7 +34,7 @@ export default function StateFlowStrip() {
         {STATE_NODES.map((node) => (
           <div
             key={node.id}
-            className="bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-2xl p-4 flex items-start gap-3"
+            className="bg-[var(--color-premium-surface)] border border-[var(--color-premium-border)] rounded-xl p-4 flex items-start gap-3"
           >
             <span
               className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center"

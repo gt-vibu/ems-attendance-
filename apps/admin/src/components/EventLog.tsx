@@ -12,7 +12,7 @@ interface EventLogProps {
 
 export default function EventLog({ logs }: EventLogProps) {
   return (
-    <div className="mt-4 border border-[var(--color-nexus-border)]/50 rounded-2xl bg-[var(--color-nexus-primary-container)] p-4 select-none flex flex-col items-stretch">
+    <div className="mt-4 border border-[var(--color-nexus-border)]/50 rounded-xl bg-[var(--color-nexus-primary-container)] p-4 select-none flex flex-col items-stretch">
       <div className="flex items-center justify-between mb-2">
         <span className="font-mono text-[9px] text-[var(--color-nexus-success-text)] font-black tracking-widest uppercase">
           PERIMETER IMMUTABLE LEDGER STREAM

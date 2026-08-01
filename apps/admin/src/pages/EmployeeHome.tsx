@@ -321,7 +321,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full nexus-card rounded-3xl p-8 space-y-6 relative z-10"
+        className="max-w-md w-full nexus-card rounded-xl p-6 space-y-6 relative z-10"
       >
 
         {/* Header / status */}
@@ -357,7 +357,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
-          className=" bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-2xl p-5 grid grid-cols-2 gap-4"
+          className=" bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl p-5 grid grid-cols-2 gap-4"
         >
           <div>
             <span className="block text-[9px] text-[var(--color-nexus-muted)] font-mono uppercase tracking-wider">Checked In</span>
@@ -395,7 +395,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
           </div>
 
           {activeBreak ? (
-            <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-2xl flex justify-between items-center">
+            <div className="bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] p-5 rounded-xl flex justify-between items-center">
               <div>
                 <span className="inline-block text-[9px] text-[var(--color-nexus-error)] font-mono uppercase tracking-wider pulse-ring rounded-full px-1">Status: On Break ({activeBreak.breakType})</span>
                 <span className="text-2xl font-mono font-bold text-[var(--color-nexus-ink)] mt-1 block">{breakTimer}</span>
@@ -506,7 +506,7 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
       {/* Correction request modal */}
       {showCorrectionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm">
-          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
+          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-[0_20px_60px_rgba(37,99,235,0.2)] border border-[var(--color-nexus-border)]">
             {correctionSubmitted ? (
               <div className="text-center py-6">
                 <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>

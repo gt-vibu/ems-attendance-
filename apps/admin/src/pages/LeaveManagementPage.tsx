@@ -513,7 +513,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                   ['Approved', metrics.approved, 'Requests already cleared for payroll and attendance.'],
                   ['Rejected', metrics.rejected, 'Requests declined with no deduction reversal.'],
                 ].map(([label, value, note]) => (
-                  <div key={String(label)} className="nexus-card rounded-3xl p-5">
+                  <div key={String(label)} className="nexus-card rounded-xl p-5">
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{label}</span>
                     <span className="mt-2 block text-3xl font-black text-[var(--color-nexus-ink)]">{value}</span>
                     <p className="mt-2 text-xs leading-relaxed text-[var(--color-nexus-muted)]">{note}</p>
@@ -522,12 +522,12 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               </section>
 
               <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                <div className="nexus-card rounded-3xl p-5">
+                <div className="nexus-card rounded-xl p-5">
                   <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Approval Workbench</span>
                   <h3 className="mt-2 font-sans text-xl font-bold text-[var(--color-nexus-ink)]">Keep policy pressure visible</h3>
                   <p className="mt-2 text-sm text-[var(--color-nexus-muted)]">Pending requests currently represent <span className="font-bold text-[var(--color-nexus-ink)]">{pendingDeductionDays}</span> leave day(s) waiting to be finalized for attendance and payroll.</p>
                 </div>
-                <div className="nexus-card rounded-3xl p-5">
+                <div className="nexus-card rounded-xl p-5">
                   <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">EMS-style Controls</span>
                   <p className="mt-2 text-sm text-[var(--color-nexus-muted)]">Half-day rules, approval routing, medical short-notice handling, and searchable approval queues now behave more like a serious HR workspace.</p>
                 </div>
@@ -537,7 +537,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
 
           {overviewView === 'catalog' && (
           <section className="grid grid-cols-1 gap-6 items-start">
-            <div className="nexus-card rounded-3xl p-6">
+            <div className="nexus-card rounded-xl p-6">
               <div className="mb-5 flex items-center justify-between gap-4">
                 <div>
                   <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Policy Catalog</h3>
@@ -571,7 +571,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               {loading ? (
                 <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading leave policies…</div>
               ) : leavePolicies.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
+                <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
                   No leave policies yet. Start by creating your first policy on the right, or click "+ Load Standard Types" above for a starter set (Casual, Sick, Earned, Leave Without Pay, Paternity, Sabbatical).
                 </div>
               ) : (
@@ -592,7 +592,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                         type="button"
                         key={policy.id}
                         onClick={() => { setSelectedPolicy(policy); setOverviewView('policy-detail'); }}
-                        className="shrink-0 w-60 text-left rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-bg)] p-4 hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer"
+                        className="shrink-0 w-60 text-left rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-bg)] p-4 hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className={`w-10 h-10 rounded-xl ${palette.bg} ${palette.fg} flex items-center justify-center`}>
@@ -681,7 +681,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                 <button type="button" onClick={() => { setOverviewView('catalog'); setSelectedPolicy(null); }} className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
                   <ArrowLeft size={14} /> Back to Policy Catalog
                 </button>
-                <section className="nexus-card rounded-3xl p-6">
+                <section className="nexus-card rounded-xl p-6">
                   <div className="flex items-center gap-4">
                     <div className={`w-12 h-12 rounded-xl ${palette.bg} ${palette.fg} flex items-center justify-center shrink-0`}>
                       <PolicyIcon size={20} />
@@ -693,14 +693,14 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                   </div>
                 </section>
 
-                <section className="nexus-card rounded-3xl p-6">
+                <section className="nexus-card rounded-xl p-6">
                   <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)] mb-4">Requests for {selectedPolicy.name} <span className="text-[var(--color-nexus-muted)] font-normal text-sm">({requestsForSelectedPolicy.length})</span></h3>
                   {requestsForSelectedPolicy.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No one has applied for this leave type yet.</div>
+                    <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No one has applied for this leave type yet.</div>
                   ) : (
                     <div className="space-y-3">
                       {requestsForSelectedPolicy.map((request: any) => (
-                        <div key={request.id} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-4">
+                        <div key={request.id} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-4">
                           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                             <div className="space-y-1">
                               <div className="flex flex-wrap items-center gap-2">
@@ -748,56 +748,56 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               <button type="button" onClick={() => setOverviewView('catalog')} className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
                 <ArrowLeft size={14} /> Back to Policy Catalog
               </button>
-              <section className="nexus-card rounded-3xl p-6 max-w-xl">
+              <section className="nexus-card rounded-xl p-6 max-w-xl">
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Create Leave Policy</h3>
                 <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Define a new leave type with its yearly entitlement and rules.</p>
                 <form onSubmit={handleCreatePolicy} className="mt-5 space-y-4">
                   <div>
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Policy Name</label>
-                    <input value={newLeavePolicyName} onChange={(e) => setNewLeavePolicyName(e.target.value)} placeholder="Earned Leave" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                    <input value={newLeavePolicyName} onChange={(e) => setNewLeavePolicyName(e.target.value)} placeholder="Earned Leave" className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                   </div>
                   <div>
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Policy Code</label>
-                    <input value={newLeavePolicyCode} onChange={(e) => setNewLeavePolicyCode(e.target.value.toUpperCase())} placeholder="EL" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                    <input value={newLeavePolicyCode} onChange={(e) => setNewLeavePolicyCode(e.target.value.toUpperCase())} placeholder="EL" className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Days / Year</label>
-                      <input type="number" min="0" step="0.5" value={newLeavePolicyMaxDays} onChange={(e) => setNewLeavePolicyMaxDays(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                      <input type="number" min="0" step="0.5" value={newLeavePolicyMaxDays} onChange={(e) => setNewLeavePolicyMaxDays(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Deduction %</label>
-                      <input type="number" min="0" max="100" step="1" value={newLeavePolicyDeductionPercent} onChange={(e) => setNewLeavePolicyDeductionPercent(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                      <input type="number" min="0" max="100" step="1" value={newLeavePolicyDeductionPercent} onChange={(e) => setNewLeavePolicyDeductionPercent(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                     </div>
                   </div>
                   <div>
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Short-Notice Medical Window</label>
-                    <input type="number" min="0" step="1" value={newLeavePolicyMedicalNoticeDays} onChange={(e) => setNewLeavePolicyMedicalNoticeDays(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                    <input type="number" min="0" step="1" value={newLeavePolicyMedicalNoticeDays} onChange={(e) => setNewLeavePolicyMedicalNoticeDays(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                     <p className="mt-1 text-[11px] text-[var(--color-nexus-muted)]">Use `0` if no medical exception window is needed.</p>
                   </div>
                   <div className="grid grid-cols-1 gap-3">
-                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                    <label className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                       <span>
                         <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Allow half-day booking</span>
                         <span className="block text-[11px] text-[var(--color-nexus-muted)]">Good for casual and medical leave cases.</span>
                       </span>
                       <input type="checkbox" checked={newLeavePolicyAllowHalfDay} onChange={(e) => setNewLeavePolicyAllowHalfDay(e.target.checked)} className="h-4 w-4" />
                     </label>
-                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                    <label className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                       <span>
                         <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Require approval</span>
                         <span className="block text-[11px] text-[var(--color-nexus-muted)]">Disable only for auto-approved policy types.</span>
                       </span>
                       <input type="checkbox" checked={newLeavePolicyRequiresApproval} onChange={(e) => setNewLeavePolicyRequiresApproval(e.target.checked)} className="h-4 w-4" />
                     </label>
-                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                    <label className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                       <span>
                         <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Accrue monthly instead of granting the full year upfront</span>
                         <span className="block text-[11px] text-[var(--color-nexus-muted)]">1/12th of the annual entitlement becomes available at the start of each month.</span>
                       </span>
                       <input type="checkbox" checked={newLeavePolicyAccrualEnabled} onChange={(e) => setNewLeavePolicyAccrualEnabled(e.target.checked)} className="h-4 w-4" />
                     </label>
-                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                    <label className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                       <span>
                         <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Allow carry-forward into next year</span>
                         <span className="block text-[11px] text-[var(--color-nexus-muted)]">Unused days roll into next year (one year only), up to the cap below.</span>
@@ -807,10 +807,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     {newLeavePolicyCarryForwardEnabled && (
                       <div>
                         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Max Carry-Forward Days</label>
-                        <input type="number" min="0" step="0.5" value={newLeavePolicyMaxCarryForwardDays} onChange={(e) => setNewLeavePolicyMaxCarryForwardDays(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                        <input type="number" min="0" step="0.5" value={newLeavePolicyMaxCarryForwardDays} onChange={(e) => setNewLeavePolicyMaxCarryForwardDays(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                       </div>
                     )}
-                    <label className="flex items-center justify-between rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                    <label className="flex items-center justify-between rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                       <span>
                         <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">Allow encashment</span>
                         <span className="block text-[11px] text-[var(--color-nexus-muted)]">Employees can request to convert unused days of this type into pay.</span>
@@ -819,10 +819,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     </label>
                   </div>
                   <div className="flex gap-3">
-                    <button type="button" onClick={() => setOverviewView('catalog')} className="flex-1 rounded-2xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)]">
+                    <button type="button" onClick={() => setOverviewView('catalog')} className="flex-1 rounded-xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)]">
                       Cancel
                     </button>
-                    <button type="submit" disabled={saving} className="flex-1 rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                    <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
                       {saving ? 'Saving…' : 'Save Leave Policy'}
                     </button>
                   </div>
@@ -835,7 +835,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
 
       {activeTopTab === 'reportees' && (
         <div className="space-y-6">
-          <section className="nexus-card rounded-3xl p-5">
+          <section className="nexus-card rounded-xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-[var(--color-nexus-primary)] text-white flex items-center justify-center text-sm font-bold">
@@ -887,7 +887,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
           {loading ? (
             <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading reportees…</div>
           ) : teamRoster.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
+            <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
               {teamScope === 'direct' ? 'No one reports directly to you yet.' : 'No employees found.'}
             </div>
           ) : teamView === 'grid' ? (
@@ -905,7 +905,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     key={employee.id}
                     type="button"
                     onClick={() => openEmployeeBalances(employee)}
-                    className="text-left nexus-card rounded-3xl p-5 hover:bg-[var(--color-nexus-primary-fixed)]/20 transition-colors"
+                    className="text-left nexus-card rounded-xl p-5 hover:bg-[var(--color-nexus-primary-fixed)]/20 transition-colors"
                   >
                     <div className="flex items-start gap-3">
                       <div className={`w-11 h-11 shrink-0 rounded-full ${AVATAR_PALETTE[i % AVATAR_PALETTE.length]} text-white flex items-center justify-center text-sm font-bold`}>
@@ -932,7 +932,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               })}
             </div>
           ) : (
-            <div className="nexus-card rounded-3xl p-2">
+            <div className="nexus-card rounded-xl p-2">
               {teamRoster.map((employee: any, i: number) => {
                 const status = statusFor(employee.id);
                 const toneClass = {
@@ -946,7 +946,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     key={employee.id}
                     type="button"
                     onClick={() => openEmployeeBalances(employee)}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-[var(--color-nexus-surface-alt)] transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-[var(--color-nexus-surface-alt)] transition-colors text-left"
                   >
                     <div className={`w-9 h-9 shrink-0 rounded-full ${AVATAR_PALETTE[i % AVATAR_PALETTE.length]} text-white flex items-center justify-center text-xs font-bold`}>
                       {initialsOf(employee.name)}
@@ -964,7 +964,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
 
           {selectedEmployee && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedEmployee(null)}>
-              <div className="max-w-2xl w-full bg-[var(--color-nexus-surface)] rounded-3xl p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={(e) => e.stopPropagation()}>
+              <div className="max-w-2xl w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start justify-between gap-4 mb-5">
                   <div>
                     <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">{selectedEmployee.name}</h3>
@@ -987,7 +987,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
 
       {activeTopTab === 'holidays' && (
         <div className="space-y-6">
-          <section className="nexus-card rounded-3xl p-6">
+          <section className="nexus-card rounded-xl p-6">
             <div className="flex items-center justify-between gap-4 mb-5">
               <div>
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Holiday Calendar</h3>
@@ -1004,13 +1004,13 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                   </div>
                   <div className="flex-[2]">
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Holiday Name</label>
-                    <input value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} placeholder="Independence Day" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
+                    <input value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} placeholder="Independence Day" className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" required />
                   </div>
                   <div className="flex-1">
                     <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Department (optional)</label>
-                    <input value={newHolidayDepartment} onChange={(e) => setNewHolidayDepartment(e.target.value)} placeholder="Everyone" className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                    <input value={newHolidayDepartment} onChange={(e) => setNewHolidayDepartment(e.target.value)} placeholder="Everyone" className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                   </div>
-                  <button type="submit" disabled={saving} className="flex items-center justify-center gap-1.5 rounded-2xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50 shrink-0">
+                  <button type="submit" disabled={saving} className="flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-nexus-primary)] px-5 py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50 shrink-0">
                     <Plus size={14} /> Add Holiday
                   </button>
                 </div>
@@ -1030,11 +1030,11 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
             {holidaysLoading ? (
               <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading holidays…</div>
             ) : holidays.filter((h: any) => showArchivedHolidays || !h.isArchived).length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No holiday data to display currently.</div>
+              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No holiday data to display currently.</div>
             ) : (
               <div className="space-y-2">
                 {holidays.filter((h: any) => showArchivedHolidays || !h.isArchived).map((holiday: any) => (
-                  <div key={holiday.id} className={`flex items-center justify-between gap-4 rounded-2xl border border-[var(--color-nexus-border)] px-5 py-3 ${holiday.isArchived ? 'bg-[var(--color-nexus-surface)] opacity-60' : 'bg-[var(--color-nexus-surface-alt)]'}`}>
+                  <div key={holiday.id} className={`flex items-center justify-between gap-4 rounded-xl border border-[var(--color-nexus-border)] px-5 py-3 ${holiday.isArchived ? 'bg-[var(--color-nexus-surface)] opacity-60' : 'bg-[var(--color-nexus-surface-alt)]'}`}>
                     <div className="flex items-center gap-2.5">
                       <div>
                         <span className="block text-sm font-bold text-[var(--color-nexus-ink)]">{holiday.name}</span>
@@ -1080,17 +1080,17 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       {activeTopTab === 'approval-queue' && (
         <div className="space-y-6">
           <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-            <div className="nexus-card rounded-3xl p-6">
+            <div className="nexus-card rounded-xl p-6">
               <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)] mb-1">Adjustment Ledger</h3>
               <p className="text-xs text-[var(--color-nexus-muted)] mb-5">Audit trail of manual leave balance updates made by managers and administrators.</p>
               {loading ? (
                 <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading adjustments…</div>
               ) : adjustments.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No balance adjustments yet.</div>
+                <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No balance adjustments yet.</div>
               ) : (
                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
                   {adjustments.map((a: any) => (
-                    <div key={a.id} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start">
+                    <div key={a.id} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start">
                       <div>
                         <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">{a.employeeName}</h4>
                         <p className="text-xs text-[var(--color-nexus-muted)]">{a.employeeEmail}</p>
@@ -1110,7 +1110,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               )}
             </div>
 
-            <div className="nexus-card rounded-3xl p-6">
+            <div className="nexus-card rounded-xl p-6">
               <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Manual Adjustment Workbench</h3>
               <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Credit or debit an employee's leave balance directly to resolve exceptions or award compensatory leaves.</p>
               <form onSubmit={handleCreateAdjustment} className="mt-5 space-y-4">
@@ -1120,7 +1120,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     required
                     value={adjUserId}
                     onChange={e => setAdjUserId(e.target.value)}
-                    className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+                    className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
                   >
                     <option value="">Select Employee…</option>
                     {users.map((u: any) => (
@@ -1134,7 +1134,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     required
                     value={adjLeaveType}
                     onChange={e => setAdjLeaveType(e.target.value)}
-                    className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+                    className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
                   >
                     <option value="">Select Leave Type…</option>
                     {leavePolicies.map((p: any) => (
@@ -1155,7 +1155,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     value={adjDays}
                     onChange={e => setAdjDays(e.target.value)}
                     placeholder="e.g. 5 or -2"
-                    className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+                    className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
                   />
                   <p className="mt-1 text-[10px] text-[var(--color-nexus-muted)]">Use positive numbers to add leave balance, and negative numbers to subtract.</p>
                 </div>
@@ -1166,10 +1166,10 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                     value={adjReason}
                     onChange={e => setAdjReason(e.target.value)}
                     placeholder="e.g. Compensatory leave for working on weekend"
-                    className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none min-h-[80px]"
+                    className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none min-h-[80px]"
                   />
                 </div>
-                <button type="submit" disabled={saving} className="w-full rounded-2xl bg-[var(--color-nexus-secondary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-50 transition-all">
+                <button type="submit" disabled={saving} className="w-full rounded-xl bg-[var(--color-nexus-secondary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:brightness-110 disabled:opacity-50 transition-all">
                   {saving ? 'Processing…' : 'Apply Adjustment'}
                 </button>
               </form>
@@ -1177,12 +1177,12 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
           </section>
 
           {encashmentRequests.filter((r) => r.status === 'pending').length > 0 && (
-            <section className="nexus-card rounded-3xl p-6">
+            <section className="nexus-card rounded-xl p-6">
               <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)] mb-1">Encashment Requests</h3>
               <p className="mb-4 text-xs text-[var(--color-nexus-muted)]">Approving deducts the days and records the payout amount at the current daily rate; it doesn't disburse funds automatically.</p>
               <div className="space-y-3">
                 {encashmentRequests.filter((r) => r.status === 'pending').map((r) => (
-                  <div key={r.id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                  <div key={r.id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                     <div>
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{r.employeeName}</span>
@@ -1200,7 +1200,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
             </section>
           )}
 
-          <section className="nexus-card rounded-3xl p-6">
+          <section className="nexus-card rounded-xl p-6">
             <div className="mb-5 flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Leave Approval Queue</h3>
@@ -1226,7 +1226,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                 value={requestSearch}
                 onChange={(e) => setRequestSearch(e.target.value)}
                 placeholder="Search employee, department, leave type, or reason"
-                className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none md:max-w-xs"
+                className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none md:max-w-xs"
               />
               <div className="flex flex-wrap gap-2">
                 {([
@@ -1255,7 +1255,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id: number) => selectedRequestIds.has(id));
               if (pendingIds.length === 0) return null;
               return (
-                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-3">
                   <label className="flex items-center gap-2 text-xs font-bold text-[var(--color-nexus-ink)] cursor-pointer">
                     <input
                       type="checkbox"
@@ -1279,7 +1279,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
             {loading ? (
               <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading leave requests…</div>
             ) : filteredRequests.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No leave requests yet.</div>
+              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No leave requests yet.</div>
             ) : (
               <div className="space-y-3">
                 {filteredRequests.map((request, i) => {

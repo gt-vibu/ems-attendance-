@@ -295,7 +295,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
             ['Monthly Net', metrics.monthlyNet],
             ['Leave Deductions', metrics.leaveCut],
           ].map(([label, value]) => (
-            <div key={String(label)} className="nexus-card rounded-3xl p-5">
+            <div key={String(label)} className="nexus-card rounded-xl p-5">
               <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{label}</span>
               <span className="mt-2 block text-2xl font-black text-[var(--color-nexus-ink)]">{formatMoney(Number(value))}</span>
             </div>
@@ -303,17 +303,17 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="nexus-card rounded-3xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Payroll Coverage</span>
             <span className="mt-2 block text-3xl font-black text-[var(--color-nexus-ink)]">{configuredCount}/{employees.length}</span>
             <p className="mt-2 text-xs text-[var(--color-nexus-muted)]">Employees with a saved salary structure and deductions profile.</p>
           </div>
-          <div className="nexus-card rounded-3xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Pending Setup</span>
             <span className="mt-2 block text-3xl font-black text-[var(--color-nexus-ink)]">{unconfiguredCount}</span>
             <p className="mt-2 text-xs text-[var(--color-nexus-muted)]">Employees still waiting for CTC, PF, and component configuration.</p>
           </div>
-          <div className="nexus-card rounded-3xl p-5">
+          <div className="nexus-card rounded-xl p-5">
             <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Average Net Pay</span>
             <span className="mt-2 block text-3xl font-black text-[var(--color-nexus-ink)]">{formatMoney(averageNet)}</span>
             <p className="mt-2 text-xs text-[var(--color-nexus-muted)]">Quick benchmark to spot unusual compensation setups early.</p>
@@ -343,24 +343,24 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
         {roleSuccess && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)] text-xs p-4 rounded-xl border border-[color:var(--color-nexus-success-text)]/20 font-medium">{roleSuccess}</div>}
 
         {section === 'roles' && (
-          <section className="nexus-card rounded-3xl p-6">
+          <section className="nexus-card rounded-xl p-6">
             <div>
               <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Role Defaults</h3>
               <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Set a salary structure once per role — every employee in that role inherits it automatically unless they've been given a personal override in the Compensation Builder.</p>
             </div>
 
             {!roleDefaultsAccessible ? (
-              <div className="mt-5 rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">You don't have access to manage role defaults.</div>
+              <div className="mt-5 rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">You don't have access to manage role defaults.</div>
             ) : roleDefaultsLoading ? (
               <div className="mt-5 py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading role defaults…</div>
             ) : roleNames.length === 0 ? (
-              <div className="mt-5 rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No roles found in this tenant yet.</div>
+              <div className="mt-5 rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No roles found in this tenant yet.</div>
             ) : (
               <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                 {roleNames.map((roleName) => {
                   const entry = roleDefaults.find((d: any) => d.roleName === roleName);
                   return (
-                    <div key={roleName} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
+                    <div key={roleName} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">{roleName}</h4>
@@ -407,29 +407,29 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
 
         {section === 'builder' && (
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.35fr]">
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Payroll Settings</h3>
             <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Keep tenant-level working day and deduction rules separate from employee salary structure.</p>
             <form onSubmit={handleSavePayrollSettings} className="mt-5 space-y-4">
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Working Days / Month</label>
-                <input type="number" min="1" value={workingDaysPerMonthInput} onChange={(e) => setWorkingDaysPerMonthInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                <input type="number" min="1" value={workingDaysPerMonthInput} onChange={(e) => setWorkingDaysPerMonthInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Max Paid Leave Days / Month</label>
-                <input type="number" min="0" step="0.5" value={maxPaidLeaveDaysInput} onChange={(e) => setMaxPaidLeaveDaysInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                <input type="number" min="0" step="0.5" value={maxPaidLeaveDaysInput} onChange={(e) => setMaxPaidLeaveDaysInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Excess Leave Penalty %</label>
-                <input type="number" min="0" step="1" value={excessLeavePenaltyInput} onChange={(e) => setExcessLeavePenaltyInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                <input type="number" min="0" step="1" value={excessLeavePenaltyInput} onChange={(e) => setExcessLeavePenaltyInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Default Overtime Rate</label>
-                <input type="number" min="0" step="0.01" value={overtimeHourlyRateInput} onChange={(e) => setOvertimeHourlyRateInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                <input type="number" min="0" step="0.01" value={overtimeHourlyRateInput} onChange={(e) => setOvertimeHourlyRateInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
               <div>
                 <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Optional Holiday Limit</label>
-                <input type="number" min="0" step="1" value={optionalHolidayLimitInput} onChange={(e) => setOptionalHolidayLimitInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                <input type="number" min="0" step="1" value={optionalHolidayLimitInput} onChange={(e) => setOptionalHolidayLimitInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
               </div>
 
               <div className="border-t border-[var(--color-nexus-border)] pt-4 mt-4">
@@ -441,7 +441,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
 
                 {statutoryEnabled && (
                   <div className="space-y-4 pl-1">
-                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                    <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3.5">
                       <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input type="checkbox" checked={pfEnabled} onChange={(e) => setPfEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
                         <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Provident Fund (PF)</span>
@@ -455,7 +455,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                       )}
                     </div>
 
-                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                    <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3.5">
                       <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input type="checkbox" checked={esiEnabled} onChange={(e) => setEsiEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
                         <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Employee State Insurance (ESI)</span>
@@ -469,7 +469,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                       )}
                     </div>
 
-                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                    <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3.5">
                       <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input type="checkbox" checked={ptEnabled} onChange={(e) => setPtEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
                         <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">Professional Tax</span>
@@ -479,7 +479,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
                       )}
                     </div>
 
-                    <div className="rounded-2xl bg-[var(--color-nexus-surface-alt)] p-3.5">
+                    <div className="rounded-xl bg-[var(--color-nexus-surface-alt)] p-3.5">
                       <label className="flex items-center gap-2 cursor-pointer mb-2">
                         <input type="checkbox" checked={tdsEnabled} onChange={(e) => setTdsEnabled(e.target.checked)} className="accent-[var(--color-nexus-primary)]" />
                         <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">TDS (Income Tax, estimate)</span>
@@ -491,19 +491,19 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
 
                     <div>
                       <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Basic Wage (% of Gross, when no "Basic" component is defined)</label>
-                      <input type="number" min="0" max="100" step="1" value={statutoryBasicPercentInput} onChange={(e) => setStatutoryBasicPercentInput(e.target.value)} className="w-full rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
+                      <input type="number" min="0" max="100" step="1" value={statutoryBasicPercentInput} onChange={(e) => setStatutoryBasicPercentInput(e.target.value)} className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none" />
                     </div>
                   </div>
                 )}
               </div>
 
-              <button type="submit" disabled={saving} className="w-full rounded-2xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+              <button type="submit" disabled={saving} className="w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save Payroll Settings'}
               </button>
             </form>
           </div>
 
-          <div className="nexus-card rounded-3xl p-6">
+          <div className="nexus-card rounded-xl p-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="font-sans text-lg font-bold text-[var(--color-nexus-ink)]">Compensation Builder</h3>
@@ -529,7 +529,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
               <select
                 value={setupFilter}
                 onChange={(e) => setSetupFilter(e.target.value as 'all' | 'configured' | 'pending')}
-                className="w-full sm:w-56 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+                className="w-full sm:w-56 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
               >
                 <option value="all">All Setup Status</option>
                 <option value="configured">Configured</option>
@@ -542,7 +542,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="w-full sm:w-56 rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
+                className="w-full sm:w-56 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-sm focus:outline-none"
               >
                 <option value="all">All Roles</option>
                 {employeeRoleOptions.map((roleName) => (
@@ -554,13 +554,13 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
             {loading ? (
               <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading employees…</div>
             ) : filteredEmployees.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No employees available for payroll setup yet.</div>
+              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No employees available for payroll setup yet.</div>
             ) : (
               <div className="mt-5 space-y-3">
                 {filteredEmployees.map((employee) => {
                   const existingRow = (payrollOverview?.employees || []).find((row: any) => String(row.userId) === String(employee.id));
                   return (
-                    <div key={employee.id} className="rounded-3xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-4">
+                    <div key={employee.id} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-5 py-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">

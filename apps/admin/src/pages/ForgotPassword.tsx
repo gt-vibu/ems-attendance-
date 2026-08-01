@@ -42,12 +42,12 @@ export default function ForgotPassword() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="max-w-md w-full glass-card rounded-3xl p-8 relative z-10"
+        className="max-w-md w-full glass-card rounded-xl p-8 relative z-10"
       >
         {!sent ? (
           <>
             <div className="text-center mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-soft)] flex items-center justify-center mx-auto mb-4 float-c">
+              <div className="w-14 h-14 rounded-xl bg-[var(--color-premium-accent-soft)] flex items-center justify-center mx-auto mb-4 float-c">
                 <Mail className="w-6 h-6 text-[var(--color-premium-accent)]" />
               </div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-gradient inline-block">Forgot Password</h1>
@@ -89,7 +89,7 @@ export default function ForgotPassword() {
             animate={{ opacity: 1, scale: 1 }}
             className="text-center py-4"
           >
-            <div className="w-14 h-14 rounded-2xl bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center mx-auto mb-4 pulse-ring">
+            <div className="w-14 h-14 rounded-xl bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center mx-auto mb-4 pulse-ring">
               <CheckCircle2 className="w-7 h-7 text-[var(--color-premium-accent-2)]" />
             </div>
             <h1 className="font-display text-xl font-bold tracking-tight text-[var(--color-premium-ink)]">Check your inbox</h1>

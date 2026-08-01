@@ -186,7 +186,7 @@ export default function DemoPanel() {
 
         {/* Toast Warning Anomaly overlay banner */}
         {activeToast && (
-          <div className="absolute top-4 left-4 right-4 bg-[var(--color-premium-warning)] text-white rounded-2xl py-3 px-5 shadow-xl flex items-center gap-3 z-50">
+          <div className="absolute top-4 left-4 right-4 bg-[var(--color-premium-warning)] text-white rounded-xl py-3 px-5 shadow-xl flex items-center gap-3 z-50">
             <AlertTriangle className="w-5 h-5 shrink-0" />
             <div className="text-xs font-sans">
               <span className="font-bold block uppercase tracking-wider text-[10px] text-white/80">Anomaly flagged</span>
@@ -270,7 +270,7 @@ export default function DemoPanel() {
           <button
             onClick={handleCheckIn}
             disabled={session !== SessionStatus.NOT_STARTED && session !== SessionStatus.CLOSED}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-success-soft)] flex items-center justify-center text-[var(--color-premium-success)] mb-3 group-hover:scale-105 transition-transform">
               <Play className="w-4 h-4 fill-current" />
@@ -283,7 +283,7 @@ export default function DemoPanel() {
           <button
             onClick={handleBreak}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-info-soft)] flex items-center justify-center text-[var(--color-premium-info)] mb-3 group-hover:scale-105 transition-transform">
               <Coffee className="w-4 h-4" />
@@ -298,7 +298,7 @@ export default function DemoPanel() {
           <button
             onClick={handleCheckOut}
             disabled={session !== SessionStatus.ACTIVE && session !== SessionStatus.ON_BREAK}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-xl border border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-accent-2-soft)] flex items-center justify-center text-[var(--color-premium-accent-2)] mb-3 group-hover:scale-105 transition-transform">
               <CheckCircle className="w-4 h-4" />
@@ -310,7 +310,7 @@ export default function DemoPanel() {
           {/* Action 4: Reset platform */}
           <button
             onClick={handleReset}
-            className="card-3d flex flex-col items-center justify-center p-5 rounded-2xl border border-dashed border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer group text-center"
+            className="card-3d flex flex-col items-center justify-center p-5 rounded-xl border border-dashed border-[var(--color-premium-border)] bg-[var(--color-premium-surface)] hover:bg-[var(--color-premium-surface-alt)] transition-colors cursor-pointer group text-center"
           >
             <div className="w-10 h-10 rounded-full bg-[var(--color-premium-surface-alt)] flex items-center justify-center text-[var(--color-premium-muted)] mb-3 group-hover:scale-105 transition-transform">
               <RefreshCw className="w-4 h-4" />
@@ -323,7 +323,7 @@ export default function DemoPanel() {
 
         {/* Manager Review Stepper Flow panel (displays if NEEDS_REVIEW is active) */}
         {session === SessionStatus.NEEDS_REVIEW && (
-          <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-2xl p-5 mb-8 space-y-4">
+          <div className="bg-[var(--color-premium-surface-alt)] border border-[var(--color-premium-border)] rounded-xl p-5 mb-8 space-y-4">
             <div className="flex justify-between items-center border-b border-[var(--color-premium-border)] pb-2">
               <span className="text-[11px] text-[var(--color-premium-warning)] font-bold uppercase flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" />

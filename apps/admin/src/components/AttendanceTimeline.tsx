@@ -380,7 +380,7 @@ export default function AttendanceTimeline({
   const checkedOut = todayState === 'checked_out';
 
   return (
-    <div className="nexus-card rounded-3xl p-6 space-y-5">
+    <div className="nexus-card rounded-xl p-6 space-y-5">
       {/* Sub-tabs */}
       <div className="flex items-center gap-6 border-b border-[var(--color-nexus-border)] pb-3">
         <span className="text-sm font-bold text-[var(--color-nexus-ink)] border-b-2 border-[var(--color-nexus-primary)] pb-3 -mb-3">Attendance Summary</span>
@@ -473,7 +473,7 @@ export default function AttendanceTimeline({
       {/* Shift info + check-in bar — reuses the REAL check-in flow (face +
           GPS verification at /employee/attendance); this is deliberately not
           a bare button that fakes an instant check-in. */}
-      <div className="rounded-2xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 flex items-center gap-3 flex-wrap">
+      <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 flex items-center gap-3 flex-wrap">
         <span className="text-xs font-bold text-[var(--color-nexus-ink)] shrink-0">{shiftLabel}</span>
         <input
           value={notes}

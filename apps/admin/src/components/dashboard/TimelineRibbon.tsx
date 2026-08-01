@@ -46,7 +46,7 @@ export default function TimelineRibbon() {
   };
 
   return (
-    <div className="bg-[var(--color-nexus-surface)]/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-lg max-w-4xl mx-auto backdrop-blur-md">
+    <div className="bg-[var(--color-nexus-surface)]/80 border border-[var(--color-nexus-border)]/50 rounded-xl p-6 shadow-lg max-w-4xl mx-auto backdrop-blur-md">
       <div className="flex justify-between items-center mb-4">
         <div>
           <h4 className="font-sans font-bold text-sm tracking-tight text-[var(--color-nexus-ink)] uppercase flex items-center gap-1.5">
@@ -81,7 +81,7 @@ export default function TimelineRibbon() {
       <div
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoveredEvent(null)}
-        className="relative h-12 w-full bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]/30 shadow-inner overflow-hidden cursor-crosshair flex"
+        className="relative h-12 w-full bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]/30 shadow-inner overflow-hidden cursor-crosshair flex"
       >
         {events.map((event, index) => (
           <div

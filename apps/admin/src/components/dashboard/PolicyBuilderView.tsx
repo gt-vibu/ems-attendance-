@@ -100,7 +100,7 @@ export default function PolicyBuilderView() {
   };
 
   return (
-    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-3xl p-6 shadow-xl max-w-5xl mx-auto backdrop-blur-md">
+    <div className="bg-white/80 border border-[var(--color-nexus-border)]/50 rounded-xl p-6 shadow-xl max-w-5xl mx-auto backdrop-blur-md">
 
       {/* Container Header */}
       <div className="flex justify-between items-center mb-6 pb-3 border-b border-[var(--color-nexus-border)]/40">
@@ -130,7 +130,7 @@ export default function PolicyBuilderView() {
             <div className="relative">
               <textarea
                 placeholder="Ex. Allow 15 minutes of late grace for morning shift employees..."
-                className="w-full h-24 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] focus:border-[var(--color-nexus-muted)] focus:outline-none rounded-2xl p-4 text-xs text-[var(--color-nexus-ink)] placeholder-[var(--color-nexus-muted)] resize-none font-sans"
+                className="w-full h-24 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] focus:border-[var(--color-nexus-muted)] focus:outline-none rounded-xl p-4 text-xs text-[var(--color-nexus-ink)] placeholder-[var(--color-nexus-muted)] resize-none font-sans"
                 value={nlInput}
                 onChange={(e) => setNlInput(e.target.value)}
               />
@@ -180,7 +180,7 @@ export default function PolicyBuilderView() {
                 <div
                   key={rule.id}
                   onClick={() => setActiveJsonIndex(idx)}
-                  className={`p-3.5 rounded-2xl border transition-all duration-300 flex items-start justify-between cursor-pointer ${
+                  className={`p-3.5 rounded-xl border transition-all duration-300 flex items-start justify-between cursor-pointer ${
                     activeJsonIndex === idx
                       ? 'bg-[var(--color-nexus-primary-fixed)]/10 border-[var(--color-nexus-primary-fixed)]'
                       : 'bg-white border-[var(--color-nexus-border)]/60'
@@ -227,7 +227,7 @@ export default function PolicyBuilderView() {
 
         {/* Right Column: Code inspector */}
         <div className="lg:col-span-5 flex flex-col h-full">
-          <div className="flex-1 border border-[var(--color-nexus-border)] rounded-3xl bg-[var(--color-nexus-ink)] text-[var(--color-nexus-surface-alt)] p-5 font-mono text-xs overflow-hidden flex flex-col shadow-inner relative">
+          <div className="flex-1 border border-[var(--color-nexus-border)] rounded-xl bg-[var(--color-nexus-ink)] text-[var(--color-nexus-surface-alt)] p-5 font-mono text-xs overflow-hidden flex flex-col shadow-inner relative">
             <div className="absolute top-0 right-0 p-3 text-[8px] text-[var(--color-nexus-muted)] tracking-widest uppercase font-bold">
               POLICY_SCHEMA_JSON
             </div>

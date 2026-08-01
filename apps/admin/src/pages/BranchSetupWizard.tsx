@@ -160,7 +160,7 @@ export default function BranchSetupWizard({ user, updateSession }: { user: User;
     <div className="min-h-screen premium-mesh-bg flex items-center justify-center p-6 font-sans relative overflow-hidden">
       <AuroraField />
       <PageChrome fallbackHref="/" />
-      <div className="max-w-3xl w-full nexus-card rounded-3xl p-8 relative z-10">
+      <div className="max-w-3xl w-full nexus-card rounded-xl p-6 relative z-10">
         {step === 'ask' && (
           <div>
             <div className="text-center mb-8">
@@ -195,7 +195,7 @@ export default function BranchSetupWizard({ user, updateSession }: { user: User;
 
             <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-1">
               {drafts.map((d, i) => (
-                <div key={i} className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-2xl border border-[var(--color-nexus-border)]">
+                <div key={i} className="p-5 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)]">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Branch {i + 1}</h3>
                     <div className="flex gap-2">

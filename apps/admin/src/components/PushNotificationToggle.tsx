@@ -99,7 +99,7 @@ export default function PushNotificationToggle() {
   if (state === 'loading' || state === 'unsupported' || state === 'unconfigured') return null;
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-[var(--color-nexus-surface-alt)] px-4 py-3">
+    <div className="flex items-center gap-3 rounded-xl bg-[var(--color-nexus-surface-alt)] px-4 py-3">
       {state === 'subscribed' ? <Bell size={16} className="text-[var(--color-nexus-primary)] shrink-0" /> : <BellOff size={16} className="text-[var(--color-nexus-muted)] shrink-0" />}
       <div className="min-w-0 flex-1">
         <p className="text-xs font-bold text-[var(--color-nexus-ink)]">Push Notifications</p>
