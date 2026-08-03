@@ -1231,8 +1231,8 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
                   showWatermark,
                   periodLabel: `${startDate} – ${endDate}`,
                   scopeLabel: user.role === 'manager'
-                    ? (wizardScope === 'me' ? 'Just Me' : 'My Team')
-                    : (wizardScope === 'department' ? `${department === 'ALL' ? 'All Departments' : department} Department` : wizardScope === 'search' ? (search || 'Selected Employees') : 'Entire Company'),
+                    ? (wizardScope === 'me' ? 'Just Me' : wizardScope === 'department' ? `${department === 'ALL' ? 'All Departments' : department} Department` : wizardScope === 'individual' ? (allEmployeesList.find(e => e.id === wizardEmployeeId)?.name || 'Individual Employee') : wizardScope === 'custom' ? `${customEmployeeIds.length} Selected Employees` : 'My Team')
+                    : (wizardScope === 'department' ? `${department === 'ALL' ? 'All Departments' : department} Department` : wizardScope === 'individual' ? (allEmployeesList.find(e => e.id === wizardEmployeeId)?.name || 'Individual Employee') : wizardScope === 'custom' ? `${customEmployeeIds.length} Selected Employees` : wizardScope === 'search' ? (search || 'Selected Employees') : 'Entire Company'),
                   reportTypeLabel: currentTypeConfig.label,
                   employeeCount: reportData?.rows ? new Set(reportData.rows.map((r: any) => r.employeeId ?? r.employeeName)).size : undefined,
                   themeLabel: ENHANCED_REPORT_THEMES.find((t) => t.id === styleThemeId)?.name,
