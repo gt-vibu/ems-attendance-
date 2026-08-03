@@ -320,7 +320,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     showSelfCorrectionModal, setShowSelfCorrectionModal,
     selfCorrectionType, setSelfCorrectionType, selfCorrectionDate, setSelfCorrectionDate,
     selfCorrectionTime, setSelfCorrectionTime, selfCorrectionReason, setSelfCorrectionReason,
-    selfCorrectionSubmitting, selfCorrectionSubmitted, setSelfCorrectionSubmitted,
+    selfCorrectionSubmitting, selfCorrectionSubmitted,
     fetchSelfServiceData, handleStartSelfBreak, handleEndSelfBreak, handleSelfCheckout, handleSubmitSelfCorrection,
   } = useSelfService(token);
 

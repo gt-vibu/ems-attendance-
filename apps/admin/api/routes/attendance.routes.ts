@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, sql, inArray, gte, lte, lt } from 'drizzle-orm';
+import { eq, and, asc, desc, sql, inArray, gte, lte, lt } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
