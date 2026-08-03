@@ -162,20 +162,6 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
     // Recovery/payout amounts are capped at the remaining balance and the
     // source record is updated in the same pass so a loan/advance closes
     // itself out and a bonus/reimbursement is marked paid exactly once.
-    const activeLoans = await db.select().from(schema.payrollLoans).where(and(
-      eq(schema.payrollLoans.tenantId, tenantId),
-      eq(schema.payrollLoans.userId, emp.id),
-      eq(schema.payrollLoans.status, 'active'),
-      or(lt(schema.payrollLoans.startYear, year), and(eq(schema.payrollLoans.startYear, year), sql`${schema.payrollLoans.startMonth} <= ${month}`))
-    ));
-    for (const loan of activeLoans) {
-      if (!hasStartedByPeriod(loan, year, month)) continue;
-      const recovery = Math.min(loan.emiAmount, loan.remainingBalance);
-      if (recovery <= 0) continue;
-      finalNet -= recovery;
-      breakdown.push({ type: 'loan_recovery', loanId: loan.id, amount: -recovery, reason: `Loan EMI (#${loan.id})` });
-    }
-
     totalGross += lineItem.grossPay;
     totalNet += lineItem.netPay;
     calculatedCount += 1;

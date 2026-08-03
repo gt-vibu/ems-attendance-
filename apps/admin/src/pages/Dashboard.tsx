@@ -1086,8 +1086,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       homePayrollOverview={homePayrollOverview}
                       pendingLeaveCount={homeLeaveRequests.filter((r: any) => r.status === 'pending').length}
                       pendingCorrectionsCount={corrections.filter((c: any) => c.status === 'pending').length}
-                      pendingWfhCount={wfhRequests.filter((w: any) => w.status === 'pending').length}
-                      activeBranchesCount={branches.length || 1}
+                      pendingWfhCount={wfhLocationRequests.filter((w: any) => w.status === 'pending').length}
+                      activeBranchesCount={1}
                       onNavigate={(path) => navigate(path)}
                     />
                   )}
