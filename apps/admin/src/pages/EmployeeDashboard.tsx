@@ -98,9 +98,13 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
 
-  const [todayState, setTodayState] = useState<'not_started' | 'checked_in' | 'checked_out'>('not_started');
+  const [todayState, setTodayState] = useState<'not_started' | 'checked_in' | 'on_break' | 'checked_out'>('not_started');
   const [todayPending, setTodayPending] = useState(false);
   const [checkInTime, setCheckInTime] = useState<string | null>(null);
+  const [checkOutTime, setCheckOutTime] = useState<string | null>(null);
+  const [serverWorkingHours, setServerWorkingHours] = useState<number>(0);
+  const [serverFormattedHours, setServerFormattedHours] = useState<string>('00:00:00');
+  const [attendanceTimeline, setAttendanceTimeline] = useState<any[]>([]);
   const [hoursWorked, setHoursWorked] = useState('00:00:00');
 
   const [attendancePercent, setAttendancePercent] = useState<number | null>(null);
@@ -336,88 +340,89 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const todayRes = await fetch('/api/attendance/today', { headers: authHeaders });
-        const todayData = await todayRes.json();
-        const state = todayData.state || 'not_started';
-        setTodayState(state);
-        setTodayPending(!!todayData.pending);
-        setCheckInTime(todayData.log?.createdAt || null);
+  const loadDashboardData = async () => {
+    try {
+      const todayRes = await fetch('/api/attendance/today', { headers: authHeaders });
+      const todayData = await todayRes.json();
+      const state = todayData.state || 'not_started';
+      setTodayState(state);
+      setTodayPending(!!todayData.pending);
+      setCheckInTime(todayData.checkInTime || null);
+      setCheckOutTime(todayData.checkOutTime || null);
+      setServerWorkingHours(todayData.workingHours || 0);
+      setServerFormattedHours(todayData.formattedHours || '00:00:00');
+      setAttendanceTimeline(todayData.timeline || []);
+      if (todayData.activeBreak) setActiveBreak(todayData.activeBreak);
 
-        const [pctRes, corrRes, wfhRes, histRes, holidaysRes, teamRes, policyRes, teamSummaryRes, tenantConfigRes] = await Promise.all([
-          fetch('/api/attendance/percentage', { headers: authHeaders }).catch(() => null),
-          fetch('/api/attendance/corrections/mine', { headers: authHeaders }).catch(() => null),
-          fetch('/api/attendance/wfh/eligibility', { headers: authHeaders }).catch(() => null),
-          fetch('/api/attendance/mine?limit=60', { headers: authHeaders }).catch(() => null),
-          fetch('/api/tenant/holidays', { headers: authHeaders }).catch(() => null),
-          fetch('/api/employees/my-team', { headers: authHeaders }).catch(() => null),
-          fetch('/api/tenant/policy', { headers: authHeaders }).catch(() => null),
-          user.role === 'manager' ? fetch('/api/employees/my-team/today-summary', { headers: authHeaders }).catch(() => null) : Promise.resolve(null),
-          fetch('/api/tenant/config', { headers: authHeaders }).catch(() => null),
-        ]);
-        // Read synchronously into a local variable (not just React state) so
-        // the holiday-filtering code just below — running in this SAME
-        // function call — can use it immediately, instead of racing a
-        // separate setState that wouldn't be visible until the next render.
-        let resolvedTenantTimezone: string | null = null;
-        if (tenantConfigRes?.ok) {
-          const cfg = await tenantConfigRes.json();
-          setTenantConfig(cfg?.tenant || cfg);
-          if (cfg?.tenant?.timezone) { resolvedTenantTimezone = cfg.tenant.timezone; setTenantTimezone(cfg.tenant.timezone); }
-        }
-        const [leaveResult, payrollResult] = await Promise.all([
-          refreshLeaveData().catch(() => null),
-          refreshPayrollData().catch(() => null),
-          refreshPayslipHistory().catch(() => null),
-        ]);
-        if (pctRes?.ok) { const p = await pctRes.json(); setAttendancePercent(p.percentage); setAttendanceThreshold(p.threshold ?? 75); }
-        if (corrRes?.ok) { const c = await corrRes.json(); setCorrections(c.corrections || []); }
-        // Always land on either "eligible" or a reason string — never leave
-        // both empty, or the WFH card silently disappears instead of
-        // showing a disabled state (a real bug: a failed/slow network
-        // request used to make the whole card vanish rather than degrade).
-        if (wfhRes?.ok) {
-          const w = await wfhRes.json();
-          setWfhEligible(!!w.eligible);
-          setWfhReasonMsg(!w.eligible ? (w.reason || 'Work From Home is not available right now.') : '');
-        } else {
-          setWfhEligible(false);
-          setWfhReasonMsg('Could not check Work From Home eligibility. Try refreshing.');
-        }
-        if (histRes?.ok) { const h = await histRes.json(); setAttendanceHistory(h.logs || []); }
-        if (holidaysRes?.ok) {
-          const hd = await holidaysRes.json();
-          setAllHolidays(hd.holidays || []);
-          // Tenant-business-day "today", not flat UTC — a holiday "today"
-          // for the tenant could be dropped from/wrongly kept in this list
-          // near a day boundary if compared against UTC instead.
-          const todayStr = attendanceDateKey(new Date(), resolvedTenantTimezone);
-          const upcoming = (hd.holidays || [])
-            .filter((holiday: any) => String(holiday.date).slice(0, 10) >= todayStr)
-            .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
-            .slice(0, 5);
-          setUpcomingHolidays(upcoming);
-        }
-        if (teamRes?.ok) { const t = await teamRes.json(); setMyTeam({ manager: t.manager || null, colleagues: t.colleagues || [] }); }
-        if (teamSummaryRes?.ok) { const ts = await teamSummaryRes.json(); setTodaysTeamSummary(ts); }
-        fetch('/api/employees/me/notification-preferences', { headers: authHeaders })
-          .then((r) => r.json())
-          .then((p) => { if (p.preferences) setNotificationPrefs(p.preferences); })
-          .catch(() => undefined);
-        if (policyRes?.ok) { const pl = await policyRes.json(); setPolicyAnnouncement(pl.policyAnnouncement || ''); }
-        if (leaveResult?.policies?.length) setLeavePolicyId((current: string) => current || String(leaveResult.policies[0].id));
-
-        if (state === 'checked_in') {
-          await Promise.all([fetchActiveBreak(), fetchBreaksToday()]);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+      const [pctRes, corrRes, wfhRes, histRes, holidaysRes, teamRes, policyRes, teamSummaryRes, tenantConfigRes] = await Promise.all([
+        fetch('/api/attendance/percentage', { headers: authHeaders }).catch(() => null),
+        fetch('/api/attendance/corrections/mine', { headers: authHeaders }).catch(() => null),
+        fetch('/api/attendance/wfh/eligibility', { headers: authHeaders }).catch(() => null),
+        fetch('/api/attendance/mine?limit=60', { headers: authHeaders }).catch(() => null),
+        fetch('/api/tenant/holidays', { headers: authHeaders }).catch(() => null),
+        fetch('/api/employees/my-team', { headers: authHeaders }).catch(() => null),
+        fetch('/api/tenant/policy', { headers: authHeaders }).catch(() => null),
+        user.role === 'manager' ? fetch('/api/employees/my-team/today-summary', { headers: authHeaders }).catch(() => null) : Promise.resolve(null),
+        fetch('/api/tenant/config', { headers: authHeaders }).catch(() => null),
+      ]);
+      let resolvedTenantTimezone: string | null = null;
+      if (tenantConfigRes?.ok) {
+        const cfg = await tenantConfigRes.json();
+        setTenantConfig(cfg?.tenant || cfg);
+        if (cfg?.tenant?.timezone) { resolvedTenantTimezone = cfg.tenant.timezone; setTenantTimezone(cfg.tenant.timezone); }
       }
-    })();
+      const [leaveResult, payrollResult] = await Promise.all([
+        refreshLeaveData().catch(() => null),
+        refreshPayrollData().catch(() => null),
+        refreshPayslipHistory().catch(() => null),
+      ]);
+      if (pctRes?.ok) { const p = await pctRes.json(); setAttendancePercent(p.percentage); setAttendanceThreshold(p.threshold ?? 75); }
+      if (corrRes?.ok) { const c = await corrRes.json(); setCorrections(c.corrections || []); }
+      if (wfhRes?.ok) {
+        const w = await wfhRes.json();
+        setWfhEligible(!!w.eligible);
+        setWfhReasonMsg(!w.eligible ? (w.reason || 'Work From Home is not available right now.') : '');
+      } else {
+        setWfhEligible(false);
+        setWfhReasonMsg('Could not check Work From Home eligibility. Try refreshing.');
+      }
+      if (histRes?.ok) { const h = await histRes.json(); setAttendanceHistory(h.logs || []); }
+      if (holidaysRes?.ok) {
+        const hd = await holidaysRes.json();
+        setAllHolidays(hd.holidays || []);
+        const todayStr = attendanceDateKey(new Date(), resolvedTenantTimezone);
+        const upcoming = (hd.holidays || [])
+          .filter((holiday: any) => String(holiday.date).slice(0, 10) >= todayStr)
+          .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
+          .slice(0, 5);
+        setUpcomingHolidays(upcoming);
+      }
+      if (teamRes?.ok) { const t = await teamRes.json(); setMyTeam({ manager: t.manager || null, colleagues: t.colleagues || [] }); }
+      if (teamSummaryRes?.ok) { const ts = await teamSummaryRes.json(); setTodaysTeamSummary(ts); }
+      fetch('/api/employees/me/notification-preferences', { headers: authHeaders })
+        .then((r) => r.json())
+        .then((p) => { if (p.preferences) setNotificationPrefs(p.preferences); })
+        .catch(() => undefined);
+      if (policyRes?.ok) { const pl = await policyRes.json(); setPolicyAnnouncement(pl.policyAnnouncement || ''); }
+      if (leaveResult?.policies?.length) setLeavePolicyId((current: string) => current || String(leaveResult.policies[0].id));
+
+      if (state === 'checked_in' || state === 'on_break') {
+        await Promise.all([fetchActiveBreak(), fetchBreaksToday()]);
+      } else if (state === 'checked_out') {
+        await fetchBreaksToday();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+    const handleSync = () => loadDashboardData();
+    window.addEventListener('attendance-session-updated', handleSync);
+    return () => window.removeEventListener('attendance-session-updated', handleSync);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -518,6 +523,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       setActiveBreak(d.session);
       setBreakNote('');
       setShowTakeBreakModal(false);
+      await loadDashboardData();
+      window.dispatchEvent(new CustomEvent('attendance-session-updated'));
     } catch (err: any) { setError(err.message || 'Failed to start break'); }
     finally { setBreakBusy(false); }
   };
@@ -530,16 +537,12 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       setActiveBreak(null);
-      fetchBreaksToday();
+      await loadDashboardData();
+      window.dispatchEvent(new CustomEvent('attendance-session-updated'));
       setSuccess(d.isViolation ? 'Work resumed — this break exceeded the budget and was flagged.' : 'Work session resumed.');
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to end break');
-      // The end-break request can be rejected server-side (e.g. a GPS-drift
-      // geofence check) while the break stays OPEN in the database. Re-sync
-      // from the server so the UI keeps showing "On Break" — otherwise the
-      // user thinks the break ended, then checkout mysteriously blocks them
-      // with "you're currently on break".
       fetchActiveBreak();
     }
     finally { setBreakBusy(false); }
@@ -550,8 +553,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       const r = await fetch('/api/attendance/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ clientTimestamp: new Date().toISOString() }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Failed to check out.');
-      setTodayState('checked_out');
+      setShowCheckoutConfirm(false);
       setSuccess('Checked out. See you next time!');
+      await loadDashboardData();
+      window.dispatchEvent(new CustomEvent('attendance-session-updated'));
     } catch (err: any) { setError(err.message || 'Failed to check out.'); } finally { setCheckingOut(false); }
   };
 
@@ -1030,6 +1035,61 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
+          {todayState === 'checked_out' && (
+            <div className="nexus-card rounded-xl p-5 space-y-4 bg-gradient-to-br from-slate-50 to-indigo-50/40 border border-indigo-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Today's Attendance Summary</h3>
+                </div>
+                <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Completed
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Checked In</span>
+                  <span className="block text-base font-bold text-slate-900 mt-0.5">
+                    {checkInTime ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Checked Out</span>
+                  <span className="block text-base font-bold text-slate-900 mt-0.5">
+                    {checkOutTime ? new Date(checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Working Hours</span>
+                  <span className="block text-base font-bold text-indigo-600 mt-0.5">
+                    {serverFormattedHours || `${serverWorkingHours}h`}
+                  </span>
+                </div>
+                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Break</span>
+                  <span className="block text-base font-bold text-slate-700 mt-0.5">
+                    {totalBreakMinsToday || 0}m
+                  </span>
+                </div>
+              </div>
+
+              {attendanceTimeline.length > 0 && (
+                <div className="pt-3 border-t border-slate-200/60">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Today's Timeline</span>
+                  <div className="space-y-1.5">
+                    {attendanceTimeline.map((item: any) => (
+                      <div key={item.id} className="flex items-center justify-between text-xs bg-white border border-slate-100 rounded-lg px-3 py-2">
+                        <span className="font-medium text-slate-800">{item.event}</span>
+                        <span className="font-mono text-slate-500">{item.time}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Take-a-Break popup — the type/note form used to sit permanently
               on screen; now it only appears once "Take a Break" is pressed,
               same modal chrome used elsewhere in this file (Apply Leave,
@@ -1108,14 +1168,20 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             <StatCard
               label="Checked In"
               icon={Clock}
-              value={checkInTime && todayState !== 'not_started' ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+              value={checkInTime ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
             />
             <StatCard
               label="Hours Today"
               icon={AlarmClock}
               iconBg="var(--color-nexus-secondary-container)"
               iconColor="var(--color-nexus-secondary)"
-              value={todayState === 'checked_in' ? hoursWorked : '—'}
+              value={
+                todayState === 'checked_in' || todayState === 'on_break'
+                  ? hoursWorked
+                  : todayState === 'checked_out'
+                  ? (serverFormattedHours || `${serverWorkingHours}h`)
+                  : '—'
+              }
             />
             <StatCard
               label="Attendance"

@@ -313,7 +313,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // SELF-SERVICE (My Space) — see apps/admin/src/pages/dashboard/hooks/useSelfService.ts
   // ==========================================
   const {
-    selfCheckInTime, selfHoursWorked, selfActiveBreak, selfBreakTimer,
+    selfState, selfCheckInTime, selfCheckOutTime, selfWorkingHours, selfFormattedHours, selfTimeline,
+    selfHoursWorked, selfActiveBreak, selfBreakTimer,
     selfBreakType, setSelfBreakType, selfBreaksToday, selfBudgetMins, selfRemainingMins,
     selfCheckingOut, selfTodayPending, selfCorrections,
     showSelfCorrectionModal, setShowSelfCorrectionModal,
@@ -868,20 +869,44 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
                         <div>
                           <span className="block text-[10px] text-[var(--color-nexus-muted)] font-mono uppercase tracking-wider">Clock Status</span>
-                          <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full mt-1.5 ${selfCheckInTime ? 'bg-[var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-muted)]/10 text-[var(--color-nexus-muted)]'}`}>
-                            <span className={`w-2.5 h-2.5 rounded-full ${selfCheckInTime ? 'bg-[var(--color-nexus-success-text)]' : 'bg-[var(--color-nexus-muted)]'} ${selfCheckInTime && !selfActiveBreak ? 'pulse-ring' : ''}`} />
-                            {selfCheckInTime ? (selfActiveBreak ? `On Break (${selfActiveBreak.breakType})` : 'Clocked In') : 'Not Clocked In'}
+                          <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full mt-1.5 ${
+                            selfState === 'checked_out'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : selfCheckInTime
+                              ? 'bg-[var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]'
+                              : 'bg-[var(--color-nexus-muted)]/10 text-[var(--color-nexus-muted)]'
+                          }`}>
+                            <span className={`w-2.5 h-2.5 rounded-full ${
+                              selfState === 'checked_out'
+                                ? 'bg-emerald-500'
+                                : selfCheckInTime
+                                ? 'bg-[var(--color-nexus-success-text)]'
+                                : 'bg-[var(--color-nexus-muted)]'
+                            } ${selfCheckInTime && selfState !== 'checked_out' && !selfActiveBreak ? 'pulse-ring' : ''}`} />
+                            {selfState === 'checked_out'
+                              ? 'Attendance Completed'
+                              : selfCheckInTime
+                              ? (selfActiveBreak ? `On Break (${selfActiveBreak.breakType})` : 'Clocked In')
+                              : 'Not Clocked In'}
                           </span>
                         </div>
 
                         {selfCheckInTime && (
-                          <div className="grid grid-cols-2 gap-4 pt-3 border-t border-[var(--color-nexus-border)]/50">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-3 border-t border-[var(--color-nexus-border)]/50">
                             <div>
                               <span className="block text-[9px] text-[var(--color-nexus-muted)] font-mono uppercase">Checked In At</span>
                               <span className="text-sm font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5 block">
                                 {new Date(selfCheckInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
+                            {selfCheckOutTime && (
+                              <div>
+                                <span className="block text-[9px] text-[var(--color-nexus-muted)] font-mono uppercase">Checked Out At</span>
+                                <span className="text-sm font-mono font-bold text-[var(--color-nexus-ink)] mt-0.5 block">
+                                  {new Date(selfCheckOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            )}
                             <div>
                               <span className="block text-[9px] text-[var(--color-nexus-primary)] font-mono uppercase">Hours Worked</span>
                               <span className="text-sm font-mono font-bold text-[var(--color-nexus-primary)] mt-0.5 block">{selfHoursWorked}</span>
@@ -891,7 +916,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                       </div>
 
                       <div className="flex flex-col gap-3 justify-center min-w-[160px]">
-                        {!selfCheckInTime ? (
+                        {selfState === 'checked_out' ? (
+                          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold uppercase tracking-wider py-4 px-6 rounded-xl text-center shadow-2xs">
+                            Day Completed
+                          </div>
+                        ) : !selfCheckInTime ? (
                           <button
                             type="button"
                             onClick={() => navigate('/employee/attendance')}
@@ -920,7 +949,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     </div>
 
                     {/* Break Management */}
-                    {selfCheckInTime && (
+                    {selfCheckInTime && selfState !== 'checked_out' && (
                       <div className="nexus-card rounded-xl p-6 space-y-4">
                         <div className="flex items-center justify-between">
                           <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Break Management</h3>

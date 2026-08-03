@@ -32,23 +32,13 @@ import { tenantStartOfDay, tenantDateKey, tenantDateTime, tenantDateLabel, tenan
 
 export const router = Router();
 
-
-  // Where is the employee in today's attendance cycle? Drives the frontend's
-  // gating: hide/show the camera flow, Break Management, and the "already
-  // completed" locked state. A 'pending' check-in (late arrival awaiting
-  // manager review) still counts as checked_in — the employee isn't blocked
-  // from working while it's under review.
 router.get('/api/attendance/today', authenticate, async (req: any, res: any) => {
     try {
-      // Tenant-local "today," not the server process's — using server-local
-      // midnight here disagreed with tenantDateKey()-based day bucketing
-      // used elsewhere (attendanceDayStatus.ts) by the tenant's UTC offset,
-      // which could show/hide today's check-in near a day boundary for any
-      // non-UTC tenant.
       const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
       const todayStart = tenantStartOfDay(tenantRow);
 
-      const latest = await db.select()
+      // Fetch all attendance logs for today chronologically (asc)
+      const logs = await db.select()
         .from(schema.attendanceLogs)
         .where(
           and(
@@ -57,27 +47,152 @@ router.get('/api/attendance/today', authenticate, async (req: any, res: any) => 
             sql`created_at >= ${todayStart}`
           )
         )
-        .orderBy(desc(schema.attendanceLogs.id))
-        .limit(1);
+        .orderBy(asc(schema.attendanceLogs.id));
 
-      if (latest.length === 0) {
-        return res.json({ state: 'not_started', pending: false, log: null });
+      // Fetch all break sessions for today
+      const breakSessions = await db.select()
+        .from(schema.breakSessions)
+        .where(
+          and(
+            eq(schema.breakSessions.userId, req.user.userId),
+            sql`start_time >= ${todayStart}`
+          )
+        )
+        .orderBy(asc(schema.breakSessions.id));
+
+      // First check-in log and last check-out log
+      const firstCheckIn = logs.find((l: any) => l.type === 'check_in') || null;
+      const lastCheckOut = [...logs].reverse().find((l: any) => l.type === 'check_out') || null;
+      const activeBreak = breakSessions.find((b: any) => b.status === 'active') || null;
+
+      if (!firstCheckIn) {
+        return res.json({
+          state: 'not_started',
+          pending: false,
+          checkInTime: null,
+          checkOutTime: null,
+          workingHours: 0,
+          formattedHours: '00:00:00',
+          breakMins: 0,
+          activeBreak: null,
+          timeline: [],
+          log: null,
+          checkOutLog: null,
+          latestLog: null,
+          currentShift: { name: 'General Shift', checkInTime: '09:00', checkOutTime: '18:00' }
+        });
       }
 
-      const log = latest[0];
-      if (log.type === 'check_out') {
-        return res.json({ state: 'checked_out', pending: false, log });
+      // Determine attendance state
+      let state: 'not_started' | 'checked_in' | 'on_break' | 'checked_out' = 'checked_in';
+      if (lastCheckOut && new Date(lastCheckOut.createdAt).getTime() >= new Date(firstCheckIn.createdAt).getTime()) {
+        state = 'checked_out';
+      } else if (activeBreak) {
+        state = 'on_break';
       }
-      return res.json({ state: 'checked_in', pending: log.status === 'pending', log });
+
+      // Calculate total break duration in minutes
+      let breakMins = 0;
+      for (const b of breakSessions) {
+        if (b.status === 'completed' && b.endTime) {
+          const start = new Date(b.startTime).getTime();
+          const end = new Date(b.endTime).getTime();
+          if (end > start) {
+            breakMins += Math.round((end - start) / 60000);
+          }
+        } else if (b.status === 'active') {
+          const start = new Date(b.startTime).getTime();
+          const now = Date.now();
+          if (now > start) {
+            breakMins += Math.round((now - start) / 60000);
+          }
+        }
+      }
+
+      // Calculate net working hours
+      const checkInMs = new Date(firstCheckIn.createdAt).getTime();
+      let endMs = Date.now();
+      if (state === 'checked_out' && lastCheckOut) {
+        endMs = new Date(lastCheckOut.createdAt).getTime();
+      } else if (state === 'on_break' && activeBreak) {
+        endMs = new Date(activeBreak.startTime).getTime();
+      }
+
+      const grossMs = Math.max(0, endMs - checkInMs);
+      const breakMs = breakMins * 60000;
+      const netMs = Math.max(0, grossMs - breakMs);
+
+      const workingHours = Math.round((netMs / 3600000) * 100) / 100;
+      const totalSecs = Math.floor(netMs / 1000);
+      const h = Math.floor(totalSecs / 3600).toString().padStart(2, '0');
+      const m = Math.floor((totalSecs % 3600) / 60).toString().padStart(2, '0');
+      const s = (totalSecs % 60).toString().padStart(2, '0');
+      const formattedHours = `${h}:${m}:${s}`;
+
+      // Build unified timeline
+      const timeline: any[] = [];
+      timeline.push({
+        id: `ci_${firstCheckIn.id}`,
+        time: new Date(firstCheckIn.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: firstCheckIn.createdAt,
+        event: 'Checked In',
+        type: 'check_in',
+        status: firstCheckIn.status,
+        location: firstCheckIn.locationName || undefined
+      });
+
+      for (const b of breakSessions) {
+        timeline.push({
+          id: `bs_${b.id}`,
+          time: new Date(b.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: b.startTime,
+          event: `${b.breakType || 'Break'} Started`,
+          type: 'break_start'
+        });
+        if (b.status === 'completed' && b.endTime) {
+          timeline.push({
+            id: `be_${b.id}`,
+            time: new Date(b.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: b.endTime,
+            event: `${b.breakType || 'Break'} Ended`,
+            type: 'break_end'
+          });
+        }
+      }
+
+      if (lastCheckOut) {
+        timeline.push({
+          id: `co_${lastCheckOut.id}`,
+          time: new Date(lastCheckOut.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: lastCheckOut.createdAt,
+          event: 'Checked Out',
+          type: 'check_out',
+          status: lastCheckOut.status,
+          location: lastCheckOut.locationName || undefined
+        });
+      }
+
+      timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      return res.json({
+        state,
+        pending: firstCheckIn.status === 'pending',
+        checkInTime: firstCheckIn.createdAt,
+        checkOutTime: lastCheckOut?.createdAt || null,
+        workingHours,
+        formattedHours,
+        breakMins,
+        activeBreak,
+        timeline,
+        log: firstCheckIn,
+        checkOutLog: lastCheckOut,
+        latestLog: logs[logs.length - 1] || firstCheckIn,
+        currentShift: { name: 'General Shift', checkInTime: '09:00', checkOutTime: '18:00' }
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
-
-  // Self-service attendance percentage — this month so far, working days
-  // only (weekends/holidays excluded). Feeds the "Attendance This Month"
-  // stat on Employee Home; the same computeAttendancePercent() helper also
-  // drives the daily low-attendance alert cron.
 router.get('/api/attendance/percentage', authenticate, async (req: any, res: any) => {
     try {
       const tenantList = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId || 1));

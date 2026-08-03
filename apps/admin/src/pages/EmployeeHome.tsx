@@ -95,12 +95,8 @@ export default function EmployeeHome({ user, onLogout }: { user: User, onLogout:
     try {
       const res = await fetch('/api/attendance/today', { headers: authHeaders });
       const data = await res.json();
-      if (data.state !== 'checked_in') {
-        navigate('/employee/attendance');
-        return;
-      }
       setTodayPending(!!data.pending);
-      setCheckInTime(data.log?.createdAt || null);
+      setCheckInTime(data.checkInTime || null);
     } catch (err) {
       console.error(err);
     } finally {

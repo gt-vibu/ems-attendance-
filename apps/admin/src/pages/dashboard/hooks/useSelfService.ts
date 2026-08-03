@@ -6,7 +6,12 @@ import { useState, useEffect } from 'react';
 // Personal attendance state for the logged-in admin (used in Self Service
 // mode). Extracted verbatim from Dashboard.tsx.
 export function useSelfService(token: string | null) {
+  const [selfState, setSelfState] = useState<'not_started' | 'checked_in' | 'on_break' | 'checked_out'>('not_started');
   const [selfCheckInTime, setSelfCheckInTime] = useState<string | null>(null);
+  const [selfCheckOutTime, setSelfCheckOutTime] = useState<string | null>(null);
+  const [selfWorkingHours, setSelfWorkingHours] = useState<number>(0);
+  const [selfFormattedHours, setSelfFormattedHours] = useState<string>('00:00:00');
+  const [selfTimeline, setSelfTimeline] = useState<any[]>([]);
   const [selfHoursWorked, setSelfHoursWorked] = useState('00:00:00');
   const [selfActiveBreak, setSelfActiveBreak] = useState<any>(null);
   const [selfBreakTimer, setSelfBreakTimer] = useState('00:00');
@@ -26,31 +31,22 @@ export function useSelfService(token: string | null) {
   // True after a correction is submitted (shows a thank-you state in the modal)
   const [selfCorrectionSubmitted, setSelfCorrectionSubmitted] = useState(false);
 
-  // Fetch current admin's personal attendance state for Self-Service mode
+  // Fetch current admin's personal attendance session
   const fetchSelfServiceData = async () => {
     try {
-      // Today's check-in
       const todayRes = await fetch('/api/attendance/today', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (todayRes.ok) {
         const d = await todayRes.json();
-        if (d.checkInTime) {
-          setSelfCheckInTime(d.checkInTime);
-          setSelfTodayPending(d.status === 'pending');
-        } else {
-          setSelfCheckInTime(null);
-          setSelfTodayPending(false);
-        }
-      }
-
-      // Active break
-      const breakRes = await fetch('/api/breaks/active', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (breakRes.ok) {
-        const bd = await breakRes.json();
-        setSelfActiveBreak(bd.activeBreak || null);
+        setSelfState(d.state || 'not_started');
+        setSelfCheckInTime(d.checkInTime || null);
+        setSelfCheckOutTime(d.checkOutTime || null);
+        setSelfWorkingHours(d.workingHours || 0);
+        setSelfFormattedHours(d.formattedHours || '00:00:00');
+        setSelfTimeline(d.timeline || []);
+        setSelfTodayPending(!!d.pending);
+        setSelfActiveBreak(d.activeBreak || null);
       }
 
       // Today's breaks + remaining budget
@@ -59,7 +55,7 @@ export function useSelfService(token: string | null) {
       });
       if (breaksRes.ok) {
         const bd = await breaksRes.json();
-        setSelfBreaksToday(bd.breaks || []);
+        setSelfBreaksToday(bd.sessions || bd.breaks || []);
         if (bd.budgetMins != null) setSelfBudgetMins(bd.budgetMins);
         if (bd.remainingMins != null) setSelfRemainingMins(bd.remainingMins);
       }
@@ -77,6 +73,13 @@ export function useSelfService(token: string | null) {
     }
   };
 
+  useEffect(() => {
+    if (token) fetchSelfServiceData();
+    const handleUpdate = () => { if (token) fetchSelfServiceData(); };
+    window.addEventListener('attendance-session-updated', handleUpdate);
+    return () => window.removeEventListener('attendance-session-updated', handleUpdate);
+  }, [token]);
+
   // Self-service: start a break
   const handleStartSelfBreak = async () => {
     if (!selfCheckInTime || selfActiveBreak) return;
@@ -86,7 +89,10 @@ export function useSelfService(token: string | null) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ breakType: selfBreakType })
       });
-      if (res.ok) await fetchSelfServiceData();
+      if (res.ok) {
+        await fetchSelfServiceData();
+        window.dispatchEvent(new CustomEvent('attendance-session-updated'));
+      }
     } catch (err) {
       console.error('[self-service] start break error:', err);
     }
@@ -103,6 +109,7 @@ export function useSelfService(token: string | null) {
       if (res.ok) {
         setSelfActiveBreak(null);
         await fetchSelfServiceData();
+        window.dispatchEvent(new CustomEvent('attendance-session-updated'));
       }
     } catch (err) {
       console.error('[self-service] end break error:', err);
@@ -119,9 +126,8 @@ export function useSelfService(token: string | null) {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        setSelfCheckInTime(null);
-        setSelfHoursWorked('00:00:00');
         await fetchSelfServiceData();
+        window.dispatchEvent(new CustomEvent('attendance-session-updated'));
       }
     } catch (err) {
       console.error('[self-service] checkout error:', err);
@@ -152,7 +158,7 @@ export function useSelfService(token: string | null) {
         setSelfCorrectionTime('');
         setSelfCorrectionReason('');
         await fetchSelfServiceData();
-        // Auto-close after a short delay so the user sees the success message
+        window.dispatchEvent(new CustomEvent('attendance-session-updated'));
         setTimeout(() => {
           setShowSelfCorrectionModal(false);
           setSelfCorrectionSubmitted(false);
@@ -171,6 +177,10 @@ export function useSelfService(token: string | null) {
       setSelfHoursWorked('00:00:00');
       return;
     }
+    if (selfState === 'checked_out') {
+      setSelfHoursWorked(selfFormattedHours || '00:00:00');
+      return;
+    }
     const tick = () => {
       const start = new Date(selfCheckInTime).getTime();
       const elapsed = Math.max(0, Math.floor((Date.now() - start) / 1000));
@@ -182,7 +192,7 @@ export function useSelfService(token: string | null) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [selfCheckInTime]);
+  }, [selfCheckInTime, selfState, selfFormattedHours]);
 
   // Live break-timer ticker: updates every second when a break is active
   useEffect(() => {
@@ -203,7 +213,12 @@ export function useSelfService(token: string | null) {
   }, [selfActiveBreak]);
 
   return {
+    selfState,
     selfCheckInTime,
+    selfCheckOutTime,
+    selfWorkingHours,
+    selfFormattedHours,
+    selfTimeline,
     selfHoursWorked,
     selfActiveBreak,
     selfBreakTimer,
@@ -220,7 +235,7 @@ export function useSelfService(token: string | null) {
     selfCorrectionTime, setSelfCorrectionTime,
     selfCorrectionReason, setSelfCorrectionReason,
     selfCorrectionSubmitting,
-    selfCorrectionSubmitted, setSelfCorrectionSubmitted,
+    selfCorrectionSubmitted,
     fetchSelfServiceData,
     handleStartSelfBreak,
     handleEndSelfBreak,
