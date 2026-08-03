@@ -132,7 +132,12 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
         else if (s.includes('leave')) leave += 1;
         else if (s.includes('absent')) absent += 1;
         else if (s.includes('present') || s.includes('half') || s.includes('wfh')) present += 1;
-        workingHours += r.rawHours ?? (Number(r.workingHours) || 0);
+        const rawH = r.rawHours ?? (r.workingHours ? Number(r.workingHours) : null);
+        if (rawH !== null && !isNaN(rawH)) {
+          workingHours += rawH;
+        } else if (s.includes('present') || s.includes('wfh') || s.includes('late')) {
+          workingHours += s.includes('half') ? 4 : 8;
+        }
       }
       return { key, ...v, present, absent, late, leave, workingHours };
     });
@@ -169,7 +174,12 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
         else if (s.includes('leave')) leave += 1;
         else if (s.includes('absent')) absent += 1;
         else if (s.includes('present') || s.includes('wfh')) present += 1;
-        workingHours += Number(r.workingHours) || 0;
+        const rawH = r.rawHours ?? (r.workingHours ? Number(r.workingHours) : null);
+        if (rawH !== null && !isNaN(rawH)) {
+          workingHours += rawH;
+        } else if (s.includes('present') || s.includes('wfh') || s.includes('late') || s.includes('half')) {
+          workingHours += s.includes('half') ? 4 : 8;
+        }
         overtimeHours += Number(r.overtimeHours) || 0;
       }
       const totalDays = present + absent + leave + late + halfDay;

@@ -128,16 +128,73 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
 
   return (
     <div className="space-y-5">
-      {/* Month navigator (Daily/Monthly only — History isn't month-scoped) + view toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {view !== 'history' ? (
+      {/* Premium Banking Executive Earnings Summary Card */}
+      {view !== 'history' && s && (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-5 text-white shadow-xl border border-slate-800 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-xl p-1 border border-white/10">
+              <button onClick={goPrevMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-white transition" aria-label="Previous month"><ChevronLeft size={16} /></button>
+              <span className="font-extrabold text-xs sm:text-sm text-white px-2 tracking-wide">{monthLabel}</span>
+              <button onClick={goNextMonth} className="p-1.5 rounded-lg hover:bg-white/10 text-white transition" aria-label="Next month"><ChevronRight size={16} /></button>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Net Pay: {money(s.monthlyNet || 0)}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gross Salary</span>
+              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{money(s.monthlyGross || 0)}</span>
+              <span className="text-[10px] text-slate-400">Monthly Base</span>
+            </div>
+            
+            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Present / Days</span>
+              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{s.presentDays || 0} / {s.workingDays || 26}</span>
+              <span className="text-[10px] text-emerald-400">{s.totalHoursWorked ? `${s.totalHoursWorked.toFixed(1)}h worked` : '0h worked'}</span>
+            </div>
+
+            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">LOP / Unpaid</span>
+              <span className="text-base sm:text-lg font-extrabold text-rose-400 mt-0.5 block">{s.chargeableLeaveDays || 0} Days</span>
+              <span className="text-[10px] text-rose-300">{s.leaveDeduction > 0 ? `-${money(s.leaveDeduction)}` : 'No deduction'}</span>
+            </div>
+
+            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Overtime Pay</span>
+              <span className="text-base sm:text-lg font-extrabold text-emerald-400 mt-0.5 block">+{money(s.totalOvertimePay || 0)}</span>
+              <span className="text-[10px] text-slate-400">{s.totalOvertimeHours ? `${s.totalOvertimeHours.toFixed(1)}h OT` : '0h OT'}</span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-300 font-medium text-[11px]">Salary Progress ({s.presentDays || 0} of {s.workingDays || 26} working days completed)</span>
+              <span className="font-bold text-white text-[11px]">{Math.min(100, Math.round(((s.presentDays || 0) / (s.workingDays || 26)) * 100))}%</span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+              <div 
+                className="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-500" 
+                style={{ width: `${Math.min(100, Math.round(((s.presentDays || 0) / (s.workingDays || 26)) * 100))}%` }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs navigation */}
+      <div className="flex items-center justify-between gap-3">
+        {view === 'history' ? (
           <div className="flex items-center gap-2">
-            <button onClick={goPrevMonth} className="p-2 rounded-lg border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-surface-alt)]" aria-label="Previous month"><ChevronLeft size={16} /></button>
-            <span className="font-bold text-sm text-[var(--color-nexus-ink)] min-w-[140px] text-center">{monthLabel}</span>
-            <button onClick={goNextMonth} className="p-2 rounded-lg border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-surface-alt)]" aria-label="Next month"><ChevronRight size={16} /></button>
+            <span className="font-extrabold text-sm text-[var(--color-nexus-ink)]">Compensation History</span>
           </div>
         ) : <div />}
-        <div className="flex items-center gap-1 bg-[var(--color-nexus-surface-alt)] rounded-full p-1">
+        <div className="flex items-center gap-1 bg-[var(--color-nexus-surface-alt)] rounded-full p-1 border border-[var(--color-nexus-border)]">
           <button
             onClick={() => setView('daily')}
             className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${view === 'daily' ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-ink)] shadow-sm' : 'text-[var(--color-nexus-muted)]'}`}

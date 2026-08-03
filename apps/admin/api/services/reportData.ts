@@ -254,13 +254,20 @@ async function buildAttendanceReport(
           workedMinutes = Math.max(0, Math.round(rawMins - dayBreakMins));
         }
 
+        const isPresent = entry.status === 'present' || entry.status === 'late' || entry.status === 'half_day' || entry.status === 'regularized' || entry.status === 'business_travel';
+
+        // Canonical fallback for present/worked days where logged workedMinutes is missing or 0:
+        if (isPresent && (!workedMinutes || workedMinutes === 0)) {
+          const isHalfDay = entry.status === 'half_day';
+          workedMinutes = isHalfDay ? 240 : 480; // 4 hours for half day, 8 hours standard for present day
+        }
+
         if (filters.status && filters.status !== 'ALL' && STATUS_LABELS[entry.status] !== filters.status) continue;
         if (filters.exceptionsOnly && !EXCEPTION_STATUSES.includes(entry.status)) continue;
         if (filters.wfhOnly && !isWfh) continue;
         if (filters.lateOnly && lateMins <= 0) continue;
         if (filters.overtimeOnly && overtimeMins <= 0) continue;
 
-        const isPresent = entry.status === 'present' || entry.status === 'late' || entry.status === 'half_day' || entry.status === 'regularized' || entry.status === 'business_travel';
         if (isPresent) { presentCount++; deptMap.get(dept)!.present += 1; }
         if (entry.status === 'late') { lateCount++; deptMap.get(dept)!.late += 1; }
         if (entry.status === 'half_day') halfDayCount++;
@@ -290,10 +297,10 @@ async function buildAttendanceReport(
           checkIn: dayLogs?.checkIn?.createdAt ? tenantTimeLabel(tenant, new Date(dayLogs.checkIn.createdAt)) : '-',
           checkOut: dayLogs?.checkOut?.createdAt ? tenantTimeLabel(tenant, new Date(dayLogs.checkOut.createdAt)) : '-',
           lateMins,
-          workingHours: workedMinutes ? (workedMinutes / 60).toFixed(1) : null,
+          workingHours: (workedMinutes / 60).toFixed(1),
           rawHours: workedMinutes / 60,
           overtimeMins,
-          overtimeHours: overtimeMins ? (overtimeMins / 60).toFixed(1) : null,
+          overtimeHours: (overtimeMins / 60).toFixed(1),
           isWfh,
           verificationMode: dayLogs?.checkIn?.device || (isWfh ? 'WFH' : 'Office'),
           approvalStatus: dayLogs?.checkIn?.status || null,

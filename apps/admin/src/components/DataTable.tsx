@@ -10,7 +10,7 @@ import {
   type SortingState,
   type ColumnPinningState,
 } from '@tanstack/react-table';
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, ArrowLeftToLine, ArrowRightToLine, Plus, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, ArrowLeftToLine, ArrowRightToLine, Plus, ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react';
 
 // Generic, headless-styled admin table used across the Organization
 // Directory, WFH Ledger, and QR history/logs — one implementation instead
@@ -283,11 +283,12 @@ export default function DataTable<T>({
           return (
             <div
               key={row.id}
-              className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg p-3 transition-colors"
+              onClick={() => setSelectedMobileRow(row)}
+              className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl p-3.5 transition-all active:scale-[0.99] cursor-pointer hover:border-[var(--color-nexus-primary)]/50 shadow-xs"
             >
               {/* Card header: title + status */}
               <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="text-[13px] font-semibold text-[var(--color-nexus-ink)] min-w-0 truncate">
+                <div className="text-[13px] font-bold text-[var(--color-nexus-ink)] min-w-0 truncate">
                   {titleCell && flexRender(titleCell.column.columnDef.cell, titleCell.getContext())}
                 </div>
                 {statusCell && (
@@ -297,7 +298,7 @@ export default function DataTable<T>({
                 )}
               </div>
 
-              {/* Visible fields */}
+              {/* Visible summary fields */}
               <div className="space-y-1">
                 {visibleCells.map(cell => {
                   const header = cell.column.columnDef.header;
@@ -313,45 +314,83 @@ export default function DataTable<T>({
                 })}
               </div>
 
-              {/* Hidden fields — expand to show */}
-              {hiddenCells.length > 0 && (
-                <>
-                  {isMobileExpanded && (
-                    <div className="space-y-1 mt-1 pt-1 border-t border-[var(--color-nexus-border)]/50">
-                      {hiddenCells.map(cell => {
-                        const header = cell.column.columnDef.header;
-                        const headerLabel = typeof header === 'string' ? header : cell.column.id.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-                        return (
-                          <div key={cell.id} className="flex items-center justify-between gap-2 text-[12px]">
-                            <span className="text-[var(--color-nexus-muted)] shrink-0">{headerLabel}</span>
-                            <span className="text-[var(--color-nexus-ink)] font-medium text-right min-w-0 truncate">
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setMobileExpandedRowId(isMobileExpanded ? null : row.id)}
-                    className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-[var(--color-nexus-primary)] hover:text-[var(--color-nexus-primary)]/80"
-                  >
-                    <ChevronDown size={12} className={`transition-transform ${isMobileExpanded ? 'rotate-180' : ''}`} />
-                    {isMobileExpanded ? 'Show less' : `${hiddenCells.length} more field${hiddenCells.length > 1 ? 's' : ''}`}
-                  </button>
-                </>
-              )}
-
-              {/* Inline detail (same as desktop row expansion) */}
-              {detail && (
-                <div className="mt-2 pt-2 border-t border-[var(--color-nexus-border)]/50 text-[12px] text-[var(--color-nexus-ink)]">
-                  {detail}
-                </div>
-              )}
+              <div className="mt-2.5 pt-2 border-t border-[var(--color-nexus-border)]/50 flex items-center justify-between text-[11px] font-semibold text-[var(--color-nexus-primary)]">
+                <span>Tap to view full details</span>
+                <ChevronRight size={14} />
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* ========== MOBILE BOTTOM SHEET / DETAIL MODAL ========== */}
+      {selectedMobileRow && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setSelectedMobileRow(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-[var(--color-nexus-surface)] rounded-t-2xl sm:rounded-2xl border border-[var(--color-nexus-border)] shadow-2xl p-5 max-h-[85vh] overflow-y-auto space-y-4 font-sans animate-in slide-in-from-bottom-4 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Drag Handle */}
+            <div className="w-12 h-1 bg-[var(--color-nexus-border)] rounded-full mx-auto" />
+
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-[var(--color-nexus-border)]">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Record Details</span>
+                <h3 className="text-base font-extrabold text-[var(--color-nexus-ink)] mt-0.5">
+                  {flexRender(
+                    (selectedMobileRow.getVisibleCells().find((c: any) => c.column.id === titleColId) || selectedMobileRow.getVisibleCells()[0]).column.columnDef.cell,
+                    (selectedMobileRow.getVisibleCells().find((c: any) => c.column.id === titleColId) || selectedMobileRow.getVisibleCells()[0]).getContext()
+                  )}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMobileRow(null)}
+                className="p-1.5 rounded-full hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Full Record Field List */}
+            <div className="space-y-2.5">
+              {selectedMobileRow.getVisibleCells().map((cell: any) => {
+                const header = cell.column.columnDef.header;
+                const headerLabel = typeof header === 'string' ? header : cell.column.id.replace(/([A-Z])/g, ' $1').replace(/^./, (s: string) => s.toUpperCase());
+                return (
+                  <div key={cell.id} className="flex items-start justify-between gap-3 text-xs py-1.5 border-b border-[var(--color-nexus-border)]/50 last:border-0">
+                    <span className="text-[var(--color-nexus-muted)] font-semibold shrink-0 max-w-[40%]">{headerLabel}</span>
+                    <span className="text-[var(--color-nexus-ink)] font-semibold text-right break-words max-w-[60%]">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Optional Row Detail */}
+            {renderRowDetail && renderRowDetail(selectedMobileRow.original) && (
+              <div className="pt-3 border-t border-[var(--color-nexus-border)] text-xs text-[var(--color-nexus-ink)]">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1.5">Additional Notes</span>
+                {renderRowDetail(selectedMobileRow.original)}
+              </div>
+            )}
+
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setSelectedMobileRow(null)}
+              className="w-full py-3 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] font-bold text-xs uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)]/50 transition-colors mt-2"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Pagination footer */}
       {rows.length > 0 && (
