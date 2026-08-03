@@ -254,6 +254,7 @@ export const users = pgTable('users', {
   employmentType: text('employment_type').default('full_time'), // 'full_time' | 'part_time' | 'contract' | 'intern'
   managerId: integer('manager_id'), // direct reporting manager — references users.id
   dateOfJoining: text('date_of_joining'), // ISO date string 'YYYY-MM-DD'
+  dateOfExit: text('date_of_exit'), // ISO date string 'YYYY-MM-DD'
   phone: text('phone'), // mobile phone
   employeeStatus: text('employee_status').default('active'), // 'active' | 'inactive' | 'terminated'
   mustChangePassword: boolean('must_change_password').default(false),

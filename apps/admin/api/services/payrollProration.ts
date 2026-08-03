@@ -33,6 +33,31 @@ export function prorateForJoinOrExit(monthlyNet: number, year: number, month: nu
   const periodStart = new Date(year, month - 1, 1);
   const periodEnd = new Date(year, month - 1, totalDays);
 
+  if (dateOfJoining) {
+    const joinDate = parseDateOnly(dateOfJoining);
+    if (joinDate > periodEnd) {
+      return {
+        days: 0,
+        totalDaysInPeriod: totalDays,
+        factor: 0,
+        amount: -monthlyNet,
+        reason: `Not employed during this period (Joined on ${dateOfJoining})`,
+      };
+    }
+  }
+  if (dateOfLeaving) {
+    const leaveDate = parseDateOnly(dateOfLeaving);
+    if (leaveDate < periodStart) {
+      return {
+        days: 0,
+        totalDaysInPeriod: totalDays,
+        factor: 0,
+        amount: -monthlyNet,
+        reason: `Not employed during this period (Exited on ${dateOfLeaving})`,
+      };
+    }
+  }
+
   let activeStart = periodStart;
   let activeEnd = periodEnd;
   let reasonParts: string[] = [];

@@ -28,7 +28,7 @@ import { getHolidaysForEmployee } from './holidayScope';
 
 export interface DailyEarning {
   date: string; // YYYY-MM-DD
-  status: 'present' | 'pending' | 'absent' | 'leave' | 'holiday' | 'weekend' | 'future';
+  status: 'present' | 'pending' | 'absent' | 'leave' | 'holiday' | 'weekend' | 'future' | 'not_employed';
   checkIn: string | null;
   checkOut: string | null;
   hoursWorked: number;
@@ -113,6 +113,84 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // date-specific override) since this aggregates a whole month and a
   // per-day override lookup would mean one extra query per day.
   const employeeUser = userRows[0] || null;
+  const dateOfJoining = employeeUser?.dateOfJoining ? String(employeeUser.dateOfJoining).slice(0, 10) : null;
+  const dateOfExit = employeeUser?.dateOfExit ? String(employeeUser.dateOfExit).slice(0, 10) : null;
+
+  // Enterprise DOJ & Exit Validation: Check if employee was employed at all during this month
+  if (dateOfJoining && monthEnd < dateOfJoining) {
+    return {
+      period: { year, month },
+      profile,
+      settings,
+      shiftHours: 0,
+      hourlyRate: 0,
+      isNotEmployed: true,
+      notEmployedReason: `Not employed during this period (Joined on ${dateOfJoining})`,
+      dateOfJoining,
+      dateOfExit,
+      days: [],
+      summary: {
+        annualCtc: Number(profile?.annualCtc || 0),
+        monthlyGross: baseline.monthlyGross,
+        earnedGross: 0,
+        monthlyDeductions: 0,
+        monthlyBaseNet: 0,
+        earnedNet: 0,
+        monthlyNet: 0,
+        workingDays: 0,
+        eligibleWorkingDays: 0,
+        presentDays: 0,
+        absentDays: 0,
+        leaveDays: 0,
+        chargeableLeaveDays: 0,
+        leaveDeduction: 0,
+        lopDeduction: 0,
+        totalHoursWorked: 0,
+        totalOvertimeHours: 0,
+        totalOvertimePay: 0,
+        totalExcessBreakMinutes: 0,
+        totalExcessBreakDeduction: 0,
+      },
+    };
+  }
+
+  if (dateOfExit && monthStart > dateOfExit) {
+    return {
+      period: { year, month },
+      profile,
+      settings,
+      shiftHours: 0,
+      hourlyRate: 0,
+      isNotEmployed: true,
+      notEmployedReason: `Not employed during this period (Exited on ${dateOfExit})`,
+      dateOfJoining,
+      dateOfExit,
+      days: [],
+      summary: {
+        annualCtc: Number(profile?.annualCtc || 0),
+        monthlyGross: baseline.monthlyGross,
+        earnedGross: 0,
+        monthlyDeductions: 0,
+        monthlyBaseNet: 0,
+        earnedNet: 0,
+        monthlyNet: 0,
+        workingDays: 0,
+        eligibleWorkingDays: 0,
+        presentDays: 0,
+        absentDays: 0,
+        leaveDays: 0,
+        chargeableLeaveDays: 0,
+        leaveDeduction: 0,
+        lopDeduction: 0,
+        totalHoursWorked: 0,
+        totalOvertimeHours: 0,
+        totalOvertimePay: 0,
+        totalExcessBreakMinutes: 0,
+        totalExcessBreakDeduction: 0,
+      },
+    };
+  }
+
   const branchRow = employeeUser?.branchId
     ? (await db.select().from(schema.branches).where(eq(schema.branches.id, employeeUser.branchId)))[0] || null
     : null;
@@ -131,13 +209,6 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
 
   const policyById = new Map(leavePolicies.map((p: any) => [p.id, p]));
 
-  // Approved-leave ranges expanded to a per-date lookup, in date order —
-  // needed so "which leave days are chargeable" can be assigned
-  // chronologically (first `maxPaidLeaveDaysPerMonth` days of PAID-type leave
-  // in the month are free, the rest chargeable at excessLeavePenaltyPercent);
-  // unpaid/partial-type leave is always chargeable at its own policy rate
-  // regardless of the quota. dayFraction handles single-day half-day leave
-  // (req.totalDays === 0.5 across a 1-calendar-day range).
   const leaveByDate = new Map<string, { leaveType: string; policyId: number | null; dayFraction: number }>();
   for (const req of leaveRequests) {
     const start = new Date(`${req.startDate}T00:00:00Z`);
@@ -150,8 +221,6 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     }
   }
 
-  // Attendance logs grouped by calendar date (createdAt's date, matching how
-  // /api/attendance/today and the checkout flow already key "today").
   const logsByDate = new Map<string, any[]>();
   for (const log of tenantScopedLogs) {
     const key = tenantDateKey(tenant, new Date(log.createdAt));
@@ -159,7 +228,6 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     logsByDate.get(key)!.push(log);
   }
 
-  // Completed break minutes grouped by the calendar date the break started.
   const breakMinutesByDate = new Map<string, number>();
   for (const b of tenantScopedBreaks) {
     if (b.status !== 'completed' || !b.endTime) continue;
@@ -181,19 +249,52 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   let totalHoursWorked = 0;
   let presentDays = 0;
   let absentDays = 0;
+  let eligibleWorkingDays = 0;
 
   for (let day = 1; day <= totalDays; day++) {
     const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const weekdayName = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tenant.timezone || 'Asia/Kolkata' }).format(tenantDateTime(tenant, dateKey, 12, 0));
 
-    if (dateKey > todayKey) {
-      days.push({ date: dateKey, status: 'future', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
+    const isBeforeDOJ = dateOfJoining && dateKey < dateOfJoining;
+    const isAfterExit = dateOfExit && dateKey > dateOfExit;
+
+    if (isBeforeDOJ || isAfterExit) {
+      days.push({
+        date: dateKey,
+        status: 'not_employed',
+        checkIn: null,
+        checkOut: null,
+        hoursWorked: 0,
+        regularHours: 0,
+        overtimeHours: 0,
+        overtimePay: 0,
+        breakMinutes: 0,
+        excessBreakMinutes: 0,
+        excessBreakDeduction: 0,
+        isHalfDay: false,
+        isShortDay: false,
+        isLeave: false,
+        leaveType: null,
+        leaveChargeable: false,
+        basePay: 0,
+        netPay: 0,
+      });
       continue;
     }
 
     const leaveInfo = leaveByDate.get(dateKey) || null;
     const holidayName = holidayByDate.get(dateKey) || null;
     const isWeekend = weekendDays.includes(weekdayName);
+
+    if (!isWeekend && !holidayName) {
+      eligibleWorkingDays += 1;
+    }
+
+    if (dateKey > todayKey) {
+      days.push({ date: dateKey, status: 'future', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
+      continue;
+    }
+
     const dayLogs = (logsByDate.get(dateKey) || []).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     const checkIn = dayLogs.find((l) => l.type === 'check_in' && l.status !== 'rejected');
     const checkOut = [...dayLogs].reverse().find((l) => l.type === 'check_out');
@@ -331,6 +432,11 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // makes, now fed the real computed totals so the two endpoints agree.
   const leaveDaysSplit = { totalDays: totalApprovedLeaveDays, paidDays: totalPaidLeaveDays, chargeableDays: totalChargeableLeaveDays };
   const monthlySummary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDaysSplit, totalOvertimeHours);
+
+  // Earned Gross: Actual gross earned from present/paid days + overtime - excess break deduction
+  const earnedGross = Math.max(0, Math.round((presentDays * baseline.dailyRate + (totalPaidLeaveDays * baseline.dailyRate) + totalOvertimePay - totalExcessBreakDeduction) * 100) / 100);
+  const earnedNet = Math.max(0, Math.round((earnedGross - monthlySummary.monthlyDeductions - (totalChargeableLeaveDays * baseline.dailyRate)) * 100) / 100);
+
   monthlySummary.monthlyNet = Math.round((monthlySummary.monthlyNet - totalExcessBreakDeduction) * 100) / 100;
 
   return {
@@ -339,9 +445,15 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     settings,
     shiftHours,
     hourlyRate: Math.round(hourlyRate * 100) / 100,
+    isNotEmployed: false,
+    dateOfJoining,
+    dateOfExit,
     days,
     summary: {
       ...monthlySummary,
+      earnedGross,
+      earnedNet,
+      eligibleWorkingDays,
       presentDays,
       absentDays,
       leaveDays: totalApprovedLeaveDays,

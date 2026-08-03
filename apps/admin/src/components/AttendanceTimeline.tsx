@@ -32,6 +32,8 @@ export interface AttendanceTimelineProps {
   hoursWorked: string; // live ticker, 'HH:MM:SS', only meaningful while checked_in
   onMarkAttendance: () => void;
   authHeaders: Record<string, string>;
+  dateOfJoining?: string | null;
+  dateOfExit?: string | null;
 }
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -107,6 +109,8 @@ export default function AttendanceTimeline({
   hoursWorked,
   onMarkAttendance,
   authHeaders,
+  dateOfJoining,
+  dateOfExit,
 }: AttendanceTimelineProps) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -232,7 +236,7 @@ export default function AttendanceTimeline({
     onLeave: boolean;
     checkIn: any | null;
     checkOut: any | null;
-    kind: 'weekend' | 'holiday' | 'leave' | 'present' | 'pending' | 'absent' | 'upcoming';
+    kind: 'weekend' | 'holiday' | 'leave' | 'present' | 'pending' | 'absent' | 'upcoming' | 'not_employed';
   };
 
   const days: DayInfo[] = useMemo(() => weekDays.map((d) => {
@@ -244,20 +248,21 @@ export default function AttendanceTimeline({
     const isFuture = key > todayKeyStr;
     const isToday = key === todayKeyStr;
 
+    const isBeforeDOJ = dateOfJoining && key < dateOfJoining;
+    const isAfterExit = dateOfExit && key > dateOfExit;
+
     let kind: DayInfo['kind'];
-    if (entry?.checkIn) kind = entry.checkIn.status === 'pending' ? 'pending' : 'present';
+    if (isBeforeDOJ || isAfterExit) kind = 'not_employed';
+    else if (entry?.checkIn) kind = entry.checkIn.status === 'pending' ? 'pending' : 'present';
     else if (holidayName) kind = 'holiday';
     else if (onLeave) kind = 'leave';
     else if (weekend) kind = 'weekend';
-    // Today isn't "absent" yet while the day is still in progress and
-    // nothing's been recorded — only a past day with no check-in is a
-    // confirmed absence.
     else if (isFuture || isToday) kind = 'upcoming';
     else kind = 'absent';
 
     return { d, key, isToday, isFuture, isWeekend: weekend, holidayName, onLeave, checkIn: entry?.checkIn || null, checkOut: entry?.checkOut || null, kind };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [weekDays, attendanceByDate, holidayByDate, approvedLeaveRanges, shift.weekendConfig, shift.timezone, todayKeyStr]);
+  }), [weekDays, attendanceByDate, holidayByDate, approvedLeaveRanges, shift.weekendConfig, shift.timezone, todayKeyStr, dateOfJoining, dateOfExit]);
 
   // --- Bottom legend counts, all for the currently visible week ---
   const counts = useMemo(() => {
@@ -285,6 +290,7 @@ export default function AttendanceTimeline({
     { kind: 'holiday', label: 'Holiday' },
     { kind: 'weekend', label: 'Weekend' },
     { kind: 'upcoming', label: 'Upcoming' },
+    { kind: 'not_employed', label: 'Not Employed' },
   ];
   const toggleStatusFilter = (kind: DayInfo['kind']) => {
     setStatusFilter((prev) => {
@@ -316,6 +322,9 @@ export default function AttendanceTimeline({
 
   const renderPill = (day: DayInfo) => {
     const base = 'absolute top-1/2 -translate-y-1/2 h-6 rounded-full border flex items-center justify-center text-[10px] font-bold uppercase tracking-wide';
+    if (day.kind === 'not_employed') {
+      return <div className={`${base} inset-x-0 bg-slate-200 border-slate-300 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400`}>Not Employed</div>;
+    }
     if (day.kind === 'weekend') {
       return <div className={`${base} inset-x-0 bg-[var(--color-nexus-secondary-container)] border-[var(--color-nexus-secondary)]/50 text-[var(--color-nexus-secondary)]`}>Weekend</div>;
     }

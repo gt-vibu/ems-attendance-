@@ -157,7 +157,7 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
     // buildPayrollSummary. dateOfLeaving isn't a real column on `users`
     // today (only employeeStatus/terminationRequests track exits), so exit
     // proration activates once that data exists; join proration is real now.
-    const proration = prorateForJoinOrExit(monthlyNet, year, month, emp.dateOfJoining, null);
+    const proration = prorateForJoinOrExit(monthlyNet, year, month, emp.dateOfJoining, emp.dateOfExit);
     let finalNet = proration ? monthlyNet + proration.amount : monthlyNet;
     const breakdown: any[] = [...summary.annualBreakdown];
     if (revisionLine) breakdown.push(revisionLine);

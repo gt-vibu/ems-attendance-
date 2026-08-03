@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Clock, TrendingUp, Coffee, CalendarOff, Wallet } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, TrendingUp, Coffee, CalendarOff, Wallet, UserX, Calendar } from 'lucide-react';
 import DataTable from './DataTable';
 import CompensationHistoryList, { type CompensationHistoryEntry } from './CompensationHistoryList';
 
@@ -37,6 +37,7 @@ const STATUS_STYLE: Record<string, string> = {
   holiday: 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]',
   weekend: 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]',
   future: 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]',
+  not_employed: 'bg-slate-200 text-slate-600 border border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700',
 };
 
 export default function EarningsBreakdown({ token }: { token: string | null }) {
@@ -128,8 +129,32 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
 
   return (
     <div className="space-y-5">
+      {/* Clean Enterprise "Not Employed During This Period" State */}
+      {view !== 'history' && data?.isNotEmployed && (
+        <div className="nexus-card rounded-2xl p-8 text-center space-y-4 border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] shadow-md">
+          <div className="flex items-center justify-center gap-2 bg-[var(--color-nexus-surface-alt)] rounded-xl p-2 border border-[var(--color-nexus-border)] w-fit mx-auto">
+            <button onClick={goPrevMonth} className="p-1 rounded-lg hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] transition" aria-label="Previous month"><ChevronLeft size={16} /></button>
+            <span className="font-extrabold text-xs sm:text-sm text-[var(--color-nexus-ink)] px-2 tracking-wide">{monthLabel}</span>
+            <button onClick={goNextMonth} className="p-1 rounded-lg hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] transition" aria-label="Next month"><ChevronRight size={16} /></button>
+          </div>
+          <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mx-auto text-slate-400">
+            <UserX size={28} />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-extrabold text-[var(--color-nexus-ink)]">Not Employed During This Period</h3>
+            <p className="text-xs text-[var(--color-nexus-muted)] max-w-md mx-auto">
+              {data.notEmployedReason || 'This employee was not active with the organization during the selected month.'}
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] text-xs font-semibold text-[var(--color-nexus-ink)]">
+            <Calendar size={14} className="text-[var(--color-nexus-muted)]" />
+            {data.dateOfJoining ? `Date of Joining: ${data.dateOfJoining}` : 'No active employment record'}
+          </div>
+        </div>
+      )}
+
       {/* Premium Banking Executive Earnings Summary Card */}
-      {view !== 'history' && s && (
+      {view !== 'history' && s && !data?.isNotEmployed && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-5 text-white shadow-xl border border-slate-800 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md rounded-xl p-1 border border-white/10">
@@ -141,21 +166,21 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Net Pay: {money(s.monthlyNet || 0)}
+                Net Pay: {money(s.earnedNet ?? s.monthlyNet ?? 0)}
               </span>
             </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
             <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Earned Gross</span>
-              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{money(s.earnedGross ?? Math.max(0, (s.monthlyGross || 0) - (s.leaveDeduction || 0) - (s.lopDeduction || 0)))}</span>
-              <span className="text-[10px] text-slate-400">Assigned Base: {money(s.monthlyGross || 0)}</span>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Earned Till Date</span>
+              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{money(s.earnedGross ?? 0)}</span>
+              <span className="text-[10px] text-slate-400">Monthly Base: {money(s.monthlyGross || 0)}</span>
             </div>
             
             <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Present / Days</span>
-              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{s.presentDays || 0} / {s.workingDays || 26}</span>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Present / Eligible</span>
+              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{s.presentDays || 0} / {s.eligibleWorkingDays || s.workingDays || 26}</span>
               <span className="text-[10px] text-emerald-400">{s.totalHoursWorked ? `${s.totalHoursWorked.toFixed(1)}h worked` : '0h worked'}</span>
             </div>
 
@@ -174,13 +199,13 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
 
           <div className="space-y-1.5 pt-1">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-300 font-medium text-[11px]">Salary Progress ({s.presentDays || 0} of {s.workingDays || 26} working days completed)</span>
-              <span className="font-bold text-white text-[11px]">{Math.min(100, Math.round(((s.presentDays || 0) / (s.workingDays || 26)) * 100))}%</span>
+              <span className="text-slate-300 font-medium text-[11px]">Salary Progress ({s.presentDays || 0} of {s.eligibleWorkingDays || s.workingDays || 26} eligible working days completed)</span>
+              <span className="font-bold text-white text-[11px]">{((s.eligibleWorkingDays || s.workingDays || 26) > 0) ? Math.min(100, Math.round(((s.presentDays || 0) / (s.eligibleWorkingDays || s.workingDays || 26)) * 100)) : 0}%</span>
             </div>
             <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
               <div 
                 className="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-500" 
-                style={{ width: `${Math.min(100, Math.round(((s.presentDays || 0) / (s.workingDays || 26)) * 100))}%` }} 
+                style={{ width: `${((s.eligibleWorkingDays || s.workingDays || 26) > 0) ? Math.min(100, Math.round(((s.presentDays || 0) / (s.eligibleWorkingDays || s.workingDays || 26)) * 100)) : 0}%` }} 
               />
             </div>
           </div>

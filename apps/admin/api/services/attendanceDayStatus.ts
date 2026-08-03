@@ -42,6 +42,8 @@ interface MonthInputs {
   tenantId: number;
   userId: number;
   employeeStatus: string | null;
+  dateOfJoining: string | null;
+  dateOfExit: string | null;
   weekendConfig: string[];
   todayKey: string;
   logsByDate: Map<string, any>; // keyed by local date, one representative check_in row per day
@@ -71,7 +73,7 @@ async function loadMonthInputs(tenantId: number, userId: number, year: number, m
   monthEnd.setDate(monthEnd.getDate() + 1);
 
   const [userRows, tenantRows, logs, corrections, leaveRequests, leavePolicies, holidays, freezeRows] = await Promise.all([
-    db.select({ employeeStatus: schema.users.employeeStatus, branchId: schema.users.branchId }).from(schema.users).where(eq(schema.users.id, userId)).limit(1),
+    db.select({ employeeStatus: schema.users.employeeStatus, branchId: schema.users.branchId, dateOfJoining: schema.users.dateOfJoining, dateOfExit: schema.users.dateOfExit }).from(schema.users).where(eq(schema.users.id, userId)).limit(1),
     db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     db.select().from(schema.attendanceLogs).where(and(
       eq(schema.attendanceLogs.userId, userId),
@@ -150,9 +152,10 @@ async function loadMonthInputs(tenantId: number, userId: number, year: number, m
   // immediately treated as an absence while the workday is still ongoing.
   let todayCutoffReached = true;
   const todayInThisMonth = todayKey.startsWith(`${year}-${String(month).padStart(2, '0')}`);
-  if (todayInThisMonth && (userRows[0]?.employeeStatus ?? 'active') === 'active') {
+  const empUser = userRows[0] || null;
+  if (todayInThisMonth && (empUser?.employeeStatus ?? 'active') === 'active') {
     try {
-      const branch = userRows[0]?.branchId ? (await db.select().from(schema.branches).where(eq(schema.branches.id, userRows[0].branchId)).limit(1))[0] || null : null;
+      const branch = empUser?.branchId ? (await db.select().from(schema.branches).where(eq(schema.branches.id, empUser.branchId)).limit(1))[0] || null : null;
       const shift = await getEffectiveShift(tenantId, userId, todayKey);
       const policy = resolveEffectivePolicy(tenant, branch, shift);
       const graceMins = tenant?.checkoutGraceMins ?? 0; // reuse the same "don't jump the gun" allowance as missed-checkout
@@ -169,10 +172,15 @@ async function loadMonthInputs(tenantId: number, userId: number, year: number, m
     }
   }
 
+  const dateOfJoining = empUser?.dateOfJoining ? String(empUser.dateOfJoining).slice(0, 10) : null;
+  const dateOfExit = empUser?.dateOfExit ? String(empUser.dateOfExit).slice(0, 10) : null;
+
   return {
     tenantId,
     userId,
-    employeeStatus: userRows[0]?.employeeStatus || 'active',
+    employeeStatus: empUser?.employeeStatus || 'active',
+    dateOfJoining,
+    dateOfExit,
     weekendConfig,
     todayKey,
     logsByDate,
@@ -186,6 +194,14 @@ async function loadMonthInputs(tenantId: number, userId: number, year: number, m
 
 function resolveFromInputs(inputs: MonthInputs, dateKey: string): DayStatusEntry {
   if (inputs.employeeStatus && inputs.employeeStatus !== 'active') {
+    return { status: 'not_applicable' };
+  }
+
+  if (inputs.dateOfJoining && dateKey < inputs.dateOfJoining) {
+    return { status: 'not_applicable' };
+  }
+
+  if (inputs.dateOfExit && dateKey > inputs.dateOfExit) {
     return { status: 'not_applicable' };
   }
 
