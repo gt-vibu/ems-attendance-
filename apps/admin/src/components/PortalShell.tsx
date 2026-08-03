@@ -134,19 +134,48 @@ export default function PortalShell({
         <SidebarContent />
       </aside>
 
-      {/* Mobile drawer — full nav list, opened via the bottom-nav "More"
-          button. There used to also be a header hamburger that opened this
-          same drawer — a second, redundant entry point to the identical
-          menu — removed so mobile has exactly one way in. */}
+      {/* Mobile Bottom Sheet Modal — Slack/Teams/Linear style */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 bg-[var(--color-nexus-surface)] border-r border-[var(--color-nexus-border)] flex flex-col shadow-2xl">
-            <button onClick={() => setMobileOpen(false)} className="absolute top-5 right-4 text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
-              <X size={20} />
-            </button>
-            <SidebarContent />
-          </aside>
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={() => setMobileOpen(false)} />
+          <div className="relative bg-[var(--color-nexus-surface)] border-t border-[var(--color-nexus-border)] rounded-t-2xl max-h-[85vh] overflow-y-auto p-5 shadow-2xl space-y-4 animate-in slide-in-from-bottom duration-200">
+            <div className="w-12 h-1.5 rounded-full bg-[var(--color-nexus-border)] mx-auto" />
+            
+            <div className="flex items-center justify-between border-b border-[var(--color-nexus-border)] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[var(--color-nexus-ink)]">Navigation & Tools</h3>
+                <p className="text-xs text-[var(--color-nexus-muted)]">Smart Teams EMS Enterprise Suite</p>
+              </div>
+              <button onClick={() => setMobileOpen(false)} className="p-1.5 rounded-full text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1 pb-4">
+              {navItems.map((item) => {
+                const isActive = activeTab === item.id;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { onTabChange(item.id); setMobileOpen(false); }}
+                    className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                      isActive
+                        ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)] font-bold shadow-sm'
+                        : 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg ${isActive ? 'bg-[var(--color-nexus-primary)] text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                      <Icon size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs font-bold block truncate">{item.label}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -207,7 +236,7 @@ export default function PortalShell({
                   {/* Actions */}
                   <div className="py-1">
                     <button
-                      onClick={() => { setProfileDropdownOpen(false); onTabChange('overview'); }}
+                      onClick={() => { setProfileDropdownOpen(false); onTabChange('profile'); }}
                       className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
                     >
                       <UserIcon size={14} className="text-[var(--color-nexus-muted)]" />

@@ -716,7 +716,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
 
     // Cover page HTML
     const coverPageHtml = showCoverPage ? `
-      <div class="cover-page" style="page-break-after: always; height: 90vh; display: flex; flex-col; justify-content: space-between; border: 4px double ${activeTheme.headerBg}; padding: 40px; border-radius: 12px; background: #fafafa;">
+      <div class="cover-page" style="margin-bottom: 24px; border: 2px solid ${activeTheme.border}; padding: 20px 24px; border-radius: 12px; background: #fafafa;">
         <div>
           <div style="font-size: 28px; font-weight: 800; color: ${activeTheme.headerBg}; margin-bottom: 8px;">
             ${companyName}

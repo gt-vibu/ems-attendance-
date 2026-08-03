@@ -19,6 +19,7 @@ import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
 import EmployeeDirectory from './EmployeeDirectory';
 import TeamsPage from './TeamsPage';
+import ProfilePage from './ProfilePage';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
 import { useLedger } from './dashboard/hooks/useLedger';
@@ -1025,7 +1026,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     {/* Personal Logs & Correction Request Tracker */}
                     <div className="nexus-card rounded-xl p-6 space-y-4">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">My Requests</h3>
+                        <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Attendance Regularization</h3>
                         <button
                           type="button"
                           onClick={() => setShowSelfCorrectionModal(true)}
@@ -2398,6 +2399,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {activeTab === 'directory' && (
               <EmployeeDirectory user={user} onLogout={onLogout} embedded />
+            )}
+
+            {activeTab === 'profile' && (
+              <ProfilePage user={user} tenant={{ timezone, shiftStart, shiftEnd }} authHeaders={{ Authorization: `Bearer ${token}` }} onLogout={onLogout} />
             )}
 
             {activeTab === 'teams' && (

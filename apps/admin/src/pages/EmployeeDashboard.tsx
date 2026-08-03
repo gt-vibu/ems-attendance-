@@ -18,6 +18,7 @@ import TicketsPanel from '../components/TicketsPanel';
 import PushNotificationToggle from '../components/PushNotificationToggle';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
+import ProfilePage from './ProfilePage';
 
 type AttendanceCalendarStatus = 'present' | 'late' | 'half_day' | 'paid_leave' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
 
@@ -122,6 +123,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   // set. Null until fetched; call sites fall back to browser-local until
   // then (same result for any tenant physically near their own timezone).
   const [tenantTimezone, setTenantTimezone] = useState<string | null>(null);
+  const [tenantConfig, setTenantConfig] = useState<any>(null);
   const [savingNotificationPrefs, setSavingNotificationPrefs] = useState(false);
   const [policyAnnouncement, setPolicyAnnouncement] = useState('');
   const [policyExpanded, setPolicyExpanded] = useState(false);
@@ -362,6 +364,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         let resolvedTenantTimezone: string | null = null;
         if (tenantConfigRes?.ok) {
           const cfg = await tenantConfigRes.json();
+          setTenantConfig(cfg?.tenant || cfg);
           if (cfg?.tenant?.timezone) { resolvedTenantTimezone = cfg.tenant.timezone; setTenantTimezone(cfg.tenant.timezone); }
         }
         const [leaveResult, payrollResult] = await Promise.all([
@@ -812,15 +815,16 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
   const navItems: PortalNavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'attendance', label: 'My Attendance', icon: Clock, count: attendanceHistory.length || undefined },
+    { id: 'attendance', label: 'Attendance', icon: Clock, count: attendanceHistory.length || undefined },
     { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'leave', label: 'Leave', icon: CalendarDays, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
     { id: 'payroll', label: 'Payroll', icon: Banknote },
-    { id: 'requests', label: 'My Requests', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
+    { id: 'requests', label: 'Attendance Regularization', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
     { id: 'team', label: 'Team', icon: Users },
     { id: 'announcements', label: 'Announcements', icon: Megaphone },
     { id: 'activity', label: 'Activity', icon: History },
+    { id: 'profile', label: 'Profile', icon: Fingerprint },
   ];
   const titleFor = navItems.find(n => n.id === tab)?.label || 'Overview';
 
@@ -832,20 +836,33 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   ];
 
   const payslipHistoryColumns: ColumnDef<any, any>[] = [
-    { id: 'period', header: 'Pay Period', cell: ({ row }) => <span className="font-bold text-[var(--color-nexus-ink)]">{new Date(Date.UTC(row.original.year, row.original.month - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span> },
-    { id: 'generated', header: 'Generated', cell: ({ row }) => <span className="text-[var(--color-nexus-muted)]">{new Date(row.original.createdAt).toLocaleDateString()}</span> },
-    { accessorKey: 'grossPay', header: 'Gross Pay', cell: ({ getValue }) => <span>{Math.round(getValue() as number).toLocaleString()}</span> },
-    { accessorKey: 'netPay', header: 'Net Pay', cell: ({ getValue }) => <span className="font-bold">{Math.round(getValue() as number).toLocaleString()}</span> },
-    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <StatusPill tone="success" dot>{getValue() as string}</StatusPill> },
-    { id: 'download', header: 'Action', enablePinning: false, cell: ({ row }) => (
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); downloadPayslip(row.original.id, row.original.year, row.original.month); }}
-        className="text-[var(--color-nexus-primary)] hover:underline text-xs font-bold uppercase tracking-wider"
-      >
-        Download
-      </button>
-    ) },
+    { id: 'period', header: 'Pay Period', cell: ({ row }) => <span className="font-bold text-[var(--color-nexus-ink)]">{new Date(Date.UTC(row.original.year, row.original.month - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })}</span> },
+    { id: 'generated', header: 'Processed Date', cell: ({ row }) => <span className="text-[var(--color-nexus-muted)]">{new Date(row.original.createdAt).toLocaleDateString()}</span> },
+    { accessorKey: 'grossPay', header: 'Gross Salary', cell: ({ getValue }) => <span>₹{Math.round(getValue() as number).toLocaleString()}</span> },
+    { accessorKey: 'netPay', header: 'Net Pay', cell: ({ getValue }) => <span className="font-bold">₹{Math.round(getValue() as number).toLocaleString()}</span> },
+    { accessorKey: 'status', header: 'Status', cell: ({ row }) => {
+      const now = new Date();
+      const isCurrentMonth = row.original.year === now.getFullYear() && row.original.month === (now.getMonth() + 1);
+      const isProcessed = row.original.status === 'processed' || row.original.status === 'locked' || (!isCurrentMonth && row.original.status !== 'in_progress');
+      return <StatusPill tone={isProcessed ? 'success' : 'warning'} dot>{isProcessed ? 'Payroll Processed' : 'In Progress'}</StatusPill>;
+    }},
+    { id: 'download', header: 'Action', enablePinning: false, cell: ({ row }) => {
+      const now = new Date();
+      const isCurrentMonth = row.original.year === now.getFullYear() && row.original.month === (now.getMonth() + 1);
+      const canDownload = row.original.status === 'processed' || row.original.status === 'locked' || (!isCurrentMonth && row.original.status !== 'in_progress');
+      if (!canDownload) {
+        return <span className="text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider">In Progress</span>;
+      }
+      return (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); downloadPayslip(row.original.id, row.original.year, row.original.month); }}
+          className="text-[var(--color-nexus-primary)] hover:underline text-xs font-bold uppercase tracking-wider"
+        >
+          Download
+        </button>
+      );
+    } },
   ];
 
   const historyColumns: ColumnDef<any, any>[] = [
@@ -1071,21 +1088,12 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               fabricated numbers): attendanceThisMonth from attendanceHistory,
               payrollData.summary.monthlyNet from /api/payroll/mine,
               leaveBalanceTotal summed from leaveData.balances. */}
-          <div className="grid sm:grid-cols-3 gap-2 md:gap-4">
+          <div className="grid sm:grid-cols-2 gap-2 md:gap-4">
             <div className="rounded-[10px] md:rounded-[12px] p-3 md:p-5 bg-[var(--color-nexus-primary)] text-white">
               <span className="block text-[10px] md:text-xs font-medium text-white/80">Attendance This Month</span>
               <span className="block text-[22px] md:text-[28px] leading-tight font-bold mt-1 md:mt-2">{attendanceThisMonth.presentDays} days present</span>
               <span className="block text-[10px] md:text-xs text-white/80 mt-0.5 md:mt-1">out of {attendanceThisMonth.workingDaysSoFar} working days so far</span>
             </div>
-            <button onClick={() => setTab('payroll')} className="text-left nexus-card p-3 md:p-5">
-              <span className="block text-[10px] md:text-xs font-medium text-[var(--color-nexus-muted)]">Upcoming Payslip</span>
-              <span className="block text-[22px] md:text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-1 md:mt-2">
-                {payrollData?.summary ? `₹${Math.round(payrollData.summary.monthlyNet).toLocaleString()}` : '—'}
-              </span>
-              <span className="block text-[10px] md:text-xs text-[var(--color-nexus-muted)] mt-0.5 md:mt-1">
-                {payrollData?.summary ? `${new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · net pay` : 'Payroll not configured yet'}
-              </span>
-            </button>
             <button onClick={() => setTab('leave')} className="text-left nexus-card p-3 md:p-5">
               <span className="block text-[10px] md:text-xs font-medium text-[var(--color-nexus-muted)]">Leave Balance</span>
               <span className="block text-[22px] md:text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-1 md:mt-2">
@@ -1187,36 +1195,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               into Teams-style separate destinations instead of one long
               scroll. */}
 
-          <div className="nexus-card p-5">
-            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-1">Notification Preferences</h2>
-            <p className="text-[11px] text-[var(--color-nexus-muted)] mb-3">Turn off a channel you don't want notifications on — you'll still get them on the other channel(s) an event is configured to use.</p>
-            <div className="flex flex-wrap gap-4">
-              {(['email', 'in_app'] as const).map((channel) => (
-                <label key={channel} className="flex items-center gap-2 text-sm text-[var(--color-nexus-ink)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notificationPrefs[channel]}
-                    disabled={savingNotificationPrefs}
-                    onChange={async (e) => {
-                      const next = { ...notificationPrefs, [channel]: e.target.checked };
-                      setNotificationPrefs(next);
-                      setSavingNotificationPrefs(true);
-                      try {
-                        await fetch('/api/employees/me/notification-preferences', {
-                          method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-                          body: JSON.stringify(next),
-                        });
-                      } finally {
-                        setSavingNotificationPrefs(false);
-                      }
-                    }}
-                    className="rounded text-[var(--color-nexus-secondary)]"
-                  />
-                  {channel === 'email' ? 'Email' : 'In-App'}
-                </label>
-              ))}
-            </div>
-          </div>
+
 
           {user.role !== 'employee' && user.role !== 'intern' && (myPrivileges === 'ALL' || myPrivileges.length > 0) && (
             <button onClick={() => navigate('/dashboard')} className={`${tile} w-full text-left flex items-center justify-between gap-4`}>
@@ -1853,7 +1832,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                     : 'text-[var(--color-nexus-muted)]'
                 }`}
               >
-                Breakup
+                Salary Structure
               </button>
               <button
                 onClick={() => setPayrollSubTab('payslips')}
@@ -1879,7 +1858,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           </div>
 
           <div className={`nexus-card rounded-xl p-4 sm:p-6 ${payrollSubTab === 'breakup' ? 'block' : 'hidden md:block'}`}>
-            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payroll Breakup</h2>
+            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Salary Structure</h2>
             {!payrollData?.summary ? (
               <p className="text-sm text-[var(--color-nexus-muted)]">Payroll structure has not been configured yet.</p>
             ) : (
@@ -1979,6 +1958,11 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
         </div>
+      )}
+
+      {/* PROFILE */}
+      {tab === 'profile' && (
+        <ProfilePage user={user} tenant={tenantConfig} authHeaders={authHeaders} onLogout={onLogout} />
       )}
 
       {/* TICKETS */}

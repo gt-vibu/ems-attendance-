@@ -74,6 +74,11 @@ export async function getPermittedUserIds(user: any, tenantId: number): Promise<
   const role = user.role;
   const requesterId = user.userId;
 
+  // Plain employee / intern: strictly their own records only.
+  if (role === 'employee' || role === 'intern') {
+    return [requesterId];
+  }
+
   if (role === 'tenant_admin' || role === 'super_admin') return null;
 
   if (await hasPrivilege(user, 'reports.view') || await hasPrivilege(user, 'employee.read')) {
