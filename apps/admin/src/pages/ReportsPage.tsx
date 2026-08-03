@@ -191,8 +191,18 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
   // an employee search. This is a UI layer over existing scoping, not a new
   // authorization surface.
   const [wizardType, setWizardType] = useState<string>('attendance');
-  const [wizardScope, setWizardScope] = useState<'default' | 'me' | 'department' | 'search'>('default');
+  const [wizardScope, setWizardScope] = useState<'default' | 'me' | 'department' | 'search' | 'individual' | 'custom'>('default');
   const [wizardEmployeeId, setWizardEmployeeId] = useState<number | null>(null);
+  const [customEmployeeIds, setCustomEmployeeIds] = useState<number[]>([]);
+  const [allEmployeesList, setAllEmployeesList] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/tenant/employees', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d.employees)) setAllEmployeesList(d.employees); })
+      .catch(() => {});
+  }, [token]);
+
   // Which modules the Consolidated report type merges — tenant picks any
   // combination (Attendance+Leave, Attendance+Payroll, Leave+Payroll, or
   // all three). Ignored for every other report type.
@@ -216,6 +226,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
     setWizardType(typeId);
     setWizardScope('default');
     setWizardEmployeeId(null);
+    setCustomEmployeeIds([]);
     const cfg = REPORT_TYPE_CONFIG.find((c) => c.id === typeId);
     setWizardColumns(cfg ? cfg.columns.filter((c) => c.default).map((c) => c.key) : []);
     setCheckedSummaryFields(cfg ? cfg.summaryFields.map((f) => f.key) : []);
@@ -226,11 +237,13 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
     setStyleLayoutId(['attendance', 'leave', 'payroll', 'consolidated'].includes(typeId) ? 'executive' : 'standard');
     if (cfg && !cfg.comingSoon) handleSelectCategory(cfg.backendType);
   };
-  const handleWizardScopeChange = (scope: 'default' | 'me' | 'department' | 'search') => {
+  const handleWizardScopeChange = (scope: 'default' | 'me' | 'department' | 'search' | 'individual' | 'custom') => {
     setWizardScope(scope);
-    setWizardEmployeeId(scope === 'me' ? (user.id ?? null) : null);
+    if (scope === 'me') setWizardEmployeeId(user.id ?? null);
+    else if (scope !== 'individual') setWizardEmployeeId(null);
     if (scope !== 'department') setDepartment('ALL');
     if (scope !== 'search') setSearch('');
+    if (scope !== 'custom') setCustomEmployeeIds([]);
   };
   const toggleWizardColumn = (key: string) => {
     setWizardColumns((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -531,6 +544,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
         exceptions: String(exceptionsOnly)
       });
       if (wizardEmployeeId != null) params.set('employeeId', String(wizardEmployeeId));
+      if (wizardScope === 'custom' && customEmployeeIds.length > 0) params.set('employeeIds', customEmployeeIds.join(','));
       if (effectiveType === 'consolidated') params.set('modules', consolidatedModules.join(','));
 
       const res = await fetch(`/api/reports/data?${params.toString()}`, {
@@ -567,7 +581,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
 
   useEffect(() => {
     fetchReportData();
-  }, [activeCategory, startDate, endDate, department, branchId, status, wfhOnly, lateOnly, overtimeOnly, exceptionsOnly, wizardEmployeeId, wizardType, consolidatedModules]);
+  }, [activeCategory, startDate, endDate, department, branchId, status, wfhOnly, lateOnly, overtimeOnly, exceptionsOnly, wizardEmployeeId, customEmployeeIds, wizardScope, wizardType, consolidatedModules]);
 
   // Extract unique departments from report rows
   useEffect(() => {
@@ -684,6 +698,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
         orientation: exportOrientation,
       });
       if (wizardEmployeeId != null) params.set('employeeId', String(wizardEmployeeId));
+      if (wizardScope === 'custom' && customEmployeeIds.length > 0) params.set('employeeIds', customEmployeeIds.join(','));
       if (effectiveExportType === 'consolidated') params.set('modules', consolidatedModules.join(','));
       if (signatureLine) params.set('signature', signatureLine);
       if (exportFilename.trim()) params.set('filename', exportFilename.trim());
@@ -1013,38 +1028,89 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
           ) : (
             <>
               {/* Step 2: Scope */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
-                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                   2. Whose Report
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {user.role === 'manager' ? (
                     <>
-                      <button onClick={() => handleWizardScopeChange('default')} className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${wizardScope === 'default' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700'}`}>My Team</button>
-                      <button onClick={() => handleWizardScopeChange('me')} className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${wizardScope === 'me' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700'}`}>Just Me</button>
+                      <button onClick={() => handleWizardScopeChange('default')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'default' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>My Team</button>
+                      <button onClick={() => handleWizardScopeChange('me')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'me' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Just Me</button>
+                      <button onClick={() => handleWizardScopeChange('department')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'department' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Department Wise</button>
+                      <button onClick={() => handleWizardScopeChange('individual')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'individual' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Individual Employee</button>
+                      <button onClick={() => handleWizardScopeChange('custom')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'custom' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Custom Selection</button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => handleWizardScopeChange('default')} className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${wizardScope === 'default' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700'}`}>Entire Company</button>
-                      <button onClick={() => handleWizardScopeChange('department')} className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${wizardScope === 'department' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700'}`}>Department</button>
-                      <button onClick={() => handleWizardScopeChange('search')} className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${wizardScope === 'search' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700'}`}>Search Employee</button>
+                      <button onClick={() => handleWizardScopeChange('default')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'default' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Entire Company</button>
+                      <button onClick={() => handleWizardScopeChange('department')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'department' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Department Wise</button>
+                      <button onClick={() => handleWizardScopeChange('individual')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'individual' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Individual Employee</button>
+                      <button onClick={() => handleWizardScopeChange('custom')} className={`text-xs font-semibold px-3.5 py-2 rounded-lg border transition ${wizardScope === 'custom' ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}>Custom Selection</button>
                     </>
                   )}
                 </div>
+
                 {wizardScope === 'department' && (
-                  <select value={department} onChange={(e) => setDepartment(e.target.value)} className="mt-3 w-full sm:w-64 text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700">
-                    <option value="ALL">All Departments</option>
-                    {departmentsList.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Select Department</label>
+                    <select value={department} onChange={(e) => setDepartment(e.target.value)} className="w-full sm:w-80 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none">
+                      <option value="ALL">All Departments</option>
+                      {departmentsList.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
                 )}
-                {wizardScope === 'search' && (
-                  <input
-                    type="text"
-                    placeholder="Search by employee name or email…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="mt-3 w-full sm:w-72 text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700"
-                  />
+
+                {wizardScope === 'individual' && (
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Select Employee</label>
+                    <select
+                      value={wizardEmployeeId || ''}
+                      onChange={(e) => setWizardEmployeeId(e.target.value ? Number(e.target.value) : null)}
+                      className="w-full sm:w-96 text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:ring-2 focus:ring-slate-900 focus:outline-none font-sans"
+                    >
+                      <option value="">-- Choose Employee --</option>
+                      {allEmployeesList.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} ({emp.department || 'General'}) — {emp.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {wizardScope === 'custom' && (
+                  <div className="pt-1 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Select Custom Employees ({customEmployeeIds.length} selected)</label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setCustomEmployeeIds(allEmployeesList.map(e => e.id))} className="text-[10px] font-bold text-indigo-600 hover:underline">Select All</button>
+                        <button type="button" onClick={() => setCustomEmployeeIds([])} className="text-[10px] font-bold text-slate-400 hover:underline">Clear All</button>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2 grid sm:grid-cols-2 md:grid-cols-3 gap-2 bg-slate-50">
+                      {allEmployeesList.map((emp) => {
+                        const isChecked = customEmployeeIds.includes(emp.id);
+                        return (
+                          <label key={emp.id} className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer transition ${isChecked ? 'bg-indigo-50 border-indigo-200 text-indigo-900 font-semibold' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'}`}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) setCustomEmployeeIds([...customEmployeeIds, emp.id]);
+                                else setCustomEmployeeIds(customEmployeeIds.filter(id => id !== emp.id));
+                              }}
+                              className="rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <div className="min-w-0">
+                              <span className="block truncate">{emp.name}</span>
+                              <span className="block text-[10px] text-slate-400 truncate">{emp.department || 'General'}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
 

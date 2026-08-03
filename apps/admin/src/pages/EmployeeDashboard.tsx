@@ -296,7 +296,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       const daysInSelectedMonth = new Date(year, month + 1, 0).getDate();
       const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
       const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInSelectedMonth).padStart(2, '0')}`;
-      const params = new URLSearchParams({ type: 'attendance', startDate, endDate, format });
+      const params = new URLSearchParams({ type: 'attendance', startDate, endDate, format, employeeId: String(user.id) });
       const res = await fetch(`/api/reports/export?${params.toString()}`, { headers: authHeaders });
       if (!res.ok) throw new Error('Download failed');
       const blob = await res.blob();

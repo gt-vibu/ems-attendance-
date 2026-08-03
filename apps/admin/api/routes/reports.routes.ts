@@ -21,6 +21,7 @@ function parseFiltersFromQuery(req: any): ReportFilters {
     department: req.query.department as string,
     branchId: req.query.branchId ? Number(req.query.branchId) : null,
     employeeId: req.query.employeeId ? Number(req.query.employeeId) : null,
+    employeeIds: typeof req.query.employeeIds === 'string' && req.query.employeeIds.length > 0 ? req.query.employeeIds.split(',').map(Number).filter(Boolean) : null,
     status: req.query.status as string,
     search: req.query.search as string,
     wfhOnly: req.query.wfh === 'true',

@@ -32,6 +32,7 @@ export interface ReportFilters {
   department?: string;
   branchId?: number | null;
   employeeId?: number | null;
+  employeeIds?: number[] | null;
   status?: string;
   search?: string;
   wfhOnly?: boolean;
@@ -125,6 +126,7 @@ export async function buildReportData(tenantId: number, requestUser: any, filter
     if (filters.department && filters.department !== 'ALL' && emp.department !== filters.department) return false;
     if (filters.branchId && emp.branchId !== filters.branchId) return false;
     if (filters.employeeId && emp.id !== filters.employeeId) return false;
+    if (filters.employeeIds && filters.employeeIds.length > 0 && !filters.employeeIds.includes(emp.id)) return false;
     if (searchLower) {
       const haystack = `${emp.name || ''} ${emp.email || ''} ${emp.department || ''}`.toLowerCase();
       if (!haystack.includes(searchLower)) return false;
