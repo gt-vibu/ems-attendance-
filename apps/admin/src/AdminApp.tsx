@@ -9,41 +9,57 @@ import { useAuth, User } from './lib/auth';
 // unset (the normal web build) keeps BrowserRouter exactly as before.
 const Router = import.meta.env.VITE_CAPACITOR === 'true' ? HashRouter : BrowserRouter;
 
-// Route-level code splitting: each page (and everything it alone imports —
-// three.js/@react-three/fiber for the landing page, recharts for the
-// Dashboard, etc.) ships as its own chunk, fetched only when that route is
-// actually visited. Without this, every visitor downloaded all of it
-// upfront in one ~2MB bundle regardless of which single page they landed
-// on — the worst case for exactly the low-end-phone/slow-network device
-// registration flow this app cares about.
-const App = lazy(() => import('./App'));
-const Login = lazy(() => import('./pages/Login'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const EmployeeLogin = lazy(() => import('./pages/EmployeeLogin'));
-const RegisterDevice = lazy(() => import('./pages/RegisterDevice'));
-const EmployeeAttendance = lazy(() => import('./pages/EmployeeAttendance'));
-const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard'));
-const EmployeeHome = lazy(() => import('./pages/EmployeeHome'));
-const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
-const ResetPassword = lazy(() => import('./pages/ResetPassword'));
-const QrScan = lazy(() => import('./pages/QrScan'));
-const BranchSetupWizard = lazy(() => import('./pages/BranchSetupWizard'));
-const Branches = lazy(() => import('./pages/Branches'));
-const BranchDetail = lazy(() => import('./pages/BranchDetail'));
-const RolePermissions = lazy(() => import('./pages/RolePermissions'));
-const ReportsPage = lazy(() => import('./pages/ReportsPage'));
-const ApprovalRoutingPage = lazy(() => import('./pages/ApprovalRoutingPage'));
-const LeaveManagementPage = lazy(() => import('./pages/LeaveManagementPage'));
-const PayrollPage = lazy(() => import('./pages/PayrollPage'));
-const PayrollWizardPage = lazy(() => import('./pages/PayrollWizardPage'));
-const PayrollHistoryPage = lazy(() => import('./pages/PayrollHistoryPage'));
-const PayrollBatchPage = lazy(() => import('./pages/PayrollBatchPage'));
-const NotificationPoliciesPage = lazy(() => import('./pages/NotificationPoliciesPage'));
-const DelegationPage = lazy(() => import('./pages/DelegationPage'));
-const PlanFeaturesPage = lazy(() => import('./pages/PlanFeaturesPage'));
-const BusinessCalendarPage = lazy(() => import('./pages/BusinessCalendarPage'));
-const EmployeeDirectory = lazy(() => import('./pages/EmployeeDirectory'));
-const TeamsPage = lazy(() => import('./pages/TeamsPage'));
+// Resilient dynamic import wrapper: if a browser has a stale index.html or if Vercel
+// deploys a new commit while a session is active (changing bundle asset hashes),
+// catching the chunk fetch failure and reloading fetches the fresh build manifest cleanly.
+function safeLazy<T extends React.ComponentType<any>>(importFn: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      return await importFn();
+    } catch (error: any) {
+      console.warn('Dynamic import failed, attempting auto-reload to sync with latest build manifest:', error);
+      const key = 'chunk_reload_retry_' + window.location.pathname;
+      const reloaded = sessionStorage.getItem(key);
+      if (!reloaded) {
+        sessionStorage.setItem(key, 'true');
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {});
+      }
+      sessionStorage.removeItem(key);
+      throw error;
+    }
+  });
+}
+
+// Route-level code splitting: each page ships as its own chunk.
+const App = safeLazy(() => import('./App'));
+const Login = safeLazy(() => import('./pages/Login'));
+const Dashboard = safeLazy(() => import('./pages/Dashboard'));
+const EmployeeLogin = safeLazy(() => import('./pages/EmployeeLogin'));
+const RegisterDevice = safeLazy(() => import('./pages/RegisterDevice'));
+const EmployeeAttendance = safeLazy(() => import('./pages/EmployeeAttendance'));
+const EmployeeDashboard = safeLazy(() => import('./pages/EmployeeDashboard'));
+const EmployeeHome = safeLazy(() => import('./pages/EmployeeHome'));
+const ForgotPassword = safeLazy(() => import('./pages/ForgotPassword'));
+const ResetPassword = safeLazy(() => import('./pages/ResetPassword'));
+const QrScan = safeLazy(() => import('./pages/QrScan'));
+const BranchSetupWizard = safeLazy(() => import('./pages/BranchSetupWizard'));
+const Branches = safeLazy(() => import('./pages/Branches'));
+const BranchDetail = safeLazy(() => import('./pages/BranchDetail'));
+const RolePermissions = safeLazy(() => import('./pages/RolePermissions'));
+const ReportsPage = safeLazy(() => import('./pages/ReportsPage'));
+const ApprovalRoutingPage = safeLazy(() => import('./pages/ApprovalRoutingPage'));
+const LeaveManagementPage = safeLazy(() => import('./pages/LeaveManagementPage'));
+const PayrollPage = safeLazy(() => import('./pages/PayrollPage'));
+const PayrollWizardPage = safeLazy(() => import('./pages/PayrollWizardPage'));
+const PayrollHistoryPage = safeLazy(() => import('./pages/PayrollHistoryPage'));
+const PayrollBatchPage = safeLazy(() => import('./pages/PayrollBatchPage'));
+const NotificationPoliciesPage = safeLazy(() => import('./pages/NotificationPoliciesPage'));
+const DelegationPage = safeLazy(() => import('./pages/DelegationPage'));
+const PlanFeaturesPage = safeLazy(() => import('./pages/PlanFeaturesPage'));
+const BusinessCalendarPage = safeLazy(() => import('./pages/BusinessCalendarPage'));
+const EmployeeDirectory = safeLazy(() => import('./pages/EmployeeDirectory'));
+const TeamsPage = safeLazy(() => import('./pages/TeamsPage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
 // and register a device — Employee, Manager, HR, GM, Intern, or any
