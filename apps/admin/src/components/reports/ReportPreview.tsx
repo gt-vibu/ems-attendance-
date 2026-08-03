@@ -1430,7 +1430,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
 
         {/* Right Page Ribbon */}
         <div className="bg-indigo-600 text-white font-bold text-xs px-4 py-1.5 rounded-l-full shadow-xs">
-          Page 1 of {Math.max(1, Math.ceil(rows.length / 25))}
+          Page 1 of 1
         </div>
       </div>
     </div>
