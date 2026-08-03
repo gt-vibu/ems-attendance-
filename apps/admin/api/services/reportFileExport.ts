@@ -329,6 +329,29 @@ function drawAttendanceExecutiveSummary(doc: any, rows: any[], columns: ReportCo
   const empList = Array.from(employees.entries()).map(([key, v]) => {
     const empRows = rows.filter((r) => String(r.employeeId ?? r.employeeName ?? '?') === key);
     let present = 0, absent = 0, late = 0, halfDay = 0, leave = 0, workingHours = 0, overtimeHours = 0;
+    const hasAggregated = empRows.some((r) => r.presentDays !== undefined || r.hoursLogged !== undefined || r.attendancePct !== undefined);
+
+    if (hasAggregated) {
+      for (const r of empRows) {
+        present += Number(r.presentDays ?? r.present ?? 0);
+        absent += Number(r.absentDays ?? r.absent ?? 0);
+        leave += Number(r.leaveDays ?? r.leave ?? 0);
+        late += Number(r.lateDays ?? r.lateMins ?? 0);
+        workingHours += Number(r.hoursLogged ?? r.workingHours ?? 0);
+        overtimeHours += Number(r.overtimeHours ?? 0);
+      }
+      const firstRow = empRows[0] || {};
+      let attendancePct = 0;
+      if (firstRow.attendancePct !== undefined) {
+        const rawPct = String(firstRow.attendancePct).replace('%', '');
+        attendancePct = parseFloat(rawPct) || 0;
+      } else {
+        const totalDays = present + absent + leave + late + halfDay;
+        attendancePct = totalDays > 0 ? Math.round(((present + late + halfDay) / totalDays) * 100) : 0;
+      }
+      return { key, ...v, present, absent, late, halfDay, leave, workingHours, overtimeHours, attendancePct };
+    }
+
     for (const r of empRows) {
       const s = (r.status || '').toLowerCase();
       if (s.includes('half')) halfDay += 1;
@@ -509,6 +532,28 @@ function drawEmployeeSummaryTable(doc: any, rows: any[], columns: ReportColumnMe
   const empList = Array.from(employees.entries()).map(([key, v]) => {
     const empRows = rows.filter((r) => String(r.employeeId ?? r.employeeName ?? '?') === key);
     let present = 0, absent = 0, late = 0, halfDay = 0, leave = 0, workingHours = 0;
+    const hasAggregated = empRows.some((r) => r.presentDays !== undefined || r.hoursLogged !== undefined || r.attendancePct !== undefined);
+
+    if (hasAggregated) {
+      for (const r of empRows) {
+        present += Number(r.presentDays ?? r.present ?? 0);
+        absent += Number(r.absentDays ?? r.absent ?? 0);
+        leave += Number(r.leaveDays ?? r.leave ?? 0);
+        late += Number(r.lateDays ?? r.lateMins ?? 0);
+        workingHours += Number(r.hoursLogged ?? r.workingHours ?? 0);
+      }
+      const firstRow = empRows[0] || {};
+      let attendancePct = 0;
+      if (firstRow.attendancePct !== undefined) {
+        const rawPct = String(firstRow.attendancePct).replace('%', '');
+        attendancePct = parseFloat(rawPct) || 0;
+      } else {
+        const totalDays = present + absent + leave + late + halfDay;
+        attendancePct = totalDays > 0 ? Math.round(((present + late + halfDay) / totalDays) * 100) : 0;
+      }
+      return { key, ...v, present, absent, late, leave, workingHours, attendancePct };
+    }
+
     for (const r of empRows) {
       const s = (r.status || '').toLowerCase();
       if (s.includes('half')) halfDay += 1;
