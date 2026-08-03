@@ -67,6 +67,7 @@ export async function detectPostgres(): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await pool.query('SELECT 1');
+      try { await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;'); } catch(e){}
       postgresAvailable = true;
       console.log('[db] Connected to Postgres — using it as the datastore.');
       return postgresAvailable;
