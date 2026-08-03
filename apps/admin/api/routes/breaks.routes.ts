@@ -20,6 +20,7 @@ import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { raiseAttendanceAlert } from '../services/alerts';
+import { tenantDateLabel, tenantStartOfDay } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -43,8 +44,9 @@ router.get('/api/breaks/active', authenticate, async (req: any, res: any) => {
   // page's "break time remaining" and "log of breaks" widgets.
 router.get('/api/breaks/today', authenticate, async (req: any, res: any) => {
     try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const tenantList = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId || 1));
+      const tenant = tenantList[0] || null;
+      const todayStart = tenantStartOfDay(tenant, new Date());
 
       const sessions = await db.select().from(schema.breakSessions).where(
         and(
@@ -53,8 +55,7 @@ router.get('/api/breaks/today', authenticate, async (req: any, res: any) => {
         )
       ).orderBy(desc(schema.breakSessions.id));
 
-      const tenantList = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId || 1));
-      const budgetMins = tenantList.length > 0 ? (tenantList[0].dailyBreakBudgetMins || 60) : 60;
+      const budgetMins = tenant ? (tenant.dailyBreakBudgetMins || 60) : 60;
 
       const usedMins = sessions.reduce((sum: number, s: any) => {
         if (s.status === 'completed' && s.endTime) {
@@ -250,7 +251,7 @@ router.post('/api/breaks/end', authenticate, async (req: any, res: any) => {
           details: { durationMins: elapsedMins, budgetMins: budget }
         });
 
-        await sendBreakViolationAlert(req.user.email, req.user.name, endTime.toLocaleDateString(), elapsedMins, budget);
+        await sendBreakViolationAlert(req.user.email, req.user.name, tenantDateLabel(tenant, endTime), elapsedMins, budget);
 
         await raiseAttendanceAlert({
           tenantId: req.user.tenantId,

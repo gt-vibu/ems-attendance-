@@ -21,6 +21,7 @@ import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { resolveApprovers } from '../services/approvalRouting';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wfhData';
+import { tenantDateKey, tenantDateTime, tenantStartOfDay } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -48,7 +49,7 @@ router.get('/api/attendance/wfh/eligibility', authenticate, async (req: any, res
       const policy = extractWfhPolicy(tenantRec[0]);
 
       const homeLocation = await getActiveHomeLocation(user.id);
-      const wfhCheckInsThisMonth = await getMonthlyWfhCheckInCount(user.id);
+      const wfhCheckInsThisMonth = await getMonthlyWfhCheckInCount(user.id, tenantRec[0]);
 
       const result = evaluateWfhEligibility({
         policy,
@@ -56,6 +57,7 @@ router.get('/api/attendance/wfh/eligibility', authenticate, async (req: any, res
         hasHomeLocation: !!homeLocation,
         isKycCompleted: !!user.isKycCompleted,
         wfhCheckInsThisMonth,
+        tenant: tenantRec[0],
       });
 
       res.json({
@@ -282,11 +284,11 @@ router.get('/api/tenant/wfh/stats', authenticate, async (req: any, res: any) => 
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
       const tenantId = req.user.tenantId;
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+      const tenant = tenantRows[0] || null;
+      const todayStart = tenantStartOfDay(tenant, new Date());
+      const todayKey = tenantDateKey(tenant);
+      const monthStart = tenantDateTime(tenant, `${todayKey.slice(0, 7)}-01`, 0, 0);
       const last30 = new Date();
       last30.setDate(last30.getDate() - 30);
 

@@ -1,6 +1,7 @@
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { getRoleCompensationDefault } from '../routes/leavePayrollShared';
+import { tenantDateKey } from './tenantTime';
 
 // Payroll Batch lifecycle — a first-class Payroll Run covering a whole
 // employee population, distinct from the pre-existing per-employee
@@ -57,7 +58,12 @@ export async function scanBatchExceptions(tenantId: number, year: number, month:
   const profiledUserIds = new Set(profiles.map((p: any) => p.userId));
 
   const pendingLeave = userIds.length > 0
-    ? await db.select().from(schema.leaveRequests).where(and(inArray(schema.leaveRequests.userId, userIds), eq(schema.leaveRequests.status, 'pending')))
+    ? await db.select().from(schema.leaveRequests).where(and(
+      inArray(schema.leaveRequests.userId, userIds),
+      eq(schema.leaveRequests.status, 'pending'),
+      sql`${schema.leaveRequests.startDate} <= ${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`,
+      sql`${schema.leaveRequests.endDate} >= ${year}-${String(month).padStart(2, '0')}-01`
+    ))
     : [];
   const pendingLeaveByUser = new Map<number, number>();
   for (const l of pendingLeave) pendingLeaveByUser.set(l.userId, (pendingLeaveByUser.get(l.userId) || 0) + 1);
@@ -144,7 +150,11 @@ export async function checkCalendarGate(tenantId: number, year: number, month: n
   const cal = rows[0];
   if (!cal) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Tenant-local "today" for this payroll freeze/release gate — comparing
+  // against server UTC "today" could let a transition through early, or
+  // block it past its scheduled date, for any tenant not on UTC.
+  const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0] || null;
+  const today = tenantDateKey(tenantRow);
   const dateForTransition: Record<string, string | null> = {
     calculating: cal.calculationDate,
     pending_hr_review: cal.hrReviewDate,

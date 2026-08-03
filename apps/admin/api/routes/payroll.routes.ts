@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
@@ -7,7 +7,6 @@ import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed } from '../a
 import { notifyUser, notifyUsers } from '../services/notifications';
 import { notify } from '../services/notificationService';
 import {
-  toDateOnly,
   buildPayrollSummary,
   getOrCreatePayrollSettings,
   getRoleCompensationDefault,
@@ -22,17 +21,34 @@ import { resolveMonthStatuses, computeAttendanceDrivenPayrollInputs } from '../s
 import type { AttendanceDrivenInputs } from './leavePayrollShared';
 import { logToAuditLedger } from '../services/audit';
 import { scanBatchExceptions, validateBatchForApproval, checkCalendarGate, getPendingAdjustmentsForBatch } from '../services/payrollBatch';
+import { finalizePayrollBatchFinancials } from '../services/payrollBatchCalculation';
 import { queue } from '../services/queue';
+import { tenantParts, tenantDateKey, tenantDateTime } from '../services/tenantTime';
+import { getHolidaysForEmployee } from '../services/holidayScope';
 
 export const router = Router();
+
+function tenantWeekendDays(tenant: any): string[] {
+  if (Array.isArray(tenant?.weekendConfig)) return tenant.weekendConfig;
+  if (typeof tenant?.weekendConfig === 'string') {
+    try { return JSON.parse(tenant.weekendConfig); } catch { return ['Saturday', 'Sunday']; }
+  }
+  return ['Saturday', 'Sunday'];
+}
+
+async function leaveCalendarOptions(tenant: any, tenantId: number, userId: number) {
+  const holidays = await getHolidaysForEmployee(tenantId, userId);
+  return {
+    weekendDays: tenantWeekendDays(tenant),
+    holidayDates: new Set(holidays.map((holiday) => holiday.date)),
+  };
+}
 
 router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
   try {
     const tenantId = req.user.tenantId;
     const userId = req.user.userId;
     const now = new Date();
-    const year = Number(req.query.year || now.getUTCFullYear());
-    const month = Number(req.query.month || (now.getUTCMonth() + 1));
 
     const [settings, profileRows, requests, policies, components, userRows, tenantRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
@@ -43,6 +59,13 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
       db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     ]);
+
+    // Tenant-local "what period is it right now" default — a non-UTC
+    // tenant near a month/year boundary used to get defaulted to the
+    // wrong period here (server UTC getters).
+    const tParts = tenantParts(tenantRows[0] || null, now);
+    const year = Number(req.query.year || tParts.year);
+    const month = Number(req.query.month || tParts.month);
 
     let profile: any = profileRows[0] || null;
     let effectiveComponents = components;
@@ -63,7 +86,7 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
 
     if (!profile) return res.json({ profile: null, components: [], summary: null, settings, source: 'none' });
 
-    const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
+    const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month, await leaveCalendarOptions(tenantRows[0], tenantId, userId));
     const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
     const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], userId, tenantId, year, month);
     const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
@@ -84,8 +107,6 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     const tenantId = req.user.tenantId;
     const userId = req.user.userId;
     const now = new Date();
-    const year = now.getUTCFullYear();
-    const month = now.getUTCMonth() + 1;
 
     const [settings, profileRows, requests, policies, components, userRows, tenantRows] = await Promise.all([
       getOrCreatePayrollSettings(tenantId),
@@ -96,6 +117,14 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
       db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
       db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
     ]);
+
+    // Tenant-local period — this decides which month's payslip snapshot
+    // actually gets permanently written (never backfilled/overwritten), so
+    // getting the wrong month here for a non-UTC tenant is a real,
+    // permanent-record bug, not just a display issue.
+    const tParts = tenantParts(tenantRows[0] || null, now);
+    const year = tParts.year;
+    const month = tParts.month;
 
     let profile: any = profileRows[0] || null;
     let effectiveComponents = components;
@@ -113,17 +142,17 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
     // snapshot — an employee with no CTC configured at all has nothing real
     // to record yet.
     if (profile) {
-      const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month);
+      const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month, await leaveCalendarOptions(tenantRows[0], tenantId, userId));
       const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
       const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], userId, tenantId, year, month);
-      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
+      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven, year, month);
       await db.insert(schema.payrollRuns).values({
         tenantId,
         userId,
         profileId: profile.id ?? null,
         year,
         month,
-        workingDays: attendanceDriven ? attendanceDriven.workingDays : Number(settings?.workingDaysPerMonth || 26),
+        workingDays: summary.workingDays,
         approvedLeaveDays: leaveDays.totalDays,
         unpaidAbsenceDays: summary.unpaidAbsenceDays,
         lopDeduction: summary.lopDeduction,
@@ -350,6 +379,11 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
     const current = await getOrCreatePayrollSettings(req.user.tenantId);
     const patch = {
       workingDaysPerMonth: Number(req.body?.workingDaysPerMonth || current.workingDaysPerMonth),
+      lopCalculationPolicy: ['fixed_26', 'calendar_days', 'working_days'].includes(req.body?.lopCalculationPolicy) ? req.body.lopCalculationPolicy : (current.lopCalculationPolicy || 'fixed_26'),
+      monthlySalaryBasis: ['30_days', 'actual_calendar_days', 'working_days'].includes(req.body?.monthlySalaryBasis) ? req.body.monthlySalaryBasis : (current.monthlySalaryBasis || 'actual_calendar_days'),
+      includePaidHolidays: req.body?.includePaidHolidays !== undefined ? !!req.body.includePaidHolidays : (current.includePaidHolidays ?? true),
+      includePaidWeekends: req.body?.includePaidWeekends !== undefined ? !!req.body.includePaidWeekends : (current.includePaidWeekends ?? true),
+      includeApprovedPaidLeave: req.body?.includeApprovedPaidLeave !== undefined ? !!req.body.includeApprovedPaidLeave : (current.includeApprovedPaidLeave ?? true),
       maxPaidLeaveDaysPerMonth: Number(req.body?.maxPaidLeaveDaysPerMonth ?? current.maxPaidLeaveDaysPerMonth),
       excessLeavePenaltyPercent: Number(req.body?.excessLeavePenaltyPercent ?? current.excessLeavePenaltyPercent),
       overtimeHourlyRate: Number(req.body?.overtimeHourlyRate ?? current.overtimeHourlyRate),
@@ -409,12 +443,17 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       ? await db.select().from(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.profileId, previousProfile.id)).orderBy(schema.employeeSalaryComponents.sortOrder)
       : [];
 
+    // Tenant-local "today" default — this value later drives mid-month
+    // salary-revision proration boundary math (payrollBatchCalculation.ts),
+    // so a server-UTC "today" here could misclassify which pay period a
+    // revision belongs to for a non-UTC tenant.
+    const tenantRowEff = req.body?.effectiveFrom ? null : (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
     const payload = {
       tenantId: req.user.tenantId,
       userId,
       annualCtc: Number(req.body?.annualCtc || 0),
       overtimeHourlyRate: req.body?.overtimeHourlyRate != null ? Number(req.body.overtimeHourlyRate) : null,
-      effectiveFrom: req.body?.effectiveFrom || toDateOnly(new Date()),
+      effectiveFrom: req.body?.effectiveFrom || tenantDateKey(tenantRowEff),
       status: 'active',
       updatedAt: new Date(),
     };
@@ -549,8 +588,10 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
       return res.status(403).json({ error: 'Access denied.' });
     }
     const userId = Number(req.params.userId);
-    const year = Number(req.query.year || new Date().getUTCFullYear());
-    const month = Number(req.query.month || (new Date().getUTCMonth() + 1));
+    const tenantRowEarly = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
+    const tPartsEarly = tenantParts(tenantRowEarly, new Date());
+    const year = Number(req.query.year || tPartsEarly.year);
+    const month = Number(req.query.month || tPartsEarly.month);
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
       return res.status(404).json({ error: 'Employee not found.' });
@@ -559,17 +600,23 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     // Month window used to scope attendanceRows so an admin can page through
     // an arbitrary employee's calendar (including past months) instead of
     // only ever seeing their most recent ~15 days of check-ins/outs.
-    const monthStart = new Date(Date.UTC(year, month - 1, 1));
-    const monthEnd = new Date(Date.UTC(year, month, 1));
-    const [settings, profileRows, components, leaveRows, policies, attendanceRows, tenantRows] = await Promise.all([
+    // Tenant-local calendar-month boundaries — a naive Date.UTC() window
+    // disagrees with tenantDateKey()-based day bucketing (used everywhere
+    // a log's "which day is this" is decided, e.g. attendanceDayStatus.ts)
+    // by the tenant's UTC offset.
+    const monthStart = tenantDateTime(tenantRowEarly, `${year}-${String(month).padStart(2, '0')}-01`, 0, 0);
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextMonthYear = month === 12 ? year + 1 : year;
+    const monthEnd = tenantDateTime(tenantRowEarly, `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`, 0, 0);
+    const [settings, profileRows, components, leaveRows, policies, attendanceRows] = await Promise.all([
       getOrCreatePayrollSettings(req.user.tenantId),
       db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, req.user.tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
       db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, req.user.tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
       db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, req.user.tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
       db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.user.tenantId)),
-      db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.tenantId, req.user.tenantId), eq(schema.attendanceLogs.userId, userId), gte(schema.attendanceLogs.createdAt, monthStart), lte(schema.attendanceLogs.createdAt, monthEnd))).orderBy(schema.attendanceLogs.createdAt),
-      db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1),
+      db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.tenantId, req.user.tenantId), eq(schema.attendanceLogs.userId, userId), gte(schema.attendanceLogs.createdAt, monthStart), lt(schema.attendanceLogs.createdAt, monthEnd))).orderBy(schema.attendanceLogs.createdAt),
     ]);
+    const tenantRows = [tenantRowEarly];
     let profile: any = profileRows[0] || null;
     let effectiveComponents = components;
     let source: 'individual' | 'role_default' | 'none' = profile ? 'individual' : 'none';
@@ -583,7 +630,7 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
       }
     }
 
-    const leaveDays = splitLeaveDaysForPayroll(leaveRows, policies, year, month);
+    const leaveDays = splitLeaveDaysForPayroll(leaveRows, policies, year, month, await leaveCalendarOptions(tenantRows[0], req.user.tenantId, userId));
     const overtimeHours = profile ? await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, req.user.tenantId, year, month) : 0;
     const attendanceDriven = profile ? await resolveAttendanceDrivenInputs(tenantRows[0], userId, req.user.tenantId, year, month) : null;
     const summary = profile ? buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven) : null;
@@ -605,8 +652,10 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       return res.status(403).json({ error: 'Access denied.' });
     }
     const tenantId = req.user.tenantId;
-    const year = Number(req.query.year || new Date().getUTCFullYear());
-    const month = Number(req.query.month || (new Date().getUTCMonth() + 1));
+    const tenantRowOverview = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0] || null;
+    const tPartsOverview = tenantParts(tenantRowOverview, new Date());
+    const year = Number(req.query.year || tPartsOverview.year);
+    const month = Number(req.query.month || tPartsOverview.month);
     const scopedBranchIds = await getScopedBranchIds(req.user);
     const users = scopedBranchIds === null
       ? await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), sql`role != 'tenant_admin'`))
@@ -631,7 +680,17 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       list.push(request);
       leaveRequestsByUser.set(request.userId, list);
     });
-    const leaveDaysByUser = (userId: number) => splitLeaveDaysForPayroll(leaveRequestsByUser.get(userId) || [], policies, year, month);
+    const leaveCalendarByUser = new Map<number, Awaited<ReturnType<typeof leaveCalendarOptions>>>();
+    await Promise.all(userIds.map(async (userId: number) => {
+      leaveCalendarByUser.set(userId, await leaveCalendarOptions(tenantRowOverview, tenantId, userId));
+    }));
+    const leaveDaysByUser = (userId: number) => splitLeaveDaysForPayroll(
+      leaveRequestsByUser.get(userId) || [],
+      policies,
+      year,
+      month,
+      leaveCalendarByUser.get(userId)
+    );
 
     const individualRows = profiles.map((profile: any) => {
       const user = users.find((row: any) => row.id === profile.userId);
@@ -1093,6 +1152,10 @@ function makeTransitionRoute(opts: {
         if (!validation.valid) {
           return res.status(400).json({ error: 'Batch failed validation.', failures: validation.failures });
         }
+      }
+
+      if (opts.path === 'release') {
+        await finalizePayrollBatchFinancials(batch.id);
       }
 
       const updateSet: Record<string, any> = { status: opts.toStatus };

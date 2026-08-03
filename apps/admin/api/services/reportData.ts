@@ -2,7 +2,7 @@ import { eq, and, gte, lte, inArray, desc, or } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { hasPrivilege } from '../auth/rbac';
 import { resolveMonthStatuses, type DayStatus } from './attendanceDayStatus';
-import { tenantDateKey } from './tenantTime';
+import { tenantDateKey, tenantDateLabel, tenantTimeLabel } from './tenantTime';
 
 // Shared data layer for the Reports & Analytics module (apps/admin/src/
 // pages/ReportsPage.tsx) — used by both the live GET /api/reports/data
@@ -145,9 +145,9 @@ export async function buildReportData(tenantId: number, requestUser: any, filter
   const startKey = tenantDateKey(tenant, start);
   const endKey = tenantDateKey(tenant, end);
 
-  if (filters.type === 'leave') return buildLeaveReport(tenantId, targetUserIds, employeeMap, filters, startKey, endKey);
-  if (filters.type === 'payroll') return buildPayrollReport(tenantId, targetUserIds, employeeMap, requestUser);
-  if (filters.type === 'employee') return buildEmployeeReport(filteredEmployees);
+  if (filters.type === 'leave') return buildLeaveReport(tenant, tenantId, targetUserIds, employeeMap, filters, startKey, endKey);
+  if (filters.type === 'payroll') return buildPayrollReport(tenant, tenantId, targetUserIds, employeeMap, requestUser);
+  if (filters.type === 'employee') return buildEmployeeReport(tenant, filteredEmployees);
   if (filters.type === 'consolidated') {
     return buildConsolidatedReport(
       tenant, tenantId, targetUserIds, employeeMap, filteredEmployees.length, filters, start, end, startKey, endKey, requestUser,
@@ -178,12 +178,30 @@ async function buildAttendanceReport(
   // alongside the resolver's canonical status for that day.
   const rangeStart = new Date(start); rangeStart.setDate(rangeStart.getDate() - 1);
   const rangeEnd = new Date(end); rangeEnd.setDate(rangeEnd.getDate() + 2);
-  const logs = await db.select().from(schema.attendanceLogs).where(and(
-    inArray(schema.attendanceLogs.userId, targetUserIds),
-    inArray(schema.attendanceLogs.tenantId, [tenantId]),
-    gte(schema.attendanceLogs.createdAt, rangeStart),
-    lte(schema.attendanceLogs.createdAt, rangeEnd),
-  ));
+  const [logs, breaks] = await Promise.all([
+    db.select().from(schema.attendanceLogs).where(and(
+      inArray(schema.attendanceLogs.userId, targetUserIds),
+      inArray(schema.attendanceLogs.tenantId, [tenantId]),
+      gte(schema.attendanceLogs.createdAt, rangeStart),
+      lte(schema.attendanceLogs.createdAt, rangeEnd),
+    )),
+    db.select().from(schema.breakSessions).where(and(
+      inArray(schema.breakSessions.userId, targetUserIds),
+      inArray(schema.breakSessions.tenantId, [tenantId]),
+      gte(schema.breakSessions.startTime, rangeStart),
+      lte(schema.breakSessions.startTime, rangeEnd),
+    )),
+  ]);
+
+  const breaksByUserDay = new Map<string, number>();
+  for (const b of breaks) {
+    if (!b.startTime || !b.endTime) continue;
+    const dayKey = tenantDateKey(tenant, new Date(b.startTime));
+    const key = `${b.userId}:${dayKey}`;
+    const dur = Math.max(0, (new Date(b.endTime).getTime() - new Date(b.startTime).getTime()) / 60000);
+    breaksByUserDay.set(key, (breaksByUserDay.get(key) || 0) + dur);
+  }
+
   const logsByUserDay = new Map<string, { checkIn?: any; checkOut?: any }>();
   for (const log of logs) {
     if (!log.createdAt || (log.type !== 'check_in' && log.type !== 'check_out')) continue;
@@ -218,8 +236,23 @@ async function buildAttendanceReport(
         const dayLogs = logsByUserDay.get(logKey);
         const isWfh = dayLogs?.checkIn?.attendanceMode === 'wfh';
         const lateMins = dayLogs?.checkIn?.lateByMinutes || 0;
-        const overtimeMins = dayLogs?.checkIn?.overtimeMinutes || 0;
-        const workedMinutes = dayLogs?.checkIn?.workedMinutes || 0;
+        
+        // Canonical source of truth for workedMinutes & overtimeMinutes:
+        // checkOut log first, then checkIn log. If missing but checkIn and checkOut
+        // timestamps exist, compute dynamically from (checkOut - checkIn) - totalBreakMins.
+        let workedMinutes = dayLogs?.checkOut?.workedMinutes ?? dayLogs?.checkIn?.workedMinutes ?? 0;
+        let overtimeMins = dayLogs?.checkOut?.overtimeMinutes ?? dayLogs?.checkIn?.overtimeMinutes ?? 0;
+
+        const checkInTime = dayLogs?.checkIn?.createdAt ? new Date(dayLogs.checkIn.createdAt) : null;
+        const checkOutTime = dayLogs?.checkOut?.createdAt 
+          ? new Date(dayLogs.checkOut.createdAt) 
+          : (dayLogs?.checkIn?.checkoutAt ? new Date(dayLogs.checkIn.checkoutAt) : null);
+
+        if ((!workedMinutes || workedMinutes === 0) && checkInTime && checkOutTime && checkOutTime.getTime() > checkInTime.getTime()) {
+          const dayBreakMins = breaksByUserDay.get(logKey) || 0;
+          const rawMins = (checkOutTime.getTime() - checkInTime.getTime()) / 60000;
+          workedMinutes = Math.max(0, Math.round(rawMins - dayBreakMins));
+        }
 
         if (filters.status && filters.status !== 'ALL' && STATUS_LABELS[entry.status] !== filters.status) continue;
         if (filters.exceptionsOnly && !EXCEPTION_STATUSES.includes(entry.status)) continue;
@@ -254,8 +287,8 @@ async function buildAttendanceReport(
           date: dateKey,
           rawDate: dateKey,
           status: STATUS_LABELS[entry.status],
-          checkIn: dayLogs?.checkIn?.createdAt ? new Date(dayLogs.checkIn.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-          checkOut: dayLogs?.checkOut?.createdAt ? new Date(dayLogs.checkOut.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+          checkIn: dayLogs?.checkIn?.createdAt ? tenantTimeLabel(tenant, new Date(dayLogs.checkIn.createdAt)) : '-',
+          checkOut: dayLogs?.checkOut?.createdAt ? tenantTimeLabel(tenant, new Date(dayLogs.checkOut.createdAt)) : '-',
           lateMins,
           workingHours: workedMinutes ? (workedMinutes / 60).toFixed(1) : null,
           rawHours: workedMinutes / 60,
@@ -299,7 +332,7 @@ async function buildAttendanceReport(
   };
 }
 
-async function buildLeaveReport(tenantId: number, targetUserIds: number[], employeeMap: Map<number, any>, filters: ReportFilters, startKey: string, endKey: string) {
+async function buildLeaveReport(tenant: any, tenantId: number, targetUserIds: number[], employeeMap: Map<number, any>, filters: ReportFilters, startKey: string, endKey: string) {
   const leaves = await db.select().from(schema.leaveRequests).where(and(
     inArray(schema.leaveRequests.userId, targetUserIds),
     inArray(schema.leaveRequests.tenantId, [tenantId]),
@@ -320,7 +353,7 @@ async function buildLeaveReport(tenantId: number, targetUserIds: number[], emplo
       daysCount: Number(l.totalDays) || 0,
       status: l.status || 'pending',
       reason: l.reason || '-',
-      appliedOn: l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '-',
+      appliedOn: l.createdAt ? tenantDateLabel(tenant, new Date(l.createdAt)) : '-',
     };
   });
 
@@ -348,7 +381,7 @@ async function buildLeaveReport(tenantId: number, targetUserIds: number[], emplo
   };
 }
 
-async function buildPayrollReport(tenantId: number, targetUserIds: number[], employeeMap: Map<number, any>, requestUser: any) {
+async function buildPayrollReport(tenant: any, tenantId: number, targetUserIds: number[], employeeMap: Map<number, any>, requestUser: any) {
   // Payroll data needs its OWN privilege gate, independent of the general
   // report-scoping above — 'reports.view'/'employee.read' governs which
   // EMPLOYEES you can see reports about, not whether salary figures are
@@ -397,7 +430,7 @@ async function buildPayrollReport(tenantId: number, targetUserIds: number[], emp
       loanRecovery: sumBreakdown(p.breakdown, [], ['loan_recovery', 'advance_recovery']),
       bonusPaid: sumBreakdown(p.breakdown, [], ['bonus', 'reimbursement']),
       status: p.status || 'draft',
-      processedOn: p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '-',
+      processedOn: p.createdAt ? tenantDateLabel(tenant, new Date(p.createdAt)) : '-',
     };
   });
 
@@ -450,8 +483,8 @@ async function buildConsolidatedReport(
 
   const [attendance, leave, payroll] = await Promise.all([
     wantAttendance ? buildAttendanceReport(tenant, tenantId, targetUserIds, employeeMap, totalEmployees, filters, start, end, startKey, endKey) : null,
-    wantLeave ? buildLeaveReport(tenantId, targetUserIds, employeeMap, filters, startKey, endKey) : null,
-    wantPayroll ? buildPayrollReport(tenantId, targetUserIds, employeeMap, requestUser).catch((err) => {
+    wantLeave ? buildLeaveReport(tenant, tenantId, targetUserIds, employeeMap, filters, startKey, endKey) : null,
+    wantPayroll ? buildPayrollReport(tenant, tenantId, targetUserIds, employeeMap, requestUser).catch((err) => {
       if (err?.statusCode === 403) return null; // no payroll.read — degrade gracefully, don't fail the whole report
       throw err;
     }) : null,
@@ -558,7 +591,7 @@ async function buildConsolidatedReport(
   };
 }
 
-function buildEmployeeReport(filteredEmployees: any[]) {
+function buildEmployeeReport(tenant: any, filteredEmployees: any[]) {
   const rows = filteredEmployees.map((emp: any) => ({
     id: emp.id,
     employeeId: emp.id,
@@ -569,7 +602,7 @@ function buildEmployeeReport(filteredEmployees: any[]) {
     designation: emp.designation || emp.role || 'Staff',
     status: emp.employeeStatus || 'active',
     kycStatus: emp.isKycCompleted ? 'Verified' : 'Pending',
-    joinedDate: emp.dateOfJoining || (emp.createdAt ? new Date(emp.createdAt).toLocaleDateString() : '-'),
+    joinedDate: emp.dateOfJoining || (emp.createdAt ? tenantDateLabel(tenant, new Date(emp.createdAt)) : '-'),
   }));
   return {
     type: 'employee',

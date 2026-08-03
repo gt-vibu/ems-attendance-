@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import { eq } from 'drizzle-orm';
+import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { computeEmployeeEarnings } from '../services/earnings';
+import { tenantParts } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -12,9 +15,10 @@ export const router = Router();
 // else's, so there's nothing to gate beyond that.
 router.get('/api/earnings/mine', authenticate, async (req: any, res: any) => {
   try {
-    const now = new Date();
-    const year = Number(req.query.year || now.getUTCFullYear());
-    const month = Number(req.query.month || (now.getUTCMonth() + 1));
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+    const nowParts = tenantParts(tenantRows[0] || null);
+    const year = Number(req.query.year || nowParts.year);
+    const month = Number(req.query.month || nowParts.month);
     if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
       return res.status(400).json({ error: 'year and month (1-12) must be valid integers' });
     }

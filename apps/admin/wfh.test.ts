@@ -158,7 +158,7 @@ describe('evaluateWfhEligibility', () => {
 
 describe('todayWeekdayName', () => {
   test('resolves the correct weekday name', () => {
-    assert.equal(todayWeekdayName(new Date('2026-07-13T10:00:00')), 'Monday');
-    assert.equal(todayWeekdayName(new Date('2026-07-12T10:00:00')), 'Sunday');
+    assert.equal(todayWeekdayName(null, new Date('2026-07-13T10:00:00')), 'Monday');
+    assert.equal(todayWeekdayName(null, new Date('2026-07-12T10:00:00')), 'Sunday');
   });
 });

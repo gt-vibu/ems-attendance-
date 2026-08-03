@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { forwardGeocode, searchPlaces } from '../../geocoding.js';
+import { tenantStartOfDay } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -90,8 +91,7 @@ router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
     const roster = await db.select().from(schema.users)
       .where(and(eq(schema.users.branchId, branchId), sql`role != 'tenant_admin'`));
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = tenantStartOfDay(branch, new Date());
     const todaysLogs = await db.select().from(schema.attendanceLogs)
       .where(and(eq(schema.attendanceLogs.branchId, branchId), sql`created_at >= ${todayStart}`));
 

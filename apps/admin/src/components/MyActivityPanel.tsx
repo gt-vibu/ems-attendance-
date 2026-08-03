@@ -38,22 +38,25 @@ export default function MyActivityPanel() {
   const visible = expanded ? entries : entries.slice(0, 5);
 
   return (
-    <div className="nexus-card rounded-xl p-6">
-      <div className="flex items-center justify-between mb-4">
+    <div className="nexus-card rounded-xl p-4 sm:p-6">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
-          <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Activity</h2>
-          <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">A read-only record of actions you took, and changes made to your record.</p>
+          <h2 className="text-sm sm:text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Activity Log</h2>
+          <p className="text-[11px] text-[var(--color-nexus-muted)] mt-0.5">Chronological record of actions performed on your account.</p>
         </div>
         <button onClick={handleDownloadData} className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:underline">
           Download My Data
         </button>
       </div>
       {entries.length === 0 && <p className="text-xs text-[var(--color-nexus-muted)]">No activity recorded yet.</p>}
-      <div className="space-y-2">
+      
+      {/* Chronological Activity Timeline Feed */}
+      <div className="relative pl-4 space-y-3 before:absolute before:left-1.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-[var(--color-nexus-border)]">
         {visible.map((e: any) => (
-          <div key={e.id} className="flex items-center justify-between text-xs bg-[var(--color-nexus-surface-alt)] rounded-xl px-3.5 py-2.5">
-            <span className="font-semibold text-[var(--color-nexus-ink)]">{String(e.action).replace(/_/g, ' ')}</span>
-            <span className="text-[var(--color-nexus-muted)]">{new Date(e.timestamp).toLocaleString()}</span>
+          <div key={e.id} className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs bg-[var(--color-nexus-surface-alt)] rounded-lg p-2.5 gap-1 border border-[var(--color-nexus-border)]/50">
+            <span className="absolute -left-4 top-3.5 w-2 h-2 rounded-full bg-[var(--color-nexus-primary)] ring-4 ring-[var(--color-nexus-surface)]" />
+            <span className="font-semibold text-[var(--color-nexus-ink)] capitalize">{String(e.action).replace(/_/g, ' ')}</span>
+            <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{new Date(e.timestamp).toLocaleString()}</span>
           </div>
         ))}
       </div>

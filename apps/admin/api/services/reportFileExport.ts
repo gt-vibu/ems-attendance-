@@ -186,7 +186,7 @@ function weeklyGridCode(status?: string): { code: string; hex: string } {
   return { code: '-', hex: '#94a3b8' };
 }
 
-function drawWeeklyGridTable(doc: any, rows: any[], pageWidth: number, marginLeft: number, theme: { tableHeaderHex: string }) {
+function drawWeeklyGridTable(doc: any, rows: any[], columns: ReportColumnMeta[], pageWidth: number, marginLeft: number, theme: { tableHeaderHex: string; accentHex: string }) {
   const employees = new Map<string, { employeeId: string | number; employeeName: string; department: string }>();
   const dateSet = new Set<string>();
   const cellMap = new Map<string, any>();
@@ -206,17 +206,33 @@ function drawWeeklyGridTable(doc: any, rows: any[], pageWidth: number, marginLef
       else if (s.includes('leave')) leave += 1;
       else if (s.includes('absent')) absent += 1;
       else if (s.includes('present') || s.includes('half') || s.includes('wfh')) present += 1;
-      workingHours += Number(r.workingHours) || 0;
+      workingHours += r.rawHours ?? (Number(r.workingHours) || 0);
     }
     return { key, ...v, present, absent, late, leave, workingHours };
   });
 
+  const showStatus = columns.some((c) => c.key === 'status' || c.key === 'presentDays');
+  const showLate = columns.some((c) => c.key === 'lateMins' || c.key === 'lateCount');
+  const showHrs = columns.some((c) => c.key === 'workingHours');
+
   const fixedCols = [
     { label: '#', w: 20 }, { label: 'ID', w: 44 }, { label: 'Name', w: 90 }, { label: 'Dept', w: 70 },
   ];
-  const summaryCols = [
-    { label: 'Pres', w: 32 }, { label: 'Abs', w: 32 }, { label: 'Late', w: 32 }, { label: 'Lv', w: 28 }, { label: 'Hrs', w: 34 },
-  ];
+  const summaryCols: { key: string; label: string; w: number }[] = [];
+  if (showStatus) {
+    summaryCols.push({ key: 'present', label: 'Pres', w: 32 });
+    summaryCols.push({ key: 'absent', label: 'Abs', w: 32 });
+  }
+  if (showLate) {
+    summaryCols.push({ key: 'late', label: 'Late', w: 32 });
+  }
+  if (showStatus) {
+    summaryCols.push({ key: 'leave', label: 'Lv', w: 28 });
+  }
+  if (showHrs) {
+    summaryCols.push({ key: 'workingHours', label: 'Hrs', w: 34 });
+  }
+
   const fixedW = fixedCols.reduce((n, c) => n + c.w, 0) + summaryCols.reduce((n, c) => n + c.w, 0);
   const dateColW = Math.max(20, (pageWidth - fixedW) / Math.max(dates.length, 1));
 
@@ -257,11 +273,11 @@ function drawWeeklyGridTable(doc: any, rows: any[], pageWidth: number, marginLef
       x += dateColW;
     }
     doc.fillColor('#334155');
-    doc.text(String(e.present), x + 1, y + 4, { width: summaryCols[0].w - 2, align: 'center' }); x += summaryCols[0].w;
-    doc.text(String(e.absent), x + 1, y + 4, { width: summaryCols[1].w - 2, align: 'center' }); x += summaryCols[1].w;
-    doc.text(String(e.late), x + 1, y + 4, { width: summaryCols[2].w - 2, align: 'center' }); x += summaryCols[2].w;
-    doc.text(String(e.leave), x + 1, y + 4, { width: summaryCols[3].w - 2, align: 'center' }); x += summaryCols[3].w;
-    doc.text(`${Math.round(e.workingHours * 60) / 60}h`, x + 1, y + 4, { width: summaryCols[4].w - 2, align: 'center' });
+    for (const sc of summaryCols) {
+      const val = sc.key === 'workingHours' ? `${Math.round(e.workingHours * 10) / 10}h` : String((e as any)[sc.key]);
+      doc.text(val, x + 1, y + 4, { width: sc.w - 2, align: 'center' });
+      x += sc.w;
+    }
     y += ROW_HEIGHT;
   });
 
@@ -279,11 +295,11 @@ function drawWeeklyGridTable(doc: any, rows: any[], pageWidth: number, marginLef
     doc.text(String(dayPresent), x + 1, y + 4, { width: dateColW - 2, align: 'center' });
     x += dateColW;
   }
-  doc.text(String(grand.present), x + 1, y + 4, { width: summaryCols[0].w - 2, align: 'center' }); x += summaryCols[0].w;
-  doc.text(String(grand.absent), x + 1, y + 4, { width: summaryCols[1].w - 2, align: 'center' }); x += summaryCols[1].w;
-  doc.text(String(grand.late), x + 1, y + 4, { width: summaryCols[2].w - 2, align: 'center' }); x += summaryCols[2].w;
-  doc.text(String(grand.leave), x + 1, y + 4, { width: summaryCols[3].w - 2, align: 'center' }); x += summaryCols[3].w;
-  doc.text(`${Math.round(grand.workingHours * 60) / 60}h`, x + 1, y + 4, { width: summaryCols[4].w - 2, align: 'center' });
+  for (const sc of summaryCols) {
+    const val = sc.key === 'workingHours' ? `${Math.round(grand.workingHours * 10) / 10}h` : String((grand as any)[sc.key]);
+    doc.text(val, x + 1, y + 4, { width: sc.w - 2, align: 'center' });
+    x += sc.w;
+  }
   doc.y = y + ROW_HEIGHT + 6;
   doc.x = marginLeft;
 }
@@ -1061,7 +1077,7 @@ export async function buildReportPdf(
     if (rows.length === 0 || columns.length === 0) {
       doc.fontSize(10).fillColor('#64748b').text('No data for the selected filters.');
     } else if (meta.layoutId === 'weekly_grid') {
-      drawWeeklyGridTable(doc, rows, pageWidth, PAGE_MARGIN, theme);
+      drawWeeklyGridTable(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
     } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'date') && rows.some((r) => r.date)) {
       drawAttendanceExecutiveSummary(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
     } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'leaveType') && rows.some((r) => r.leaveType)) {

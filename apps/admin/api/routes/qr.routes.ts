@@ -13,7 +13,7 @@ import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineM
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
 import { authenticate } from '../middleware/authenticate';
-import { localDateKey } from '../services/dateUtils';
+import { tenantDateKey, tenantDateLabel, tenantStartOfDay, tenantTimeLabel } from '../services/tenantTime';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant, isPlatformFeatureAllowed } from '../auth/rbac';
 import { issueNewSession, finalizeLogin } from '../auth/session';
@@ -437,8 +437,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       // --- Day state / late-arrival — mirrors (deliberately duplicated,
       // not shared — see module comment) the existing /api/attendance
       // handler's own logic. ---
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStart = tenantStartOfDay(tenant, new Date());
       const lastActiveToday = await db.select().from(schema.attendanceLogs).where(
         and(eq(schema.attendanceLogs.userId, user.id), sql`status IN ('approved', 'pending')`, sql`created_at >= ${todayStart}`)
       ).orderBy(desc(schema.attendanceLogs.id)).limit(1);
@@ -457,7 +456,9 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       // changes lateness math on the days it's active, not just the display.
       // Now shared with the office check-in flow via services/attendancePolicy.ts
       // instead of its own separate inline math.
-      const todayDateStr = localDateKey();
+      // Tenant-local date key, not server-local — see attendance.routes.ts's
+      // identical office check-in fix for the same shift-lookup bug class.
+      const todayDateStr = tenantDateKey(tenant);
       const qrShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
       const effectivePolicy = resolveEffectivePolicy(tenant, qrBranch, qrShift);
       const shiftStartStr = effectivePolicy.shiftStartStr;
@@ -466,10 +467,10 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       let lateByMinutes = 0;
       let expectedCheckoutAt: Date | null = null;
       if (isVerified && logType === 'check_in') {
-        const lateness = computeLateness(effectivePolicy, new Date());
+        const lateness = computeLateness(effectivePolicy, new Date(), tenant);
         isLate = lateness.isLate;
         lateByMinutes = lateness.lateByMinutes;
-        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date());
+        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date(), tenant);
       }
 
       let dayOutcome: { workedMinutes: number; isHalfDay: boolean; isShortDay: boolean; overtimeMinutes: number } | null = null;
@@ -554,12 +555,13 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
       }
 
       if (pendingApproval) {
-        const checkInTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const checkInAt = new Date();
+        const checkInTimeStr = tenantTimeLabel(tenant, checkInAt);
         const approvers = await getUsersWithPrivilege(user.tenantId || 1, ['attendance.approve.late_arrival', 'attendance.approve']);
         for (const approver of approvers) {
           await sendLateArrivalApprovalRequestEmail(
             approver.email, approver.name, user.name,
-            new Date().toLocaleDateString(), checkInTimeStr, shiftStartStr,
+            tenantDateLabel(tenant, checkInAt), checkInTimeStr, shiftStartStr,
             'Checked in via QR Attendance (late).'
           );
         }
@@ -603,8 +605,8 @@ router.post('/api/qr/scans/:id/override', authenticate, async (req: any, res: an
       if (employeeList.length === 0) return res.status(404).json({ error: 'Employee not found' });
       const employee = employeeList[0];
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, scan.tenantId)).limit(1);
+      const todayStart = tenantStartOfDay(tenantRows[0] || null, new Date());
       const lastActiveToday = await db.select().from(schema.attendanceLogs).where(
         and(eq(schema.attendanceLogs.userId, employee.id), sql`status IN ('approved', 'pending')`, sql`created_at >= ${todayStart}`)
       ).orderBy(desc(schema.attendanceLogs.id)).limit(1);

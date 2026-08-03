@@ -1,4 +1,4 @@
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { eq, and, gte, lte, lt } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { getHolidaysForEmployee } from './holidayScope';
 import { tenantDateKey, tenantParts } from './tenantTime';
@@ -55,13 +55,6 @@ interface MonthInputs {
   todayCutoffReached: boolean;
 }
 
-function localDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function dayOfWeekName(dateKey: string): string {
   const [y, m, d] = dateKey.split('-').map(Number);
   return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(y, m - 1, d).getDay()];
@@ -85,7 +78,7 @@ async function loadMonthInputs(tenantId: number, userId: number, year: number, m
       eq(schema.attendanceLogs.tenantId, tenantId),
       eq(schema.attendanceLogs.type, 'check_in'),
       gte(schema.attendanceLogs.createdAt, monthStart),
-      lte(schema.attendanceLogs.createdAt, monthEnd),
+      lt(schema.attendanceLogs.createdAt, monthEnd),
     )),
     db.select().from(schema.attendanceCorrections).where(and(
       eq(schema.attendanceCorrections.userId, userId),
@@ -252,15 +245,20 @@ export async function isDateFrozen(tenantId: number, dateKey: string): Promise<b
   return rows.length > 0;
 }
 
-// `date` is read via its own local y/m/d components — appropriate when the
-// caller already constructed it to represent a specific intended calendar
-// day (e.g. `new Date(year, month - 1, day)`). If a future caller passes
-// `new Date()` meaning "today", prefer resolveMonthStatuses with a
-// tenant-derived year/month/day (tenantDateKey) instead, or this will use
-// the SERVER's local date components for that, not the tenant's.
-export async function resolveDayStatus(tenantId: number, userId: number, date: Date): Promise<DayStatusEntry> {
-  const inputs = await loadMonthInputs(tenantId, userId, date.getFullYear(), date.getMonth() + 1);
-  return resolveFromInputs(inputs, localDateKey(date));
+// Takes an already-resolved 'YYYY-MM-DD' string, not a `Date` — this used
+// to accept a `Date` and read it via its own local y/m/d components, which
+// was only correct if the caller had specifically constructed it as
+// `new Date(year, month-1, day)`; a caller meaning "today" as `new Date()`
+// would silently get the SERVER's local calendar day instead of the
+// tenant's (exactly the "Monday/Tuesday" bug class this session's audit was
+// looking for — and exactly what employees.routes.ts's own "Today's Team"
+// endpoint was doing before this fix). Taking a string instead of a `Date`
+// removes the footgun at the type level: callers must resolve the tenant-
+// local day themselves (via `tenantDateKey(tenant, ...)`) before calling in.
+export async function resolveDayStatus(tenantId: number, userId: number, dateKey: string): Promise<DayStatusEntry> {
+  const [year, month] = dateKey.split('-').map(Number);
+  const inputs = await loadMonthInputs(tenantId, userId, year, month);
+  return resolveFromInputs(inputs, dateKey);
 }
 
 // Attendance-driven payroll inputs (Phase 6) — calendar-derived working

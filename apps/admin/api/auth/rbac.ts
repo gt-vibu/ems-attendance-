@@ -1,5 +1,6 @@
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { tenantDateKey } from '../services/tenantTime';
 
 // Platform layer, above everything else in the app: tenants.featuresAllowed
 // is a super-admin-controlled whitelist of which whole MODULES a tenant is
@@ -158,7 +159,8 @@ export async function hasPrivilege(user: any, permission: string): Promise<boole
 // stops granting access immediately even if a cleanup job hasn't yet
 // flipped its status to 'expired'.
 export async function hasActiveDelegatedPrivilege(userId: number, tenantId: number, permission: string): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
+  const tenantRows = await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  const today = tenantDateKey(tenantRows[0] || null);
   const rows = await db.select().from(schema.delegations).where(
     and(
       eq(schema.delegations.tenantId, tenantId),

@@ -2,6 +2,7 @@
 // standalone module of pure functions (no db/express imports) so the
 // eligibility/distance logic is easy to unit-test and reason about in
 // isolation from the much larger office attendance pipeline in server.ts.
+import { tenantDateKey } from './api/services/tenantTime';
 
 // Delegable, independent of role name — same privilege system every other
 // module uses (see getDefaultPrivilegesForRole()/hasPrivilege() in
@@ -47,8 +48,17 @@ export function extractWfhPolicy(tenant: any): WfhPolicy {
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-export function todayWeekdayName(date: Date = new Date()): string {
-  return WEEKDAY_NAMES[date.getDay()];
+// Weekday of `date` in the TENANT's timezone, not the server's — .getDay()
+// alone reads the server process's own local zone, which for a non-UTC
+// tenant can land on the wrong side of a day boundary (e.g. 11pm IST is
+// still the same UTC day but could already be "tomorrow" server-side, or
+// vice versa depending on server tz), silently allowing/blocking WFH on the
+// wrong weekday. `dateKey` is resolved once via Intl in the tenant's zone,
+// then re-parsed at UTC noon purely to recover a weekday index — safe
+// because that round-trip never crosses a day boundary.
+export function todayWeekdayName(tenant: { timezone?: string | null } | string | null | undefined, date: Date = new Date()): string {
+  const dateKey = tenantDateKey(tenant, date);
+  return WEEKDAY_NAMES[new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
 }
 
 // Admin roles never clock in at all (office or WFH) — see canClockIn() in
@@ -91,8 +101,9 @@ export function evaluateWfhEligibility(params: {
   isKycCompleted: boolean;
   wfhCheckInsThisMonth: number;
   now?: Date;
+  tenant?: { timezone?: string | null } | string | null;
 }): WfhEligibilityResult {
-  const { policy, role, hasHomeLocation, isKycCompleted, wfhCheckInsThisMonth, now = new Date() } = params;
+  const { policy, role, hasHomeLocation, isKycCompleted, wfhCheckInsThisMonth, now = new Date(), tenant = null } = params;
 
   if (!policy.wfhEnabled) {
     return { eligible: false, reason: 'Work From Home is not enabled for your organization.', needsHomeRegistration: false };
@@ -103,7 +114,7 @@ export function evaluateWfhEligibility(params: {
   if (!isKycCompleted) {
     return { eligible: false, reason: 'Register your device before using Work From Home.', needsHomeRegistration: false };
   }
-  const weekday = todayWeekdayName(now);
+  const weekday = todayWeekdayName(tenant, now);
   if (!policy.wfhAllowedWeekdays.includes(weekday)) {
     return { eligible: false, reason: `Work From Home is not allowed on ${weekday}s.`, needsHomeRegistration: false };
   }

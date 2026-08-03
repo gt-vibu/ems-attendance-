@@ -74,4 +74,65 @@ export function tenantStartOfDay(tenant: { timezone?: string | null } | string |
   return new Date(naiveUtcMidnight.getTime() - offsetMs);
 }
 
+// General-purpose building block tenantStartOfDay is a special case of
+// (hh=mm=0) — given a 'YYYY-MM-DD' date string and an HH:MM tenant-LOCAL
+// time, returns the corresponding UTC Date. Anchoring the date-string
+// resolution at UTC midday (rather than UTC midnight) avoids any ambiguity
+// about which tenant-local calendar day a bare 'YYYY-MM-DD' string means
+// when the tenant's UTC offset would otherwise push midnight into the
+// adjacent day.
+export function tenantDateTime(tenant: { timezone?: string | null } | string | null | undefined, dateStr: string, hh: number, mm: number): Date {
+  const timeZone = resolveTimezone(tenant);
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const naiveUtc = new Date(Date.UTC(year, (month || 1) - 1, day || 1, hh, mm, 0, 0));
+  const asTenantParts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(naiveUtc);
+  const get = (type: string) => Number(asTenantParts.find(p => p.type === type)?.value);
+  const tenantWallTimeAsUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') === 24 ? 0 : get('hour'), get('minute'), get('second'));
+  const offsetMs = tenantWallTimeAsUtc - naiveUtc.getTime();
+  return new Date(naiveUtc.getTime() - offsetMs);
+}
+
+// Tenant-local calendar-day boundaries as UTC Date range — the tenant-aware
+// replacement for a naive `new Date(\`${date}T00:00:00.000Z\`)` UTC-midnight
+// boundary, which silently disagrees with tenantDateKey()-based day
+// bucketing (used everywhere else, e.g. attendanceDayStatus.ts) by however
+// many hours the tenant's UTC offset is — the root cause of "a correction
+// targeting Monday actually touches/misses Tuesday's record" for any
+// non-UTC tenant.
+export function tenantDayRange(tenant: { timezone?: string | null } | string | null | undefined, dateStr: string): { start: Date; end: Date } {
+  const start = tenantDateTime(tenant, dateStr, 0, 0);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+}
+
+// Human-readable date/time strings in the TENANT's timezone — the display-
+// formatting equivalent of tenantDateKey()/tenantParts(). Plain
+// `.toLocaleDateString()`/`.toLocaleTimeString()` with no explicit
+// `timeZone` resolves to whatever zone the Node PROCESS happens to be
+// running in, not the tenant's — used for any email/notification/alert
+// body that shows a date or time to a tenant user, so the calendar day/
+// clock time they see actually matches their own business timezone.
+export function tenantDateLabel(tenant: { timezone?: string | null } | string | null | undefined, date: Date = new Date()): string {
+  const timeZone = resolveTimezone(tenant);
+  return new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'long', day: 'numeric' }).format(date);
+}
+
+export function tenantTimeLabel(tenant: { timezone?: string | null } | string | null | undefined, date: Date = new Date()): string {
+  const timeZone = resolveTimezone(tenant);
+  return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true }).format(date);
+}
+
+export function tenantDateTimeLabel(tenant: { timezone?: string | null } | string | null | undefined, date: Date = new Date()): string {
+  return `${tenantDateLabel(tenant, date)}, ${tenantTimeLabel(tenant, date)}`;
+}
+
 export const DEFAULT_TENANT_TIMEZONE = DEFAULT_TIMEZONE;

@@ -56,12 +56,23 @@ const ATTENDANCE_CALENDAR_LEGEND: Array<{ status: Exclude<AttendanceCalendarStat
   { status: 'absent', label: 'Absent' },
 ];
 
-function attendanceDateKey(date: Date) {
+// Tenant-timezone-aware when `timezone` is supplied (the company's own
+// configured business timezone, fetched once from /api/tenant/config) —
+// falls back to the browser's own local calendar day only if it isn't
+// available yet. Bucketing attendance by the EMPLOYEE'S OWN BROWSER
+// timezone (the old unconditional behavior) could disagree with how the
+// server itself buckets the same log by the tenant's timezone
+// (attendanceDayStatus.ts), showing a check-in under the wrong calendar
+// day for anyone not physically in the same timezone as the business.
+function attendanceDateKey(date: Date, timezone?: string | null) {
+  if (timezone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  }
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-function attendanceMonthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+function attendanceMonthKey(date: Date, timezone?: string | null) {
+  return attendanceDateKey(date, timezone).slice(0, 7);
 }
 
 function normalizeText(value: any) {
@@ -103,6 +114,15 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [upcomingHolidays, setUpcomingHolidays] = useState<any[]>([]);
   const [allHolidays, setAllHolidays] = useState<any[]>([]);
   const [myTeam, setMyTeam] = useState<{ manager: any; colleagues: any[] } | null>(null);
+  const [todaysTeamSummary, setTodaysTeamSummary] = useState<{ hasReports: boolean; total: number; present: number; absent: number; late: number; pendingLeave: number; pendingCorrections: number } | null>(null);
+  const [notificationPrefs, setNotificationPrefs] = useState<{ email: boolean; in_app: boolean }>({ email: true, in_app: true });
+  // The company's configured business timezone (not the browser's) — every
+  // "today"/"this month"/calendar-day computation below should be resolved
+  // against this, not wherever the employee's device clock happens to be
+  // set. Null until fetched; call sites fall back to browser-local until
+  // then (same result for any tenant physically near their own timezone).
+  const [tenantTimezone, setTenantTimezone] = useState<string | null>(null);
+  const [savingNotificationPrefs, setSavingNotificationPrefs] = useState(false);
   const [policyAnnouncement, setPolicyAnnouncement] = useState('');
   const [policyExpanded, setPolicyExpanded] = useState(false);
   const [payslipHistory, setPayslipHistory] = useState<any[]>([]);
@@ -128,6 +148,9 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     return d;
   });
   const [attendanceCalendarRows, setAttendanceCalendarRows] = useState<any[]>([]);
+  const [attendanceSubTab, setAttendanceSubTab] = useState<'summary' | 'history'>('summary');
+  const [leaveSubTab, setLeaveSubTab] = useState<'balance' | 'history' | 'holidays'>('balance');
+  const [payrollSubTab, setPayrollSubTab] = useState<'breakup' | 'payslips' | 'documents'>('breakup');
   const [leaveSubmitting, setLeaveSubmitting] = useState(false);
   const [optionalHolidaySaving, setOptionalHolidaySaving] = useState(false);
 
@@ -261,10 +284,16 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const handleDownloadMyReport = async (format: 'pdf' | 'xlsx') => {
     setDownloadingMyReport(format);
     try {
+      // Build the range as plain date-only strings directly from the
+      // already-selected calendar year/month — no Date/toISOString()
+      // round-trip, which previously mixed a local-constructed Date with a
+      // UTC serialization and could silently shift the requested range back
+      // a day for any timezone ahead of UTC.
       const year = attendanceCalendarMonth.getFullYear();
       const month = attendanceCalendarMonth.getMonth();
-      const startDate = new Date(year, month, 1).toISOString().slice(0, 10);
-      const endDate = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+      const daysInSelectedMonth = new Date(year, month + 1, 0).getDate();
+      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(daysInSelectedMonth).padStart(2, '0')}`;
       const params = new URLSearchParams({ type: 'attendance', startDate, endDate, format });
       const res = await fetch(`/api/reports/export?${params.toString()}`, { headers: authHeaders });
       if (!res.ok) throw new Error('Download failed');
@@ -315,7 +344,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         setTodayPending(!!todayData.pending);
         setCheckInTime(todayData.log?.createdAt || null);
 
-        const [pctRes, corrRes, wfhRes, histRes, holidaysRes, teamRes, policyRes] = await Promise.all([
+        const [pctRes, corrRes, wfhRes, histRes, holidaysRes, teamRes, policyRes, teamSummaryRes, tenantConfigRes] = await Promise.all([
           fetch('/api/attendance/percentage', { headers: authHeaders }).catch(() => null),
           fetch('/api/attendance/corrections/mine', { headers: authHeaders }).catch(() => null),
           fetch('/api/attendance/wfh/eligibility', { headers: authHeaders }).catch(() => null),
@@ -323,7 +352,18 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           fetch('/api/tenant/holidays', { headers: authHeaders }).catch(() => null),
           fetch('/api/employees/my-team', { headers: authHeaders }).catch(() => null),
           fetch('/api/tenant/policy', { headers: authHeaders }).catch(() => null),
+          user.role === 'manager' ? fetch('/api/employees/my-team/today-summary', { headers: authHeaders }).catch(() => null) : Promise.resolve(null),
+          fetch('/api/tenant/config', { headers: authHeaders }).catch(() => null),
         ]);
+        // Read synchronously into a local variable (not just React state) so
+        // the holiday-filtering code just below — running in this SAME
+        // function call — can use it immediately, instead of racing a
+        // separate setState that wouldn't be visible until the next render.
+        let resolvedTenantTimezone: string | null = null;
+        if (tenantConfigRes?.ok) {
+          const cfg = await tenantConfigRes.json();
+          if (cfg?.tenant?.timezone) { resolvedTenantTimezone = cfg.tenant.timezone; setTenantTimezone(cfg.tenant.timezone); }
+        }
         const [leaveResult, payrollResult] = await Promise.all([
           refreshLeaveData().catch(() => null),
           refreshPayrollData().catch(() => null),
@@ -347,7 +387,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         if (holidaysRes?.ok) {
           const hd = await holidaysRes.json();
           setAllHolidays(hd.holidays || []);
-          const todayStr = new Date().toISOString().slice(0, 10);
+          // Tenant-business-day "today", not flat UTC — a holiday "today"
+          // for the tenant could be dropped from/wrongly kept in this list
+          // near a day boundary if compared against UTC instead.
+          const todayStr = attendanceDateKey(new Date(), resolvedTenantTimezone);
           const upcoming = (hd.holidays || [])
             .filter((holiday: any) => String(holiday.date).slice(0, 10) >= todayStr)
             .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
@@ -355,6 +398,11 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           setUpcomingHolidays(upcoming);
         }
         if (teamRes?.ok) { const t = await teamRes.json(); setMyTeam({ manager: t.manager || null, colleagues: t.colleagues || [] }); }
+        if (teamSummaryRes?.ok) { const ts = await teamSummaryRes.json(); setTodaysTeamSummary(ts); }
+        fetch('/api/employees/me/notification-preferences', { headers: authHeaders })
+          .then((r) => r.json())
+          .then((p) => { if (p.preferences) setNotificationPrefs(p.preferences); })
+          .catch(() => undefined);
         if (policyRes?.ok) { const pl = await policyRes.json(); setPolicyAnnouncement(pl.policyAnnouncement || ''); }
         if (leaveResult?.policies?.length) setLeavePolicyId((current: string) => current || String(leaveResult.policies[0].id));
 
@@ -617,12 +665,12 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   // out of the weekdays (Mon–Fri) that have elapsed in the month so far.
   const attendanceThisMonth = (() => {
     const now = new Date();
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthKey = attendanceMonthKey(now, tenantTimezone);
     const presentDates = new Set<string>();
     attendanceHistory.forEach((log: any) => {
       if (log.type !== 'check_in' || log.status !== 'approved' || !log.createdAt) return;
       const d = new Date(log.createdAt);
-      const key = attendanceDateKey(d);
+      const key = attendanceDateKey(d, tenantTimezone);
       if (key.startsWith(monthKey)) presentDates.add(key);
     });
     let workingDaysSoFar = 0;
@@ -643,14 +691,14 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   // reliably computable from what's already on the page.
   const totalHoursThisMonth = useMemo(() => {
     const now = new Date();
-    const monthKey = attendanceMonthKey(now);
+    const monthKey = attendanceMonthKey(now, tenantTimezone);
     const byDay = new Map<string, any[]>();
     attendanceHistory.forEach((log: any) => {
       if (!log.createdAt || log.status !== 'approved') return;
       if (log.type !== 'check_in' && log.type !== 'check_out') return;
       const d = new Date(log.createdAt);
-      if (attendanceMonthKey(d) !== monthKey) return;
-      const dayKey = attendanceDateKey(d);
+      if (attendanceMonthKey(d, tenantTimezone) !== monthKey) return;
+      const dayKey = attendanceDateKey(d, tenantTimezone);
       const list = byDay.get(dayKey) || [];
       list.push(log);
       byDay.set(dayKey, list);
@@ -666,7 +714,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     });
     const totalHours = totalMs / (1000 * 60 * 60);
     return `${totalHours.toFixed(1)}h`;
-  }, [attendanceHistory]);
+  }, [attendanceHistory, tenantTimezone]);
 
   // Month grid for the "Leave History" calendar view — marks this
   // employee's own leave-request days (colored by status) and company
@@ -704,12 +752,12 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     const firstDay = new Date(year, month, 1);
     const startOffset = firstDay.getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const todayKey = attendanceDateKey(new Date());
+    const todayKey = attendanceDateKey(new Date(), tenantTimezone);
 
     const attendanceByDate = new Map<string, { approvedCheckIn: any | null; pendingCheckIn: any | null }>();
     attendanceCalendarRows.forEach((log: any) => {
       if (!log.createdAt || log.type !== 'check_in') return;
-      const key = attendanceDateKey(new Date(log.createdAt));
+      const key = attendanceDateKey(new Date(log.createdAt), tenantTimezone);
       const entry = attendanceByDate.get(key) || { approvedCheckIn: null, pendingCheckIn: null };
       if (log.status === 'approved') entry.approvedCheckIn = log;
       if (log.status === 'pending') entry.pendingCheckIn = log;
@@ -740,7 +788,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(year, month, day);
-      const dateKey = attendanceDateKey(date);
+      const dateKey = attendanceDateKey(date, tenantTimezone);
       const entry = attendanceByDate.get(dateKey);
       const holidayName = holidayByDate.get(dateKey) || null;
       const leave = leaveRanges.find((range) => dateKey >= range.start && dateKey <= range.end) || null;
@@ -760,7 +808,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     }
 
     return cells;
-  }, [attendanceCalendarMonth, attendanceCalendarRows, allHolidays, leaveData?.policies, leaveData?.requests]);
+  }, [attendanceCalendarMonth, attendanceCalendarRows, allHolidays, leaveData?.policies, leaveData?.requests, tenantTimezone]);
 
   const navItems: PortalNavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -972,8 +1020,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               and today's breaks-so-far here, so the decision to go on break
               is made with that context in view, not just the bare form. */}
           {showTakeBreakModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowTakeBreakModal(false)}>
-              <div className="nexus-card rounded-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowTakeBreakModal(false)}>
+              <div className="nexus-card rounded-xl p-5 sm:p-6 w-full max-w-sm max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Take a Break</h2>
                   <button type="button" onClick={() => setShowTakeBreakModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] p-1">
@@ -1023,32 +1071,32 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               fabricated numbers): attendanceThisMonth from attendanceHistory,
               payrollData.summary.monthlyNet from /api/payroll/mine,
               leaveBalanceTotal summed from leaveData.balances. */}
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="rounded-[12px] p-5 bg-[var(--color-nexus-primary)] text-white">
-              <span className="block text-xs font-medium text-white/80">Attendance This Month</span>
-              <span className="block text-[28px] leading-tight font-bold mt-2">{attendanceThisMonth.presentDays} days present</span>
-              <span className="block text-xs text-white/80 mt-1">out of {attendanceThisMonth.workingDaysSoFar} working days so far</span>
+          <div className="grid sm:grid-cols-3 gap-2 md:gap-4">
+            <div className="rounded-[10px] md:rounded-[12px] p-3 md:p-5 bg-[var(--color-nexus-primary)] text-white">
+              <span className="block text-[10px] md:text-xs font-medium text-white/80">Attendance This Month</span>
+              <span className="block text-[22px] md:text-[28px] leading-tight font-bold mt-1 md:mt-2">{attendanceThisMonth.presentDays} days present</span>
+              <span className="block text-[10px] md:text-xs text-white/80 mt-0.5 md:mt-1">out of {attendanceThisMonth.workingDaysSoFar} working days so far</span>
             </div>
-            <button onClick={() => setTab('payroll')} className="text-left nexus-card p-5">
-              <span className="block text-xs font-medium text-[var(--color-nexus-muted)]">Upcoming Payslip</span>
-              <span className="block text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-2">
+            <button onClick={() => setTab('payroll')} className="text-left nexus-card p-3 md:p-5">
+              <span className="block text-[10px] md:text-xs font-medium text-[var(--color-nexus-muted)]">Upcoming Payslip</span>
+              <span className="block text-[22px] md:text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-1 md:mt-2">
                 {payrollData?.summary ? `₹${Math.round(payrollData.summary.monthlyNet).toLocaleString()}` : '—'}
               </span>
-              <span className="block text-xs text-[var(--color-nexus-muted)] mt-1">
+              <span className="block text-[10px] md:text-xs text-[var(--color-nexus-muted)] mt-0.5 md:mt-1">
                 {payrollData?.summary ? `${new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · net pay` : 'Payroll not configured yet'}
               </span>
             </button>
-            <button onClick={() => setTab('leave')} className="text-left nexus-card p-5">
-              <span className="block text-xs font-medium text-[var(--color-nexus-muted)]">Leave Balance</span>
-              <span className="block text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-2">
+            <button onClick={() => setTab('leave')} className="text-left nexus-card p-3 md:p-5">
+              <span className="block text-[10px] md:text-xs font-medium text-[var(--color-nexus-muted)]">Leave Balance</span>
+              <span className="block text-[22px] md:text-[28px] leading-tight font-bold text-[var(--color-nexus-ink)] mt-1 md:mt-2">
                 {leaveData?.balances?.length ? `${leaveBalanceTotal} days` : '—'}
               </span>
-              <span className="block text-xs text-[var(--color-nexus-muted)] mt-1">remaining across all types</span>
+              <span className="block text-[10px] md:text-xs text-[var(--color-nexus-muted)] mt-0.5 md:mt-1">remaining across all types</span>
             </button>
           </div>
 
           {/* Status tiles */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
             <StatCard
               label="Checked In"
               icon={Clock}
@@ -1139,6 +1187,37 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               into Teams-style separate destinations instead of one long
               scroll. */}
 
+          <div className="nexus-card p-5">
+            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-1">Notification Preferences</h2>
+            <p className="text-[11px] text-[var(--color-nexus-muted)] mb-3">Turn off a channel you don't want notifications on — you'll still get them on the other channel(s) an event is configured to use.</p>
+            <div className="flex flex-wrap gap-4">
+              {(['email', 'in_app'] as const).map((channel) => (
+                <label key={channel} className="flex items-center gap-2 text-sm text-[var(--color-nexus-ink)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={notificationPrefs[channel]}
+                    disabled={savingNotificationPrefs}
+                    onChange={async (e) => {
+                      const next = { ...notificationPrefs, [channel]: e.target.checked };
+                      setNotificationPrefs(next);
+                      setSavingNotificationPrefs(true);
+                      try {
+                        await fetch('/api/employees/me/notification-preferences', {
+                          method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+                          body: JSON.stringify(next),
+                        });
+                      } finally {
+                        setSavingNotificationPrefs(false);
+                      }
+                    }}
+                    className="rounded text-[var(--color-nexus-secondary)]"
+                  />
+                  {channel === 'email' ? 'Email' : 'In-App'}
+                </label>
+              ))}
+            </div>
+          </div>
+
           {user.role !== 'employee' && user.role !== 'intern' && (myPrivileges === 'ALL' || myPrivileges.length > 0) && (
             <button onClick={() => navigate('/dashboard')} className={`${tile} w-full text-left flex items-center justify-between gap-4`}>
               <div>
@@ -1155,6 +1234,30 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           own destination (was ~40 lines inline there). */}
       {tab === 'team' && (
         <div className="space-y-6">
+          {user.role === 'manager' && todaysTeamSummary?.hasReports && (
+            <div className="nexus-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Users size={16} className="text-[var(--color-nexus-secondary)]" />
+                <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Today's Team</h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {([
+                  ['Present', todaysTeamSummary.present, 'text-emerald-600'],
+                  ['Absent', todaysTeamSummary.absent, 'text-rose-600'],
+                  ['Late', todaysTeamSummary.late, 'text-amber-600'],
+                  ['Pending Leave', todaysTeamSummary.pendingLeave, 'text-[var(--color-nexus-secondary)]'],
+                  ['Pending Corrections', todaysTeamSummary.pendingCorrections, 'text-[var(--color-nexus-secondary)]'],
+                ] as const).map(([label, value, colorClass]) => (
+                  <div key={label} className="text-center p-2.5 rounded-lg bg-[var(--color-nexus-surface-alt)]">
+                    <div className={`text-xl font-bold ${colorClass}`}>{value}</div>
+                    <div className="text-[10px] text-[var(--color-nexus-muted)] mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-[var(--color-nexus-muted)] mt-3">Of {todaysTeamSummary.total} direct report{todaysTeamSummary.total === 1 ? '' : 's'}.</p>
+            </div>
+          )}
+
           <div className="nexus-card p-5">
             <div className="flex items-center gap-2 mb-4">
               <Users size={16} className="text-[var(--color-nexus-secondary)]" />
@@ -1231,26 +1334,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           calendar/history below, and (b) removing it was the single biggest
           length reduction for the Overview tab on mobile. */}
       {tab === 'attendance' && (
-        <div className="space-y-6">
-          <AttendanceTimeline
-            attendanceHistory={attendanceHistory}
-            leaveRequests={leaveData?.requests || []}
-            holidays={allHolidays}
-            todayState={todayState}
-            todayPending={todayPending}
-            checkInTime={checkInTime}
-            hoursWorked={hoursWorked}
-            onMarkAttendance={() => navigate('/employee/attendance?mode=office')}
-            authHeaders={authHeaders}
-          />
-
-          {/* Stat row — counts derived from the same attendanceCalendarCells
-              already computed for the calendar below (current visible
-              month), matching the reference's attendance-history stat strip.
-              No fabricated averages: hours-worked-per-day isn't tracked
-              anywhere in attendanceHistory, so the 4th card is Absent Days
-              (a real, already-categorized count) rather than an invented
-              "avg hours" figure. */}
+        <div className="space-y-4 md:space-y-6">
+          {/* Stat row — always on top, immediately below the page header */}
           {(() => {
             const inMonthCells = attendanceCalendarCells.filter((c) => c.inMonth);
             const presentDays = inMonthCells.filter((c) => c.status === 'present').length;
@@ -1258,7 +1343,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             const onLeaveDays = inMonthCells.filter((c) => c.status === 'leave' || c.status === 'paid_leave' || c.status === 'half_day').length;
             const absentDays = inMonthCells.filter((c) => c.status === 'absent').length;
             return (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4">
                 <StatCard label="Present Days" value={presentDays} icon={CheckCircle2} iconBg="var(--color-nexus-tertiary-fixed)" caption={attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'long' })} />
                 <StatCard label="Pending Approval" value={lateDays} icon={AlarmClock} iconBg="var(--color-nexus-secondary-container)" iconColor="var(--color-nexus-secondary)" />
                 <StatCard label="On Leave" value={onLeaveDays} icon={Plane} iconBg="var(--color-nexus-secondary-container)" iconColor="var(--color-nexus-secondary)" />
@@ -1267,81 +1352,195 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             );
           })()}
 
-          <div className="nexus-card rounded-xl p-6">
-            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-              <div>
-                <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Attendance Calendar</h2>
-                <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1">Month view with the same status colors used by admins.</p>
+          {/* Mobile sub-tabs: Summary | History — reduces scrolling significantly */}
+          <div className="md:hidden">
+            <div className="flex bg-[var(--color-nexus-surface-alt)] rounded-lg p-0.5 mb-3">
+              <button
+                onClick={() => setAttendanceSubTab('summary')}
+                className={`flex-1 text-center py-2 text-[12px] font-semibold rounded-md transition-colors ${
+                  attendanceSubTab === 'summary'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Summary
+              </button>
+              <button
+                onClick={() => setAttendanceSubTab('history')}
+                className={`flex-1 text-center py-2 text-[12px] font-semibold rounded-md transition-colors ${
+                  attendanceSubTab === 'history'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                History
+              </button>
+            </div>
+
+            {attendanceSubTab === 'summary' && (
+              <div className="space-y-4">
+                <AttendanceTimeline
+                  attendanceHistory={attendanceHistory}
+                  leaveRequests={leaveData?.requests || []}
+                  holidays={allHolidays}
+                  todayState={todayState}
+                  todayPending={todayPending}
+                  checkInTime={checkInTime}
+                  hoursWorked={hoursWorked}
+                  onMarkAttendance={() => navigate('/employee/attendance?mode=office')}
+                  authHeaders={authHeaders}
+                />
+
+                <div className="nexus-card rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                    <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] font-sans">Attendance Calendar</h2>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="p-1 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                        <ChevronLeft size={14} />
+                      </button>
+                      <span className="text-[11px] font-bold text-[var(--color-nexus-ink)]">{attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>
+                      <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="p-1 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {ATTENDANCE_CALENDAR_LEGEND.map((item) => (
+                      <div key={item.status} className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full border ${ATTENDANCE_CALENDAR_STYLES[item.status]}`} />
+                        <span className="text-[8px] uppercase font-bold text-[var(--color-nexus-muted)] tracking-wider">{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-1 mb-1">
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayLabel, index) => (
+                      <div key={`${dayLabel}-${index}`} className="text-center text-[8px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{dayLabel}</div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-1">
+                    {attendanceCalendarCells.map((cell) => (
+                      <div
+                        key={cell.dateKey}
+                        title={cell.inMonth ? `${cell.dateKey} — ${cell.label}` : undefined}
+                        className={`aspect-square rounded-md flex items-center justify-center border text-[9px] font-mono font-bold ${cell.inMonth ? ATTENDANCE_CALENDAR_STYLES[cell.status as Exclude<AttendanceCalendarStatus, 'none'>] : 'border-transparent'}`}
+                      >
+                        {cell.inMonth ? cell.dayNum : ''}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 mt-3">
+                    <button type="button" onClick={() => handleDownloadMyReport('pdf')} disabled={downloadingMyReport !== null} className="flex-1 rounded-lg border border-[var(--color-nexus-border)] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50">
+                      {downloadingMyReport === 'pdf' ? '…' : 'PDF'}
+                    </button>
+                    <button type="button" onClick={() => handleDownloadMyReport('xlsx')} disabled={downloadingMyReport !== null} className="flex-1 rounded-lg border border-[var(--color-nexus-border)] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50">
+                      {downloadingMyReport === 'xlsx' ? '…' : 'Excel'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-                  <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadMyReport('pdf')}
-                    disabled={downloadingMyReport !== null}
-                    className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50"
-                  >
-                    {downloadingMyReport === 'pdf' ? 'Downloading…' : 'Download PDF'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDownloadMyReport('xlsx')}
-                    disabled={downloadingMyReport !== null}
-                    className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50"
-                  >
-                    {downloadingMyReport === 'xlsx' ? 'Downloading…' : 'Download Excel'}
-                  </button>
-                </div>
+            )}
+
+            {attendanceSubTab === 'history' && (
+              <div className="nexus-card rounded-xl p-3">
+                <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] mb-3 font-sans">Attendance History</h2>
+                <DataTable
+                  data={attendanceHistory}
+                  columns={historyColumns}
+                  searchPlaceholder="Search by status..."
+                  globalFilterColumnIds={['status', 'type']}
+                  pageSize={12}
+                  emptyMessage="No attendance records yet."
+                  mobileCardTitleKey="createdAt"
+                  mobileCardStatusKey="status"
+                />
               </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 mb-3">
-              {ATTENDANCE_CALENDAR_LEGEND.map((item) => (
-                <div key={item.status} className="flex items-center gap-1.5">
-                  <span className={`w-2.5 h-2.5 rounded-full border ${ATTENDANCE_CALENDAR_STYLES[item.status]}`} />
-                  <span className="text-[9px] uppercase font-bold text-[var(--color-nexus-muted)] tracking-wider">{item.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-1.5 mb-1.5">
-              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayLabel, index) => (
-                <div key={`${dayLabel}-${index}`} className="text-center text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{dayLabel}</div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-1.5">
-              {attendanceCalendarCells.map((cell) => (
-                <div
-                  key={cell.dateKey}
-                  title={cell.inMonth ? `${cell.dateKey} — ${cell.label}` : undefined}
-                  className={`aspect-square rounded-lg flex items-center justify-center border text-[10px] font-mono font-bold ${cell.inMonth ? ATTENDANCE_CALENDAR_STYLES[cell.status as Exclude<AttendanceCalendarStatus, 'none'>] : 'border-transparent'}`}
-                >
-                  {cell.inMonth ? cell.dayNum : ''}
-                </div>
-              ))}
-            </div>
+            )}
           </div>
 
-          <div className="nexus-card rounded-xl p-6">
-            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">My Attendance History</h2>
-            <DataTable
-              data={attendanceHistory}
-              columns={historyColumns}
-              searchPlaceholder="Search by status..."
-              globalFilterColumnIds={['status', 'type']}
-              pageSize={12}
-              emptyMessage="No attendance records yet."
+          {/* Desktop: full vertical layout unchanged */}
+          <div className="hidden md:block space-y-6">
+            <AttendanceTimeline
+              attendanceHistory={attendanceHistory}
+              leaveRequests={leaveData?.requests || []}
+              holidays={allHolidays}
+              todayState={todayState}
+              todayPending={todayPending}
+              checkInTime={checkInTime}
+              hoursWorked={hoursWorked}
+              onMarkAttendance={() => navigate('/employee/attendance?mode=office')}
+              authHeaders={authHeaders}
             />
+
+            <div className="nexus-card rounded-xl p-6">
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div>
+                  <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Attendance Calendar</h2>
+                  <p className="text-[11px] text-[var(--color-nexus-muted)] mt-1">Month view with the same status colors used by admins.</p>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{attendanceCalendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                    <button type="button" onClick={() => setAttendanceCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button type="button" onClick={() => handleDownloadMyReport('pdf')} disabled={downloadingMyReport !== null} className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50">
+                      {downloadingMyReport === 'pdf' ? 'Downloading…' : 'Download PDF'}
+                    </button>
+                    <button type="button" onClick={() => handleDownloadMyReport('xlsx')} disabled={downloadingMyReport !== null} className="rounded-lg border border-[var(--color-nexus-border)] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-50">
+                      {downloadingMyReport === 'xlsx' ? 'Downloading…' : 'Download Excel'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 mb-3">
+                {ATTENDANCE_CALENDAR_LEGEND.map((item) => (
+                  <div key={item.status} className="flex items-center gap-1.5">
+                    <span className={`w-2.5 h-2.5 rounded-full border ${ATTENDANCE_CALENDAR_STYLES[item.status]}`} />
+                    <span className="text-[9px] uppercase font-bold text-[var(--color-nexus-muted)] tracking-wider">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1.5 mb-1.5">
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayLabel, index) => (
+                  <div key={`${dayLabel}-${index}`} className="text-center text-[9px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">{dayLabel}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1.5">
+                {attendanceCalendarCells.map((cell) => (
+                  <div
+                    key={cell.dateKey}
+                    title={cell.inMonth ? `${cell.dateKey} — ${cell.label}` : undefined}
+                    className={`aspect-square rounded-lg flex items-center justify-center border text-[10px] font-mono font-bold ${cell.inMonth ? ATTENDANCE_CALENDAR_STYLES[cell.status as Exclude<AttendanceCalendarStatus, 'none'>] : 'border-transparent'}`}
+                  >
+                    {cell.inMonth ? cell.dayNum : ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="nexus-card rounded-xl p-6">
+              <h2 className="text-base font-bold text-[var(--color-nexus-ink)] mb-4 font-sans">My Attendance History</h2>
+              <DataTable
+                data={attendanceHistory}
+                columns={historyColumns}
+                searchPlaceholder="Search by status..."
+                globalFilterColumnIds={['status', 'type']}
+                pageSize={12}
+                emptyMessage="No attendance records yet."
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1355,16 +1554,45 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           Payroll Breakup/Payslips/Documents moved to their own 'payroll'
           tab below. */}
       {tab === 'leave' && (
-        <div className="space-y-6">
-          {/* Two-column layout — request-related (balances + Apply Leave) on
-              the left, history on the right, matching the Nexus reference's
-              leave-management screen shape. Apply Leave itself stays a modal
-              (Leave type / Date range / Reason / Submit·Cancel) rather than a
-              permanently-open inline form — that's an existing, deliberate
-              choice unrelated to this visual pass, not something this
-              restyle should silently undo. */}
+        <div className="space-y-4 md:space-y-6">
+          {/* Mobile sub-tabs: Balances | History | Holidays */}
+          <div className="md:hidden">
+            <div className="flex bg-[var(--color-nexus-surface-alt)] rounded-lg p-0.5 mb-3">
+              <button
+                onClick={() => setLeaveSubTab('balance')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  leaveSubTab === 'balance'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Balances
+              </button>
+              <button
+                onClick={() => setLeaveSubTab('history')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  leaveSubTab === 'history'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                History
+              </button>
+              <button
+                onClick={() => setLeaveSubTab('holidays')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  leaveSubTab === 'holidays'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Holidays
+              </button>
+            </div>
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4 items-start">
-            <div className="nexus-card p-6">
+            <div className={`nexus-card p-4 sm:p-6 ${leaveSubTab === 'balance' ? 'block' : 'hidden md:block'}`}>
               <div className="flex items-center justify-between gap-3 mb-4">
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Leave Tracker</h2>
                 <button
@@ -1392,7 +1620,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               )}
             </div>
 
-            <div className="nexus-card p-6">
+            <div className={`nexus-card p-4 sm:p-6 ${leaveSubTab === 'history' ? 'block' : 'hidden md:block'}`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Leave History</h2>
                 <div className="flex items-center gap-1 rounded-lg border border-[var(--color-nexus-border)] p-0.5">
@@ -1416,41 +1644,17 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               </div>
 
               {leaveHistoryView === 'list' ? (
-                <>
-                  {/* Desktop/tablet: the full table. Hidden below md — same
-                      reasoning as EarningsBreakdown's daily table: a dense
-                      table that wide only works with room to breathe, and on
-                      a phone becomes an unreadable horizontal-scroll strip. */}
-                  <div className="hidden md:block">
-                    <DataTable
-                      data={leaveData?.requests || []}
-                      columns={leaveHistoryColumns}
-                      searchPlaceholder="Search by type or status..."
-                      globalFilterColumnIds={['leaveType', 'status']}
-                      pageSize={8}
-                      emptyMessage="No leave requests yet."
-                      renderRowDetail={(request: any) => request.reason ? <span><strong>Reason:</strong> {request.reason}</span> : null}
-                    />
-                  </div>
-
-                  {/* Mobile: same data, one stacked card per request. */}
-                  <div className="md:hidden space-y-3">
-                    {(leaveData?.requests || []).length === 0 ? (
-                      <div className="nexus-card rounded-xl p-6 text-center text-xs text-[var(--color-nexus-muted)]">No leave requests yet.</div>
-                    ) : (leaveData?.requests || []).map((request: any) => (
-                      <div key={request.id} className="nexus-card rounded-xl p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-bold text-[var(--color-nexus-ink)]">{request.leaveType}</span>
-                          <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'error' : 'warning'} dot>{request.status}</StatusPill>
-                        </div>
-                        <p className="mt-1.5 text-[11px] text-[var(--color-nexus-muted)]">{request.startDate} to {request.endDate} · {request.totalDays} day(s)</p>
-                        {request.reason && (
-                          <p className="mt-1.5 text-[11px] text-[var(--color-nexus-ink)]"><strong>Reason:</strong> {request.reason}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <DataTable
+                  data={leaveData?.requests || []}
+                  columns={leaveHistoryColumns}
+                  searchPlaceholder="Search by type or status..."
+                  globalFilterColumnIds={['leaveType', 'status']}
+                  pageSize={8}
+                  emptyMessage="No leave requests yet."
+                  renderRowDetail={(request: any) => request.reason ? <span><strong>Reason:</strong> {request.reason}</span> : null}
+                  mobileCardTitleKey="leaveType"
+                  mobileCardStatusKey="status"
+                />
               ) : (
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -1567,7 +1771,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
-          <div className="nexus-card rounded-xl p-6">
+          <div className={`nexus-card rounded-xl p-4 sm:p-6 ${leaveSubTab === 'holidays' ? 'block' : 'hidden md:block'}`}>
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">Optional Holidays</h2>
@@ -1637,8 +1841,44 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       {/* PAYROLL — split off the old combined "Leave & Payroll" tab; see the
           comment above the 'leave' tab for why. */}
       {tab === 'payroll' && (
-        <div className="space-y-6">
-          <div className="nexus-card rounded-xl p-6">
+        <div className="space-y-4 md:space-y-6">
+          {/* Mobile sub-tabs: Breakup | Payslips | Documents */}
+          <div className="md:hidden">
+            <div className="flex bg-[var(--color-nexus-surface-alt)] rounded-lg p-0.5 mb-3">
+              <button
+                onClick={() => setPayrollSubTab('breakup')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  payrollSubTab === 'breakup'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Breakup
+              </button>
+              <button
+                onClick={() => setPayrollSubTab('payslips')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  payrollSubTab === 'payslips'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Payslips
+              </button>
+              <button
+                onClick={() => setPayrollSubTab('documents')}
+                className={`flex-1 text-center py-2 text-[11px] font-semibold rounded-md transition-colors ${
+                  payrollSubTab === 'documents'
+                    ? 'bg-[var(--color-nexus-surface)] text-[var(--color-nexus-primary)] shadow-sm'
+                    : 'text-[var(--color-nexus-muted)]'
+                }`}
+              >
+                Documents
+              </button>
+            </div>
+          </div>
+
+          <div className={`nexus-card rounded-xl p-4 sm:p-6 ${payrollSubTab === 'breakup' ? 'block' : 'hidden md:block'}`}>
             <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payroll Breakup</h2>
             {!payrollData?.summary ? (
               <p className="text-sm text-[var(--color-nexus-muted)]">Payroll structure has not been configured yet.</p>
@@ -1693,13 +1933,13 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             )}
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-4">
-            <div className="nexus-card p-5 bg-[var(--color-nexus-primary-container)] text-white lg:col-span-1">
+          <div className={`grid lg:grid-cols-3 gap-4 ${payrollSubTab === 'payslips' ? 'block' : 'hidden md:grid'}`}>
+            <div className="nexus-card p-5 bg-[var(--color-nexus-primary-container)] text-white lg:col-span-1 hidden sm:block">
               <ShieldCheck size={20} className="text-[var(--color-nexus-tertiary-fixed)]" />
               <h3 className="text-base font-bold mt-2">Secure Payout</h3>
               <p className="text-sm text-white/70 mt-2 leading-relaxed">Your salary is processed through encrypted financial channels.</p>
             </div>
-            <div className="nexus-card rounded-xl p-6 lg:col-span-2">
+            <div className="nexus-card rounded-xl p-4 sm:p-6 lg:col-span-2">
               <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payslip History</h2>
               <DataTable
                 data={payslipHistory}
@@ -1707,13 +1947,15 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 searchPlaceholder="Search by month..."
                 pageSize={6}
                 emptyMessage="No payslips generated yet — one is recorded automatically each month you visit this page."
+                mobileCardTitleKey="period"
+                mobileCardStatusKey="status"
               />
             </div>
           </div>
 
-          {/* Renders nothing unless the tenant has document storage turned
-              on (Administration > Advanced & Security). */}
-          <DocumentsPanel userId={user.id} canUpload canDelete />
+          <div className={payrollSubTab === 'documents' ? 'block' : 'hidden md:block'}>
+            <DocumentsPanel userId={user.id} canUpload canDelete />
+          </div>
         </div>
       )}
 
@@ -1744,8 +1986,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
       {/* Correction request modal */}
       {showCorrectionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowCorrectionModal(false)}>
-          <div className="max-w-md w-full bg-[var(--color-nexus-surface)] rounded-xl p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/40 backdrop-blur-sm" onClick={() => setShowCorrectionModal(false)}>
+          <div className="max-w-md w-full max-h-[92vh] overflow-y-auto bg-[var(--color-nexus-surface)] rounded-xl p-5 sm:p-8 shadow-2xl border border-[var(--color-nexus-border)]" onClick={e => e.stopPropagation()}>
             {correctionSubmitted ? (
               <div className="text-center py-6">
                 <p className="text-[var(--color-nexus-secondary)] font-bold text-sm uppercase tracking-wider">Request submitted</p>
@@ -1753,16 +1995,28 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
               </div>
             ) : (
               <form onSubmit={handleSubmitCorrection}>
-                <h3 className="text-[var(--color-nexus-ink)] font-bold text-sm uppercase tracking-wider mb-5">Request Attendance Correction</h3>
-                <div className="space-y-4">
-                  <select value={correctionType} onChange={e => setCorrectionType(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
-                    <option value="missed_checkin">Missed Check-In</option><option value="missed_checkout">Missed Check-Out</option><option value="wrong_location">Wrong Location Flagged</option><option value="other">Other</option>
-                  </select>
-                  <DateSelect value={correctionDate} onChange={setCorrectionDate} required />
-                  <TimeSelect value={correctionTime} onChange={setCorrectionTime} />
-                  <textarea value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} rows={3} placeholder="Explain what happened…" className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none" required />
+                <h3 className="text-[var(--color-nexus-ink)] font-bold text-sm uppercase tracking-wider mb-4">Request Attendance Correction</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Issue Type</label>
+                    <select value={correctionType} onChange={e => setCorrectionType(e.target.value)} className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]">
+                      <option value="missed_checkin">Missed Check-In</option><option value="missed_checkout">Missed Check-Out</option><option value="wrong_location">Wrong Location Flagged</option><option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Date</label>
+                    <DateSelect value={correctionDate} onChange={setCorrectionDate} required />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Time (Optional)</label>
+                    <TimeSelect value={correctionTime} onChange={setCorrectionTime} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Reason</label>
+                    <textarea value={correctionReason} onChange={e => setCorrectionReason(e.target.value)} rows={3} placeholder="Explain what happened…" className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] resize-none" required />
+                  </div>
                 </div>
-                <div className="flex gap-3 mt-6">
+                <div className="flex gap-3 mt-5">
                   <button type="button" onClick={() => setShowCorrectionModal(false)} className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors">Cancel</button>
                   <button type="submit" disabled={correctionSubmitting} className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white rounded-xl py-3 text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50">{correctionSubmitting ? 'Submitting...' : 'Submit'}</button>
                 </div>

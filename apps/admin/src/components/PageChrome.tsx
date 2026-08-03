@@ -56,7 +56,7 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
       initial={{ opacity: 0, y: -12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className={`fixed top-4 sm:top-6 left-4 sm:left-6 z-40 flex items-center gap-1.5 sm:gap-2 max-w-[62%] ${className}`}
+      className={`hidden md:flex fixed top-4 sm:top-6 left-4 sm:left-6 z-40 items-center gap-1.5 sm:gap-2 max-w-[62%] ${className}`}
     >
       {/* Text labels collapse to icon-only below the sm breakpoint — on a
           narrow phone this pair was wide enough to run into whatever's

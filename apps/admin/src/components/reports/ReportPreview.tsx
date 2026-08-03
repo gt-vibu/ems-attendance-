@@ -132,7 +132,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
         else if (s.includes('leave')) leave += 1;
         else if (s.includes('absent')) absent += 1;
         else if (s.includes('present') || s.includes('half') || s.includes('wfh')) present += 1;
-        workingHours += Number(r.workingHours) || 0;
+        workingHours += r.rawHours ?? (Number(r.workingHours) || 0);
       }
       return { key, ...v, present, absent, late, leave, workingHours };
     });
@@ -1073,58 +1073,65 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
             );
           })()
         ) : layoutId === 'weekly_grid' && weeklyGrid ? (
-          <table className="w-full text-left border-collapse text-[11px]">
-            <thead>
-              <tr className={`${theme.tableHeaderBg} ${theme.tableHeaderText} font-semibold uppercase tracking-wider`}>
-                <th className="p-2 whitespace-nowrap">#</th>
-                <th className="p-2 whitespace-nowrap">Employee ID</th>
-                <th className="p-2 whitespace-nowrap">Employee Name</th>
-                <th className="p-2 whitespace-nowrap">Department</th>
-                {weeklyGrid.dates.map((d) => (
-                  <th key={d} className="p-2 text-center whitespace-nowrap">
-                    {new Date(d).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit' })}
-                  </th>
-                ))}
-                <th className="p-2 text-center whitespace-nowrap">Present<br />(Days)</th>
-                <th className="p-2 text-center whitespace-nowrap">Absent<br />(Days)</th>
-                <th className="p-2 text-center whitespace-nowrap">Late<br />(Days)</th>
-                <th className="p-2 text-center whitespace-nowrap">Leave<br />(Days)</th>
-                <th className="p-2 text-center whitespace-nowrap">Working<br />Hours</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {weeklyGrid.employees.map((e, i) => (
-                <tr key={e.key} className={i % 2 === 1 ? 'bg-slate-50/60' : ''}>
-                  <td className="p-2 text-slate-500">{i + 1}</td>
-                  <td className="p-2 font-medium text-slate-700">{e.employeeId}</td>
-                  <td className="p-2 font-medium" style={{ color: theme.accentColor }}>{e.employeeName}</td>
-                  <td className="p-2 text-slate-600">{e.department}</td>
-                  {weeklyGrid.dates.map((d) => {
-                    const r = weeklyGrid.cellMap.get(`${e.key}|${d}`);
-                    if (!r) return <td key={d} className="p-2 text-center text-slate-400 font-semibold">WO</td>;
-                    const s = weeklyGridStatusIcon(r.status);
-                    return <td key={d} className={`p-2 text-center ${s.cls}`} title={s.label}>{s.icon}</td>;
-                  })}
-                  <td className="p-2 text-center text-slate-700">{e.present}</td>
-                  <td className="p-2 text-center text-slate-700">{e.absent}</td>
-                  <td className="p-2 text-center text-slate-700">{e.late}</td>
-                  <td className="p-2 text-center text-slate-700">{e.leave}</td>
-                  <td className="p-2 text-center text-slate-700">{Math.round(e.workingHours * 60) / 60}h</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="font-bold bg-emerald-50/60 border-t-2 border-emerald-100">
-                <td className="p-2" colSpan={4}>TOTAL</td>
-                {weeklyGrid.totals.map((t, i) => <td key={i} className="p-2 text-center text-slate-700">{t}</td>)}
-                <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.present}</td>
-                <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.absent}</td>
-                <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.late}</td>
-                <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.leave}</td>
-                <td className="p-2 text-center text-slate-700">{Math.round(weeklyGrid.grand.workingHours * 60) / 60}h</td>
-              </tr>
-            </tfoot>
-          </table>
+          (() => {
+            const showStatusCols = columns.some((c) => c.key === 'status' || c.key === 'presentDays');
+            const showLateCol = columns.some((c) => c.key === 'lateMins' || c.key === 'lateCount');
+            const showHrsCol = columns.some((c) => c.key === 'workingHours');
+            return (
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className={`${theme.tableHeaderBg} ${theme.tableHeaderText} font-semibold uppercase tracking-wider`}>
+                    <th className="p-2 whitespace-nowrap">#</th>
+                    <th className="p-2 whitespace-nowrap">Employee ID</th>
+                    <th className="p-2 whitespace-nowrap">Employee Name</th>
+                    <th className="p-2 whitespace-nowrap">Department</th>
+                    {weeklyGrid.dates.map((d) => (
+                      <th key={d} className="p-2 text-center whitespace-nowrap">
+                        {new Date(d).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit' })}
+                      </th>
+                    ))}
+                    {showStatusCols && <th className="p-2 text-center whitespace-nowrap">Present<br />(Days)</th>}
+                    {showStatusCols && <th className="p-2 text-center whitespace-nowrap">Absent<br />(Days)</th>}
+                    {showLateCol && <th className="p-2 text-center whitespace-nowrap">Late<br />(Days)</th>}
+                    {showStatusCols && <th className="p-2 text-center whitespace-nowrap">Leave<br />(Days)</th>}
+                    {showHrsCol && <th className="p-2 text-center whitespace-nowrap">Working<br />Hours</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {weeklyGrid.employees.map((e, i) => (
+                    <tr key={e.key} className={i % 2 === 1 ? 'bg-slate-50/60' : ''}>
+                      <td className="p-2 text-slate-500">{i + 1}</td>
+                      <td className="p-2 font-medium text-slate-700">{e.employeeId}</td>
+                      <td className="p-2 font-medium" style={{ color: theme.accentColor }}>{e.employeeName}</td>
+                      <td className="p-2 text-slate-600">{e.department}</td>
+                      {weeklyGrid.dates.map((d) => {
+                        const r = weeklyGrid.cellMap.get(`${e.key}|${d}`);
+                        if (!r) return <td key={d} className="p-2 text-center text-slate-400 font-semibold">WO</td>;
+                        const s = weeklyGridStatusIcon(r.status);
+                        return <td key={d} className={`p-2 text-center ${s.cls}`} title={s.label}>{s.icon}</td>;
+                      })}
+                      {showStatusCols && <td className="p-2 text-center text-slate-700">{e.present}</td>}
+                      {showStatusCols && <td className="p-2 text-center text-slate-700">{e.absent}</td>}
+                      {showLateCol && <td className="p-2 text-center text-slate-700">{e.late}</td>}
+                      {showStatusCols && <td className="p-2 text-center text-slate-700">{e.leave}</td>}
+                      {showHrsCol && <td className="p-2 text-center text-slate-700">{Math.round(e.workingHours * 10) / 10}h</td>}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-bold bg-emerald-50/60 border-t-2 border-emerald-100">
+                    <td className="p-2" colSpan={4}>TOTAL</td>
+                    {weeklyGrid.totals.map((t, i) => <td key={i} className="p-2 text-center text-slate-700">{t}</td>)}
+                    {showStatusCols && <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.present}</td>}
+                    {showStatusCols && <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.absent}</td>}
+                    {showLateCol && <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.late}</td>}
+                    {showStatusCols && <td className="p-2 text-center text-slate-700">{weeklyGrid.grand.leave}</td>}
+                    {showHrsCol && <td className="p-2 text-center text-slate-700">{Math.round(weeklyGrid.grand.workingHours * 10) / 10}h</td>}
+                  </tr>
+                </tfoot>
+              </table>
+            );
+          })()
         ) : layoutId === 'detailed' && isAttendanceShaped ? (
           // Attendance Register: one section per employee (name/department/
           // designation header, then their own date-by-date rows, then a

@@ -20,6 +20,7 @@ import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { localDateKey } from '../services/dateUtils';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
+import { tenantDateKey, tenantDateTime, tenantStartOfDay } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -58,11 +59,11 @@ function isLateLog(l: any): boolean {
 router.get('/api/tenant/analytics', authenticate, async (req: any, res: any) => {
     try {
       const tenantId = req.user.tenantId;
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+      const tenant = tenantRows[0] || null;
+      const todayStart = tenantStartOfDay(tenant, new Date());
+      const todayKey = tenantDateKey(tenant);
+      const monthStart = tenantDateTime(tenant, `${todayKey.slice(0, 7)}-01`, 0, 0);
 
       // Branch-scoped callers (HR/GM/manager assigned to one or more
       // branches) always see only their own accessible branches, regardless
@@ -180,6 +181,8 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
     try {
       const tenantId = req.user.tenantId;
       const days = req.query.days === '7' ? 7 : 30;
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+      const tenant = tenantRows[0] || null;
 
       const scopedBranchIds = await getScopedBranchIds(req.user);
       const requestedBranchId = req.query.branchId ? parseInt(req.query.branchId, 10) : null;
@@ -188,9 +191,9 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
         return res.status(403).json({ error: 'Access denied: You are not scoped to this branch.' });
       }
 
-      const rangeStart = new Date();
-      rangeStart.setHours(0, 0, 0, 0);
-      rangeStart.setDate(rangeStart.getDate() - (days - 1));
+      const todayStart = tenantStartOfDay(tenant, new Date());
+      const rangeStart = new Date(todayStart);
+      rangeStart.setUTCDate(rangeStart.getUTCDate() - (days - 1));
 
       const staffFilter = branchIds
         ? and(eq(schema.users.tenantId, tenantId), sql`role != 'tenant_admin'`, inArray(schema.users.branchId, branchIds))
@@ -206,9 +209,9 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
       const series: Array<{ date: string; presentCount: number; latePercent: number; attendancePercent: number }> = [];
       for (let i = 0; i < days; i++) {
         const dayStart = new Date(rangeStart);
-        dayStart.setDate(dayStart.getDate() + i);
+        dayStart.setUTCDate(dayStart.getUTCDate() + i);
         const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
+        dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
         const dayLogs = logs.filter((l: any) => {
           const t = new Date(l.createdAt).getTime();
@@ -219,7 +222,7 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
         const lateCount = checkIns.filter((l: any) => isLateLog(l)).length;
 
         series.push({
-          date: localDateKey(dayStart),
+          date: tenantDateKey(tenant, dayStart),
           presentCount: presentUserIds.size,
           latePercent: checkIns.length > 0 ? Math.round((lateCount / checkIns.length) * 100) : 0,
           attendancePercent: staffCount > 0 ? Math.round((presentUserIds.size / staffCount) * 100) : 0,

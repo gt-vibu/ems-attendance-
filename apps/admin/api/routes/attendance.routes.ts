@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, sql, inArray, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, gte, lte, lt } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
@@ -19,7 +19,6 @@ import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefault
 import { notify } from '../services/notificationService';
 import { editAttendanceDay } from '../services/recordEdits';
 import { raiseAttendanceAlert } from '../services/alerts';
-import { localDateKey } from '../services/dateUtils';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { IDENTITY_PASS_PURPOSE } from '../services/webauthn';
@@ -29,6 +28,7 @@ import { getMonthlyWfhCheckInCount, getActiveHomeLocation } from '../services/wf
 import { getEffectiveShift } from '../services/shiftOverrides';
 import { resolveEffectivePolicy, computeLateness, computeExpectedCheckout, computeDayOutcome } from '../services/attendancePolicy';
 import { withLock } from '../services/locks';
+import { tenantStartOfDay, tenantDateKey, tenantDateTime, tenantDateLabel, tenantTimeLabel } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -40,8 +40,13 @@ export const router = Router();
   // from working while it's under review.
 router.get('/api/attendance/today', authenticate, async (req: any, res: any) => {
     try {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      // Tenant-local "today," not the server process's — using server-local
+      // midnight here disagreed with tenantDateKey()-based day bucketing
+      // used elsewhere (attendanceDayStatus.ts) by the tenant's UTC offset,
+      // which could show/hide today's check-in near a day boundary for any
+      // non-UTC tenant.
+      const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
+      const todayStart = tenantStartOfDay(tenantRow);
 
       const latest = await db.select()
         .from(schema.attendanceLogs)
@@ -96,13 +101,27 @@ router.get('/api/attendance/mine', authenticate, async (req: any, res: any) => {
       const month = Number(req.query.month);
       const hasMonthWindow = Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12;
       const baseFilter = eq(schema.attendanceLogs.userId, req.user.userId);
+      // Tenant-local calendar month boundaries — a naive Date.UTC() window
+      // disagrees with tenantDateKey()-based day bucketing (used everywhere
+      // a log's "which day is this" is decided) by the tenant's UTC offset,
+      // so a request for "August" could silently include a day from July or
+      // exclude the last day of August for a non-UTC tenant.
+      let monthStart: Date | null = null;
+      let monthEnd: Date | null = null;
+      if (hasMonthWindow) {
+        const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
+        const nextMonth = month === 12 ? 1 : month + 1;
+        const nextMonthYear = month === 12 ? year + 1 : year;
+        monthStart = tenantDateTime(tenantRow, `${year}-${String(month).padStart(2, '0')}-01`, 0, 0);
+        monthEnd = tenantDateTime(tenantRow, `${nextMonthYear}-${String(nextMonth).padStart(2, '0')}-01`, 0, 0);
+      }
       const logs = hasMonthWindow
         ? await db.select()
           .from(schema.attendanceLogs)
           .where(and(
             baseFilter,
-            gte(schema.attendanceLogs.createdAt, new Date(Date.UTC(year, month - 1, 1))),
-            lte(schema.attendanceLogs.createdAt, new Date(Date.UTC(year, month, 1))),
+            gte(schema.attendanceLogs.createdAt, monthStart as Date),
+            lt(schema.attendanceLogs.createdAt, monthEnd as Date),
           ))
           .orderBy(desc(schema.attendanceLogs.id))
         : await db.select()
@@ -132,8 +151,8 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
       }
       const user = usersList[0];
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).limit(1))[0] || null;
+      const todayStart = tenantStartOfDay(tenantRow);
 
       const lastActiveToday = await db.select()
         .from(schema.attendanceLogs)
@@ -389,11 +408,11 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
         if (!isRoleAllowedForWfh(user.role, wfhPolicy)) {
           return res.status(403).json({ error: 'Your role is not permitted to work from home.' });
         }
-        const weekday = todayWeekdayName();
+        const weekday = todayWeekdayName(tenant);
         if (!wfhPolicy.wfhAllowedWeekdays.includes(weekday)) {
           return res.status(403).json({ error: `Work From Home is not allowed on ${weekday}s.` });
         }
-        const monthlyWfhCount = await getMonthlyWfhCheckInCount(user.id);
+        const monthlyWfhCount = await getMonthlyWfhCheckInCount(user.id, tenant);
         if (wfhPolicy.wfhMaxDaysPerMonth !== null && monthlyWfhCount >= wfhPolicy.wfhMaxDaysPerMonth) {
           return res.status(403).json({ error: `Monthly Work From Home quota (${wfhPolicy.wfhMaxDaysPerMonth} days) reached.` });
         }
@@ -455,8 +474,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       }
 
       // --- 6. Determine check-in / check-out type ---
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStart = tenantStartOfDay(tenant);
 
       // Includes 'pending' (a late check-in awaiting manager approval) so
       // the toggle and the day-lock below both see it as an active
@@ -495,7 +513,10 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       const branchRow = user.branchId
         ? (await db.select().from(schema.branches).where(eq(schema.branches.id, user.branchId)))[0] || null
         : null;
-      const todayDateStr = localDateKey();
+      // Tenant-local date key — server-local localDateKey() here could
+      // resolve the wrong day's shift override for a non-UTC tenant near a
+      // day boundary.
+      const todayDateStr = tenantDateKey(tenant);
       const effectiveShift = await getEffectiveShift(user.tenantId || 1, user.id, todayDateStr);
       const effectivePolicy = resolveEffectivePolicy(tenant, branchRow, effectiveShift);
       const shiftStartStr = effectivePolicy.shiftStartStr;
@@ -512,10 +533,10 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       let lateByMinutes = 0;
       let expectedCheckoutAt: Date | null = null;
       if (isVerified && logType === 'check_in') {
-        const lateness = computeLateness(wfhPolicyOverride, new Date());
+        const lateness = computeLateness(wfhPolicyOverride, new Date(), tenant);
         isLate = lateness.isLate;
         lateByMinutes = lateness.lateByMinutes;
-        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date());
+        expectedCheckoutAt = computeExpectedCheckout(effectivePolicy, new Date(), tenant);
       }
 
       // A late check-in needs the employee's explanation before it's
@@ -648,19 +669,18 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
               approver.email,
               approver.name,
               user.name,
-              new Date().toLocaleDateString(),
+              tenantDateLabel(tenant),
               wfhReason || '',
               wfhDistanceMeters || 0
             );
           }
         } else {
-          const checkInTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const tenantRowLate = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId || 1)).limit(1))[0];
-          if (isPlatformFeatureAllowed(tenantRowLate, 'unified_notifications')) {
+          const checkInTimeStr = tenantTimeLabel(tenant);
+          if (isPlatformFeatureAllowed(tenant, 'unified_notifications')) {
             await notify(user.tenantId || 1, 'late_arrival_requested', {
               subjectUserId: user.id,
               subjectName: user.name,
-              data: { date: new Date().toLocaleDateString(), checkInTime: checkInTimeStr, shiftStart: shiftStartStr, explanation },
+              data: { date: tenantDateLabel(tenant), checkInTime: checkInTimeStr, shiftStart: shiftStartStr, explanation },
             }).catch(() => undefined);
           } else {
             for (const approver of approvers) {
@@ -668,7 +688,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
                 approver.email,
                 approver.name,
                 user.name,
-                new Date().toLocaleDateString(),
+                tenantDateLabel(tenant),
                 checkInTimeStr,
                 shiftStartStr,
                 explanation

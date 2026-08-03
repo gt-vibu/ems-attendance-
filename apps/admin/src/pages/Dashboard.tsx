@@ -13,6 +13,7 @@ import OrgChart from '../components/OrgChart';
 import BulkHireImport from '../components/BulkHireImport';
 import ConfigHealthWidget from '../components/ConfigHealthWidget';
 import SlaDashboardWidget from '../components/SlaDashboardWidget';
+import ExecutiveCeoDashboard from '../components/ExecutiveCeoDashboard';
 import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 import LeaveManagementPage from './LeaveManagementPage';
 import PayrollPage from './PayrollPage';
@@ -116,6 +117,22 @@ function unmetPlatformDependencies(selected: string[], dependencies: Record<stri
     }
   }
   return warnings;
+}
+
+// Tenant-business-day helpers — "who's on leave/WFH today" is a company-
+// wide question for the whole tenant, so it must be judged against the
+// company's own configured timezone (`timezone` state below, from
+// useTenantConfig), not whichever browser timezone the admin viewing this
+// page happens to be in (e.g. an admin checking in from a different region,
+// or simply having their laptop clock set to something else).
+function tenantDayKey(date: Date, timezone?: string | null): string {
+  if (timezone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+function tenantMonthStart(date: Date, timezone?: string | null): string {
+  return `${tenantDayKey(date, timezone).slice(0, 7)}-01`;
 }
 
 export default function Dashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
@@ -1062,6 +1079,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   })()}
                   {user.role === 'tenant_admin' && <ConfigHealthWidget />}
                   {(user.role === 'tenant_admin' || user.role === 'manager') && <SlaDashboardWidget />}
+                  {(user.role === 'tenant_admin' || user.role === 'super_admin') && (
+                    <ExecutiveCeoDashboard
+                      user={user}
+                      tenantAnalytics={tenantAnalytics}
+                      homePayrollOverview={homePayrollOverview}
+                      pendingLeaveCount={homeLeaveRequests.filter((r: any) => r.status === 'pending').length}
+                      pendingCorrectionsCount={corrections.filter((c: any) => c.status === 'pending').length}
+                      pendingWfhCount={wfhRequests.filter((w: any) => w.status === 'pending').length}
+                      activeBranchesCount={branches.length || 1}
+                      onNavigate={(path) => navigate(path)}
+                    />
+                  )}
                   {/* Stat card row — single responsive row of equal-width
                       cards (Total Staff, Present/Absent/Late Today, Pending
                       Leave Requests, Payroll This Month), matching the
@@ -1330,7 +1359,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                     const teamLate = bd ? bd.late.filter((p: any) => teamIds.has(p.userId)).length : null;
                     const teamAbsent = bd ? bd.absent.filter((p: any) => teamIds.has(p.userId)).length : null;
                     const now = new Date();
-                    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                    const todayStr = tenantDayKey(now, timezone);
                     const teamOnLeave = homeLeaveRequests.filter((r: any) =>
                       teamIds.has(r.userId) && r.status === 'approved' && r.startDate <= todayStr && r.endDate >= todayStr
                     ).length;
@@ -1412,13 +1441,13 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   {/* WFH headcount cards row */}
                   {wfhStats && (() => {
                     const now = new Date();
-                    const todayStr = now.toDateString();
-                    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+                    const todayStr = tenantDayKey(now, timezone);
+                    const monthStartStr = tenantMonthStart(now, timezone);
                     const wfhTodayRows = (wfhLedger || [])
-                      .filter((l: any) => new Date(l.date).toDateString() === todayStr)
+                      .filter((l: any) => tenantDayKey(new Date(l.date), timezone) === todayStr)
                       .map((l: any) => ({ name: l.userName, role: l.role, checkInTime: l.checkInTime, attendanceMode: 'wfh', status: l.status }));
                     const wfhMonthRows = (wfhLedger || [])
-                      .filter((l: any) => new Date(l.date) >= monthStart)
+                      .filter((l: any) => tenantDayKey(new Date(l.date), timezone) >= monthStartStr)
                       .map((l: any) => ({ name: l.userName, role: l.role, checkInTime: l.checkInTime, attendanceMode: 'wfh', status: l.status }));
                     const pendingWfhRows = (pendingAttendance || [])
                       .filter((l: any) => l.attendanceMode === 'wfh')
@@ -2478,14 +2507,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 (the same privilege already gating the audit ledger). */}
             {activeTab === 'attendance' && wfhStats && (() => {
               const now = new Date();
-              const todayStr = now.toDateString();
-              const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+              const todayStr = tenantDayKey(now, timezone);
+              const monthStartStr = tenantMonthStart(now, timezone);
               // Normalize each WFH source into the shared attendance-person row shape.
               const wfhTodayRows = (wfhLedger || [])
-                .filter((l: any) => new Date(l.date).toDateString() === todayStr)
+                .filter((l: any) => tenantDayKey(new Date(l.date), timezone) === todayStr)
                 .map((l: any) => ({ name: l.userName, role: l.role, checkInTime: l.checkInTime, attendanceMode: 'wfh', status: l.status }));
               const wfhMonthRows = (wfhLedger || [])
-                .filter((l: any) => new Date(l.date) >= monthStart)
+                .filter((l: any) => tenantDayKey(new Date(l.date), timezone) >= monthStartStr)
                 .map((l: any) => ({ name: l.userName, role: l.role, checkInTime: l.checkInTime, attendanceMode: 'wfh', status: l.status }));
               const pendingWfhRows = (pendingAttendance || [])
                 .filter((l: any) => l.attendanceMode === 'wfh')

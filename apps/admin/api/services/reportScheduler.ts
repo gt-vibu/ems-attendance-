@@ -18,6 +18,7 @@ import { buildReportData, type ReportFilters } from './reportData';
 import { buildCsv } from './reportExport';
 import { notify } from './notificationService';
 import { isPlatformFeatureAllowed } from '../auth/rbac';
+import { tenantStartOfDay, tenantDateKey, tenantDateLabel } from './tenantTime';
 
 interface ScheduledReportJobPayload {
   scheduleId: number;
@@ -38,11 +39,12 @@ export function registerReportSchedulerHandler() {
     const csv = buildCsv(data.rows);
     const fileName = `${schedule.reportName.replace(/[^a-z0-9_-]+/gi, '_')}.csv`;
     const recipients: string[] = Array.isArray(schedule.recipients) ? schedule.recipients : [];
+    const tenantRowSched = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, schedule.tenantId)).limit(1))[0];
 
     for (const to of recipients) {
       await sendEmail({
         to,
-        subject: `[Scheduled Report] ${schedule.reportName} (${new Date().toLocaleDateString()})`,
+        subject: `[Scheduled Report] ${schedule.reportName} (${tenantDateLabel(tenantRowSched)})`,
         text: `Hello,\n\nYour scheduled report "${schedule.reportName}" is attached as a CSV.\n\nRecords: ${data.rows.length}\nFrequency: ${schedule.frequency}\n\nBest regards,\nSmart Teams EMS`,
         html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
           <h2 style="color: #1e293b; margin-top: 0;">Scheduled Report: ${schedule.reportName}</h2>
@@ -58,7 +60,6 @@ export function registerReportSchedulerHandler() {
     // notify() can't replace that. This just also gives the creator an
     // in-app + email "your scheduled report ran" ping through the unified
     // service, finally giving report_generation_completed a real caller.
-    const tenantRowSched = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, schedule.tenantId)).limit(1))[0];
     if (isPlatformFeatureAllowed(tenantRowSched, 'unified_notifications')) {
       await notify(schedule.tenantId, 'report_generation_completed', {
         subjectUserId: creator.id,
@@ -69,26 +70,42 @@ export function registerReportSchedulerHandler() {
 
     await db.update(schema.reportSchedules).set({
       lastRunAt: new Date(),
-      nextRunAt: computeNextRunAt(schedule),
+      nextRunAt: computeNextRunAt(tenantRowSched || null, schedule),
     }).where(eq(schema.reportSchedules.id, schedule.id));
   });
 }
 
-function computeNextRunAt(schedule: typeof schema.reportSchedules.$inferSelect): Date {
+// Tenant-timezone-aware — previously used the SERVER's local clock
+// (setHours/getDay/setDate all operate in the process's own zone), so a
+// tenant's "8:00 AM daily report" fired at 8:00 AM server time, not the
+// tenant's actual configured timezone (tenants.timezone). Walks forward day
+// by day using tenantStartOfDay() as the tenant-local calendar-day anchor,
+// same pattern as digestDispatcher.ts's computeNextDigestRunAt. Bounded at
+// 40 iterations — enough to always find a matching day-of-month (max 27
+// days out, since dayOfMonth is capped at 28) or day-of-week (max 6 days).
+function computeNextRunAt(tenant: { timezone?: string | null } | null, schedule: typeof schema.reportSchedules.$inferSelect): Date {
   const [hh, mm] = (schedule.timeOfDay || '08:00').split(':').map(Number);
-  const next = new Date();
-  next.setHours(hh || 8, mm || 0, 0, 0);
-  if (schedule.frequency === 'daily') {
-    if (next <= new Date()) next.setDate(next.getDate() + 1);
-  } else if (schedule.frequency === 'weekly') {
-    const targetDow = schedule.dayOfWeek ?? 1;
-    while (next.getDay() !== targetDow || next <= new Date()) next.setDate(next.getDate() + 1);
-  } else {
-    const targetDom = Math.min(schedule.dayOfMonth ?? 1, 28);
-    next.setDate(targetDom);
-    if (next <= new Date()) next.setMonth(next.getMonth() + 1);
+  const offsetMs = ((hh || 8) * 60 + (mm || 0)) * 60000;
+  const now = new Date();
+  let cursor = now;
+  for (let i = 0; i < 40; i++) {
+    const dayStart = tenantStartOfDay(tenant, cursor);
+    const candidate = new Date(dayStart.getTime() + offsetMs);
+    const dateKey = tenantDateKey(tenant, cursor);
+    let dayMatches = true;
+    if (schedule.frequency === 'weekly') {
+      const weekday = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+      dayMatches = weekday === (schedule.dayOfWeek ?? 1);
+    } else if (schedule.frequency === 'monthly') {
+      const dayOfMonth = Number(dateKey.split('-')[2]);
+      dayMatches = dayOfMonth === Math.min(schedule.dayOfMonth ?? 1, 28);
+    }
+    if (dayMatches && candidate > now) return candidate;
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
   }
-  return next;
+  // Unreachable in practice — safety fallback so this can never return a
+  // stale past date.
+  return new Date(now.getTime() + 24 * 60 * 60 * 1000);
 }
 
 // Called from the main scheduler tick (bootstrap/scheduler.ts) — finds
@@ -101,7 +118,8 @@ export async function enqueueDueReportSchedules() {
     lte(schema.reportSchedules.nextRunAt, new Date()),
   ));
   for (const schedule of due) {
-    await db.update(schema.reportSchedules).set({ nextRunAt: computeNextRunAt(schedule) }).where(eq(schema.reportSchedules.id, schedule.id));
+    const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, schedule.tenantId)).limit(1))[0] || null;
+    await db.update(schema.reportSchedules).set({ nextRunAt: computeNextRunAt(tenantRow, schedule) }).where(eq(schema.reportSchedules.id, schedule.id));
     await queue.enqueue('generate_scheduled_report', { scheduleId: schedule.id } satisfies ScheduledReportJobPayload, { tenantId: schedule.tenantId });
   }
 }

@@ -1201,6 +1201,19 @@ export async function verifyAndSyncDatabase() {
       );
     `);
     try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS scope_hr_to_department BOOLEAN NOT NULL DEFAULT false;`); } catch (e) {}
+    // Per-recipient delivery mode + priority tier (Notification Center /
+    // digest layer) — see schema.ts notificationPolicies comment. Defaulting
+    // every mode to 'immediate' and priority to 'medium' preserves exactly
+    // today's behavior for every existing row until an admin reclassifies
+    // an event.
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS employee_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS manager_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS hr_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS admin_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_channel_prefs JSONB DEFAULT '{"email":true,"in_app":true}';`); } catch (e) {}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS notification_log (
@@ -1215,6 +1228,72 @@ export async function verifyAndSyncDatabase() {
       );
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS notification_log_tenant_idx ON notification_log(tenant_id, created_at DESC);`);
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS subject_name TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}';`); } catch (e) {}
+
+    // Digest queue — holds 'digest'-mode notifications until digestDispatcher
+    // rolls them into one summary per recipient. Same-day duplicates of the
+    // same (recipient, eventType) collapse via the unique constraint instead
+    // of accumulating one row per occurrence.
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_digest_queue (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        recipient_user_id INTEGER NOT NULL REFERENCES users(id),
+        event_type TEXT NOT NULL,
+        digest_bucket_date TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL DEFAULT 1,
+        sample_subject_names JSONB NOT NULL DEFAULT '[]',
+        data JSONB NOT NULL DEFAULT '{}',
+        consumed BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (tenant_id, recipient_user_id, event_type, digest_bucket_date)
+      );
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS notification_digest_queue_pending_idx ON notification_digest_queue(tenant_id, consumed) WHERE consumed = false;`);
+
+    // Digest subscriptions — admin-configurable "who gets the rollup, how
+    // often" (fixes the old hardcoded admins[0]-only daily summary).
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS notification_digest_subscriptions (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+        digest_type TEXT NOT NULL,
+        frequency TEXT NOT NULL DEFAULT 'daily',
+        time_of_day TEXT NOT NULL DEFAULT '09:00',
+        day_of_week INTEGER,
+        recipients JSONB NOT NULL DEFAULT '[]',
+        active BOOLEAN NOT NULL DEFAULT true,
+        last_run_at TIMESTAMP,
+        next_run_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Seed default digest subscriptions for every tenant that doesn't have
+    // any yet — role-based recipients so this covers every existing/new
+    // tenant automatically; the executive_daily default replaces the old
+    // admins[0]-only behavior with "all tenant admins", still safely
+    // extendable to named non-admin employees via the new Notification
+    // Center UI without another migration.
+    try {
+      const tenantsNeedingDigestDefaults = await db.execute(sql`
+        SELECT t.id FROM tenants t
+        WHERE NOT EXISTS (SELECT 1 FROM notification_digest_subscriptions s WHERE s.tenant_id = t.id)
+      `);
+      const rows: any[] = (tenantsNeedingDigestDefaults as any).rows || tenantsNeedingDigestDefaults;
+      for (const row of rows) {
+        const tid = row.id;
+        await db.execute(sql`
+          INSERT INTO notification_digest_subscriptions (tenant_id, digest_type, frequency, time_of_day, recipients)
+          VALUES
+            (${tid}, 'manager_daily', 'daily', '09:00', '[{"type":"role","role":"manager"}]'),
+            (${tid}, 'hr_daily', 'daily', '09:15', '[{"type":"role","role":"HR"}]'),
+            (${tid}, 'executive_daily', 'daily', '19:00', '[{"type":"role","role":"tenant_admin"}]')
+        `);
+      }
+    } catch (e) {}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_logs_archive (

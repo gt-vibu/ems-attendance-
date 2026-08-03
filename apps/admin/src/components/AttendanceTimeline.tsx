@@ -19,6 +19,7 @@ interface TenantShiftConfig {
   shiftEnd: string; // 'HH:MM'
   gracePeriodMins: number;
   weekendConfig: string[];
+  timezone?: string | null; // the company's own configured business timezone, not the viewer's browser
 }
 
 export interface AttendanceTimelineProps {
@@ -44,11 +45,32 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // key must be read back out the same way, or a real Monday check-in ends
 // up keyed to match the Tuesday cell instead — exactly the "Monday shows
 // absent, Tuesday shows present" bug this fixes.
-function dateKey(d: Date) {
+// `timezone`, when supplied, is the company's own configured business
+// timezone (fetched from /api/tenant/config below) — without it, this falls
+// back to the viewer's browser timezone, which is fine for an employee
+// physically in the same region as the business but wrong for anyone
+// remote/traveling: "did I check in before the 9am cutoff" should be judged
+// against the company's clock, not whatever timezone the laptop is set to.
+function dateKey(d: Date, timezone?: string | null) {
+  if (timezone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  }
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+// Minutes since midnight IN THE GIVEN TIMEZONE — the tenant-aware
+// replacement for `d.getHours()*60+d.getMinutes()`, which reads the
+// browser's own local clock regardless of where the business actually is.
+function minutesOfDay(d: Date, timezone?: string | null): number {
+  if (timezone) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24;
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+    return hour * 60 + minute;
+  }
+  return d.getHours() * 60 + d.getMinutes();
 }
 function startOfDay(d: Date) {
   const c = new Date(d);
@@ -91,6 +113,7 @@ export default function AttendanceTimeline({
   const [notes, setNotes] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [showShiftModal, setShowShiftModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<Set<DayInfo['kind']>>(new Set());
   const filterRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -134,6 +157,7 @@ export default function AttendanceTimeline({
           shiftEnd: t.shiftEnd || '18:00',
           gracePeriodMins: t.gracePeriodMins ?? 15,
           weekendConfig,
+          timezone: t.timezone || null,
         });
       } catch {
         // Keep the 9-6 default rather than blocking the whole view.
@@ -163,7 +187,7 @@ export default function AttendanceTimeline({
     });
   }, [weekStart]);
 
-  const todayKeyStr = dateKey(new Date());
+  const todayKeyStr = dateKey(new Date(), shift.timezone);
   const rangeLabel = `${weekDays[0].toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} - ${weekDays[6].toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   // --- Index real data by date ---
@@ -172,14 +196,14 @@ export default function AttendanceTimeline({
     attendanceHistory.forEach((log: any) => {
       if (log.status !== 'approved' && log.status !== 'pending') return;
       if (!log.createdAt) return;
-      const key = dateKey(new Date(log.createdAt));
+      const key = dateKey(new Date(log.createdAt), shift.timezone);
       const entry = map.get(key) || {};
       if (log.type === 'check_in' && (!entry.checkIn || new Date(log.createdAt) < new Date(entry.checkIn.createdAt))) entry.checkIn = log;
       if (log.type === 'check_out' && (!entry.checkOut || new Date(log.createdAt) > new Date(entry.checkOut.createdAt))) entry.checkOut = log;
       map.set(key, entry);
     });
     return map;
-  }, [attendanceHistory]);
+  }, [attendanceHistory, shift.timezone]);
 
   const approvedLeaveRanges = useMemo(
     () => (leaveRequests || []).filter((r: any) => r.status === 'approved').map((r: any) => ({ start: r.startDate, end: r.endDate })),
@@ -210,7 +234,7 @@ export default function AttendanceTimeline({
   };
 
   const days: DayInfo[] = useMemo(() => weekDays.map((d) => {
-    const key = dateKey(d);
+    const key = dateKey(d, shift.timezone);
     const entry = attendanceByDate.get(key);
     const holidayName = holidayByDate.get(key) || null;
     const onLeave = approvedLeaveRanges.some((r) => key >= r.start && key <= r.end);
@@ -231,7 +255,7 @@ export default function AttendanceTimeline({
 
     return { d, key, isToday, isFuture, isWeekend: weekend, holidayName, onLeave, checkIn: entry?.checkIn || null, checkOut: entry?.checkOut || null, kind };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [weekDays, attendanceByDate, holidayByDate, approvedLeaveRanges, shift.weekendConfig, todayKeyStr]);
+  }), [weekDays, attendanceByDate, holidayByDate, approvedLeaveRanges, shift.weekendConfig, shift.timezone, todayKeyStr]);
 
   // --- Bottom legend counts, all for the currently visible week ---
   const counts = useMemo(() => {
@@ -307,9 +331,9 @@ export default function AttendanceTimeline({
     }
     // present / pending — size the pill to the actual clocked span
     const inTime = new Date(day.checkIn.createdAt);
-    const inMins = inTime.getHours() * 60 + inTime.getMinutes();
+    const inMins = minutesOfDay(inTime, shift.timezone);
     const outTime = day.checkOut ? new Date(day.checkOut.createdAt) : (day.isToday ? new Date() : null);
-    const outMins = outTime ? outTime.getHours() * 60 + outTime.getMinutes() : Math.min(trackMax, inMins + 30);
+    const outMins = outTime ? minutesOfDay(outTime, shift.timezone) : Math.min(trackMax, inMins + 30);
     const left = pctOf(inMins);
     const right = pctOf(outMins);
     const width = Math.max(3, right - left);
@@ -331,7 +355,7 @@ export default function AttendanceTimeline({
   const lateEarlyLabel = (day: DayInfo): { text: string; danger: boolean } | null => {
     if (!day.checkIn) return null;
     const inTime = new Date(day.checkIn.createdAt);
-    const inMins = inTime.getHours() * 60 + inTime.getMinutes();
+    const inMins = minutesOfDay(inTime, shift.timezone);
     const lateThreshold = shiftStartMins + (shift.gracePeriodMins || 0);
     if (inMins > lateThreshold) {
       return { text: `Late by ${fmtMinutes(inMins - shiftStartMins)}`, danger: true };
@@ -368,7 +392,7 @@ export default function AttendanceTimeline({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `attendance_${dateKey(weekDays[0])}_to_${dateKey(weekDays[6])}.csv`;
+    a.download = `attendance_${dateKey(weekDays[0], shift.timezone)}_to_${dateKey(weekDays[6], shift.timezone)}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -382,9 +406,17 @@ export default function AttendanceTimeline({
   return (
     <div className="nexus-card rounded-xl p-6 space-y-5">
       {/* Sub-tabs */}
-      <div className="flex items-center gap-6 border-b border-[var(--color-nexus-border)] pb-3">
+      <div className="flex items-center gap-4 border-b border-[var(--color-nexus-border)] pb-3">
         <span className="text-sm font-bold text-[var(--color-nexus-ink)] border-b-2 border-[var(--color-nexus-primary)] pb-3 -mb-3">Attendance Summary</span>
-        <span className="text-sm font-medium text-[var(--color-nexus-muted)]">Shift</span>
+        <button
+          type="button"
+          onClick={() => setShowShiftModal(true)}
+          className="text-sm font-medium text-[var(--color-nexus-primary)] hover:underline flex items-center gap-1.5 transition-colors cursor-pointer"
+        >
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] uppercase">
+            {shiftLabel}
+          </span>
+        </button>
       </div>
 
       {/* Header control row */}
@@ -625,6 +657,57 @@ export default function AttendanceTimeline({
         </div>
         <span className="text-[10px] font-bold text-[var(--color-nexus-muted)]">{shiftLabel}</span>
       </div>
+
+      {/* Shift Details Modal */}
+      {showShiftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowShiftModal(false)}>
+          <div className="max-w-sm w-full bg-[var(--color-nexus-surface)] rounded-xl p-5 shadow-2xl border border-[var(--color-nexus-border)] space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-sm text-[var(--color-nexus-ink)] font-sans">Assigned Shift Policy</h3>
+              <button type="button" onClick={() => setShowShiftModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/60">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Shift Name</span>
+                <span className="font-bold text-[var(--color-nexus-ink)]">General Shift</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/60">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Shift Schedule</span>
+                <span className="font-mono font-bold text-[var(--color-nexus-primary)]">{fmtHourLabel(shiftStartMins)} - {fmtHourLabel(shiftEndMins)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/60">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Grace Period</span>
+                <span className="font-mono font-bold text-[var(--color-nexus-ink)]">{shift.gracePeriodMins} minutes</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/60">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Late Cutoff</span>
+                <span className="font-mono font-bold text-[var(--color-nexus-warning)]">{fmtHourLabel(shiftStartMins + shift.gracePeriodMins)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/60">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Weekends</span>
+                <span className="font-bold text-[var(--color-nexus-ink)]">{shift.weekendConfig.join(', ')}</span>
+              </div>
+              {shift.timezone && (
+                <div className="flex justify-between py-2">
+                  <span className="text-[var(--color-nexus-muted)] font-medium">Business Timezone</span>
+                  <span className="font-mono text-[var(--color-nexus-ink)]">{shift.timezone}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowShiftModal(false)}
+              className="w-full bg-[var(--color-nexus-primary)] text-white font-bold text-xs uppercase tracking-wider py-2.5 rounded-lg transition-opacity hover:opacity-90"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

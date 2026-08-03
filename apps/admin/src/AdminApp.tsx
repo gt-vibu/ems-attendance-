@@ -154,7 +154,8 @@ export default function AdminApp() {
           <Route path="/tenant/payroll/setup/role/:roleName/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/history/:userId" element={user && canSeeDashboard(user.role) ? <PayrollHistoryPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/batches" element={user && canSeeDashboard(user.role) ? <PayrollBatchPage user={user} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/notification-policies" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/notification-center" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/notification-policies" element={<Navigate to="/tenant/notification-center" replace />} />
           <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/super/plan-features/:tenantId" element={user && user.role === 'super_admin' ? <PlanFeaturesPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} /> : <Navigate to="/login" />} />

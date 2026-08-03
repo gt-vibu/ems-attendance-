@@ -10,6 +10,8 @@
 // all — they string-matched the log's `reason` text for "Late Arrival".
 // Every call site now goes through resolveEffectivePolicy() +
 // computeLateness()/computeExpectedCheckout()/computeDayOutcome() instead.
+import { tenantDateKey, tenantDateTime } from './tenantTime';
+
 export type ArrivalPolicy = 'strict' | 'buffered' | 'flexible';
 export type WorkingHoursPolicy = 'fixed_shift_end' | 'complete_required_hours' | 'hybrid';
 
@@ -63,20 +65,23 @@ export function resolveEffectivePolicy(
   return { arrivalPolicy, workingHoursPolicy, shiftStartStr, shiftEndStr, gracePeriodMins, halfDayMins, requiredWorkingMins, hybridMaxCheckoutTime };
 }
 
-// today's Date at the given 'HH:MM', relative to `relativeTo` (defaults to
-// now) so callers checking a specific check-in timestamp get the shift
-// boundary for THAT day, not necessarily today.
-function timeToday(hhmm: string, relativeTo: Date = new Date()): Date {
+// The given 'HH:MM' placed on `relativeTo`'s TENANT-LOCAL calendar day (not
+// necessarily today — a caller checking a specific check-in timestamp gets
+// the shift boundary for THAT day). Previously used Date.prototype.setHours,
+// which always operates in the SERVER's own timezone — "9:00 AM shift
+// start" was being placed at 9:00 AM server-local, not 9:00 AM tenant-local,
+// silently shifting every lateness/overtime/half-day determination by the
+// tenant's UTC offset whenever the server isn't running in that same zone.
+function timeToday(tenant: { timezone?: string | null } | null, hhmm: string, relativeTo: Date = new Date()): Date {
   const { hour, minute } = parseHHMM(hhmm);
-  const d = new Date(relativeTo);
-  d.setHours(hour, minute, 0, 0);
-  return d;
+  const dateKey = tenantDateKey(tenant, relativeTo);
+  return tenantDateTime(tenant, dateKey, hour, minute);
 }
 
-export function computeLateness(policy: EffectivePolicy, checkInAt: Date): { isLate: boolean; lateByMinutes: number } {
+export function computeLateness(policy: EffectivePolicy, checkInAt: Date, tenant: { timezone?: string | null } | null): { isLate: boolean; lateByMinutes: number } {
   if (policy.arrivalPolicy === 'flexible') return { isLate: false, lateByMinutes: 0 };
 
-  const shiftTime = timeToday(policy.shiftStartStr, checkInAt);
+  const shiftTime = timeToday(tenant, policy.shiftStartStr, checkInAt);
   const lateByMinutes = Math.max(0, Math.round((checkInAt.getTime() - shiftTime.getTime()) / 60000));
 
   if (policy.arrivalPolicy === 'strict') {
@@ -91,9 +96,9 @@ export function computeLateness(policy: EffectivePolicy, checkInAt: Date): { isL
 // Null return means "no forced/expected checkout" (Fixed Shift End —
 // informational only, matches today's behavior of never constraining
 // checkout time).
-export function computeExpectedCheckout(policy: EffectivePolicy, checkInAt: Date): Date | null {
+export function computeExpectedCheckout(policy: EffectivePolicy, checkInAt: Date, tenant: { timezone?: string | null } | null): Date | null {
   if (policy.workingHoursPolicy === 'fixed_shift_end') {
-    return timeToday(policy.shiftEndStr, checkInAt);
+    return timeToday(tenant, policy.shiftEndStr, checkInAt);
   }
 
   const requiredCompletion = new Date(checkInAt.getTime() + policy.requiredWorkingMins * 60000);
@@ -103,7 +108,7 @@ export function computeExpectedCheckout(policy: EffectivePolicy, checkInAt: Date
   }
 
   // 'hybrid' with a configured max checkout time — whichever is earlier.
-  const maxCheckout = timeToday(policy.hybridMaxCheckoutTime, checkInAt);
+  const maxCheckout = timeToday(tenant, policy.hybridMaxCheckoutTime, checkInAt);
   return requiredCompletion.getTime() < maxCheckout.getTime() ? requiredCompletion : maxCheckout;
 }
 

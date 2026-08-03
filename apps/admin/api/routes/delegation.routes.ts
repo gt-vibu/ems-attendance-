@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { getEffectivePrivileges } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
+import { tenantDateKey } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -87,7 +88,8 @@ router.get('/api/tenant/delegations', authenticate, async (req: any, res: any) =
       : [];
     const nameById = new Map(users.map((u: any) => [u.id, u.name]));
 
-    const today = new Date().toISOString().slice(0, 10);
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+    const today = tenantDateKey(tenantRows[0] || null);
     const enriched = rows.map((r: any) => ({
       ...r,
       delegatedByName: nameById.get(r.delegatedByUserId) || 'Unknown',

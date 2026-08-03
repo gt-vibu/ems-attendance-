@@ -648,9 +648,14 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
       const tenantsList = await db.select().from(schema.tenants);
       const allUsers = await db.select().from(schema.users);
 
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      const utcTodayParts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+      }).formatToParts(new Date());
+      const utcYear = utcTodayParts.find((part) => part.type === 'year')?.value;
+      const utcMonth = utcTodayParts.find((part) => part.type === 'month')?.value;
+      const monthStart = new Date(`${utcYear}-${utcMonth}-01T00:00:00.000Z`);
 
       const monthlyLogs = await db.select().from(schema.attendanceLogs).where(
         sql`created_at >= ${monthStart}`

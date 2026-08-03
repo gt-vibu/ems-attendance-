@@ -17,7 +17,7 @@ const TAB_HREF: Record<string, string> = {
   branches: '/tenant/branches',
   'leave-management': '/tenant/leave',
   payroll: '/tenant/payroll',
-  'notification-policies': '/tenant/notification-policies',
+  'notification-policies': '/tenant/notification-center',
   'approval-routing': '/tenant/approval-routing',
 };
 

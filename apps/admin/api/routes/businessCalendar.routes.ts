@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
+import { tenantParts } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -18,9 +19,14 @@ interface CalendarEvent {
 // pages to see what's happening in a given month.
 router.get('/api/tenant/business-calendar', authenticate, async (req: any, res: any) => {
   try {
-    const year = Number(req.query.year) || new Date().getFullYear();
-    const month = Number(req.query.month) || new Date().getMonth() + 1; // 1-12
     const tenantId = req.user.tenantId;
+    // Tenant-local "what month is it now" default — used the SERVER's own
+    // local (not even UTC) clock before, which could default to the wrong
+    // calendar month for a non-UTC tenant.
+    const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0] || null;
+    const tParts = tenantParts(tenantRow);
+    const year = Number(req.query.year) || tParts.year;
+    const month = Number(req.query.month) || tParts.month; // 1-12
 
     const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
     const lastDay = new Date(year, month, 0).getDate();

@@ -11,6 +11,8 @@ import { dispatchWebhookEvent } from '../services/webhooks';
 import { notifyUser, notifyUsers } from '../services/notifications';
 import { resolveApprovers } from '../services/approvalRouting';
 import { amendLeaveRequest } from '../services/recordEdits';
+import { tenantParts, tenantDateKey } from '../services/tenantTime';
+import { getHolidaysForEmployee } from '../services/holidayScope';
 
 export const router = Router();
 
@@ -20,18 +22,24 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // lookup below, and Final Settlement (payrollExtras.routes.ts) — one leave-
 // balance calculation, not several.
 export async function computeLeaveBalancesForUser(userId: number, tenantId: number) {
-  const [policies, requests, adjustments] = await Promise.all([
+  const [policies, requests, adjustments, tenantRows] = await Promise.all([
     db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)).orderBy(schema.leavePolicies.name),
     db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.userId, userId)).orderBy(desc(schema.leaveRequests.createdAt)),
     db.select().from(schema.leaveBalanceAdjustments).where(eq(schema.leaveBalanceAdjustments.userId, userId)),
+    db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
   ]);
+  const tenantRow = tenantRows[0] || null;
 
   const now = new Date();
-  const year = now.getUTCFullYear();
+  // Tenant-local "what year/month is it right now" — accrual is a calendar-
+  // month boundary decision, so a non-UTC tenant near a year/month boundary
+  // used to get accrued against the wrong month here (server UTC getters).
+  const tParts = tenantParts(tenantRow, now);
+  const year = tParts.year;
   // Months "unlocked" so far this year for accrual purposes — the 1st of
   // the current month counts as already accrued (Jan = 1, not 0), same
   // convention as most payroll/accrual engines.
-  const monthsElapsed = now.getUTCMonth() + 1;
+  const monthsElapsed = tParts.month;
 
   // Approved days used, grouped by (year, leaveType) in one pass — used
   // both for this year's balance and, when carryForwardEnabled, last
@@ -144,12 +152,20 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
     if (parseDateOnly(endDate).getTime() < parseDateOnly(startDate).getTime()) {
       return res.status(400).json({ error: 'End date cannot be before start date.' });
     }
-    const totalDays = computeLeaveDays(startDate, endDate, !!halfDay);
-    if (totalDays <= 0) return res.status(400).json({ error: 'Invalid leave date range.' });
-
     const userRows = await db.select().from(schema.users).where(eq(schema.users.id, req.user.userId)).limit(1);
     if (userRows.length === 0) return res.status(404).json({ error: 'User not found.' });
     const user = userRows[0];
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
+    const tenant = tenantRows[0] || {};
+    const weekendDays: string[] = Array.isArray(tenant.weekendConfig)
+      ? tenant.weekendConfig
+      : (typeof tenant.weekendConfig === 'string' ? JSON.parse(tenant.weekendConfig) : ['Saturday', 'Sunday']);
+    const holidays = await getHolidaysForEmployee(req.user.tenantId, req.user.userId);
+    const totalDays = computeLeaveDays(startDate, endDate, !!halfDay, {
+      weekendDays,
+      holidayDates: new Set(holidays.map((holiday) => holiday.date)),
+    });
+    if (totalDays <= 0) return res.status(400).json({ error: 'Leave range contains no working days.' });
 
     const policyRows = policyId
       ? await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1)
@@ -162,7 +178,11 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: `${policy.name} does not allow half-day requests.` });
     }
     if (policy?.medicalOnlyNoAdvanceNoticeDays && !medicalCause) {
-      const daysUntilStart = Math.floor((parseDateOnly(startDate).getTime() - parseDateOnly(toDateOnly(new Date())).getTime()) / DAY_MS);
+      // Tenant-local "today" for this short-notice cutoff — toDateOnly(new
+      // Date()) resolves via the server's UTC day, which can be a full day
+      // off from the tenant's own calendar day right around midnight.
+      const tenantRowNotice = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0] || null;
+      const daysUntilStart = Math.floor((parseDateOnly(startDate).getTime() - parseDateOnly(tenantDateKey(tenantRowNotice)).getTime()) / DAY_MS);
       if (daysUntilStart < Number(policy.medicalOnlyNoAdvanceNoticeDays || 0)) {
         return res.status(400).json({ error: `${policy.name} requires a medical reason for short-notice requests.` });
       }

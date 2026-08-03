@@ -18,6 +18,7 @@ import { hasPrivilege, hasAnyPrivilege, getEffectivePrivileges, getUsersWithPriv
 import { notify } from '../services/notificationService';
 import { notifyUsers } from '../services/notifications';
 import { issueNewSession, finalizeLogin } from '../auth/session';
+import { tenantDateLabel } from '../services/tenantTime';
 import { logToAuditLedger } from '../services/audit';
 import { dispatchWebhookEvent } from '../services/webhooks';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
@@ -672,13 +673,13 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
           if (unifiedOnDecision) {
             await notify(req.user.tenantId, 'wfh_decided', {
               subjectUserId: employee.id, subjectName: employee.name,
-              data: { date: new Date(log.createdAt as any).toLocaleDateString(), status: action === 'approve' ? 'approved' : 'rejected' },
+              data: { date: tenantDateLabel(tenantRowDecision, new Date(log.createdAt as any)), status: action === 'approve' ? 'approved' : 'rejected' },
             }).catch(() => undefined);
           } else {
           await sendWfhDecisionEmail(
             employee.email,
             employee.name,
-            new Date(log.createdAt as any).toLocaleDateString(),
+            tenantDateLabel(tenantRowDecision, new Date(log.createdAt as any)),
             action === 'approve' ? 'approved' : 'rejected'
           );
           }
@@ -686,13 +687,13 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
           if (unifiedOnDecision) {
             await notify(req.user.tenantId, 'late_arrival_decided', {
               subjectUserId: employee.id, subjectName: employee.name,
-              data: { date: new Date(log.createdAt as any).toLocaleDateString(), status: action === 'approve' ? 'approved' : 'rejected' },
+              data: { date: tenantDateLabel(tenantRowDecision, new Date(log.createdAt as any)), status: action === 'approve' ? 'approved' : 'rejected' },
             }).catch(() => undefined);
           } else {
           await sendLateArrivalDecisionEmail(
             employee.email,
             employee.name,
-            new Date(log.createdAt as any).toLocaleDateString(),
+            tenantDateLabel(tenantRowDecision, new Date(log.createdAt as any)),
             action === 'approve' ? 'approved' : 'rejected'
           );
           }

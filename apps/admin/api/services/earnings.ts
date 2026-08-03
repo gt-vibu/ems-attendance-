@@ -2,6 +2,8 @@ import { and, eq, desc, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { buildPayrollSummary, getOrCreatePayrollSettings, getRoleCompensationDefault, toDateOnly, diffDaysInclusive, policyDeductionPercent, NO_LEAVE_DAYS } from '../routes/leavePayrollShared';
 import { resolveEffectivePolicy } from './attendancePolicy';
+import { tenantDateKey, tenantDateTime } from './tenantTime';
+import { getHolidaysForEmployee } from './holidayScope';
 
 // Day-by-day earnings breakdown for the self-service Earnings page — the
 // counterpart to /api/payroll/mine's monthly-only summary. Nothing here is a
@@ -46,15 +48,17 @@ export interface DailyEarning {
 }
 
 function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return new Date(year, month, 0).getDate();
 }
 
 export async function computeEmployeeEarnings(userId: number, tenantId: number, year: number, month: number) {
   const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const totalDays = daysInMonth(year, month);
   const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(totalDays).padStart(2, '0')}`;
-  const rangeStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const rangeEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+  const rangeStart = new Date(`${monthStart}T00:00:00.000Z`);
+  rangeStart.setUTCDate(rangeStart.getUTCDate() - 1);
+  const rangeEnd = new Date(`${monthEnd}T23:59:59.999Z`);
+  rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
 
   const [tenantRows, settings, profileRows, components, userRows, logs, breaks, leaveRequests, leavePolicies, holidays] = await Promise.all([
     db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
@@ -66,10 +70,21 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     db.select().from(schema.breakSessions).where(and(eq(schema.breakSessions.userId, userId), gte(schema.breakSessions.startTime, rangeStart), lte(schema.breakSessions.startTime, rangeEnd))),
     db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
     db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
-    db.select().from(schema.holidays).where(and(eq(schema.holidays.tenantId, tenantId), eq(schema.holidays.isArchived, false))),
+    getHolidaysForEmployee(tenantId, userId),
   ]);
 
   const tenant = tenantRows[0] || {};
+  const tenantRangeStart = tenantDateTime(tenant, monthStart, 0, 0);
+  const tenantRangeEnd = tenantDateTime(tenant, monthEnd, 23, 59);
+  tenantRangeEnd.setUTCSeconds(59, 999);
+  const tenantScopedLogs = logs.filter((log: any) => {
+    const createdAt = new Date(log.createdAt).getTime();
+    return createdAt >= tenantRangeStart.getTime() && createdAt <= tenantRangeEnd.getTime();
+  });
+  const tenantScopedBreaks = breaks.filter((session: any) => {
+    const startTime = new Date(session.startTime).getTime();
+    return startTime >= tenantRangeStart.getTime() && startTime <= tenantRangeEnd.getTime();
+  });
   let profile: any = profileRows[0] || null;
   let effectiveComponents = components;
   if (!profile) {
@@ -138,22 +153,22 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // Attendance logs grouped by calendar date (createdAt's date, matching how
   // /api/attendance/today and the checkout flow already key "today").
   const logsByDate = new Map<string, any[]>();
-  for (const log of logs) {
-    const key = toDateOnly(new Date(log.createdAt));
+  for (const log of tenantScopedLogs) {
+    const key = tenantDateKey(tenant, new Date(log.createdAt));
     if (!logsByDate.has(key)) logsByDate.set(key, []);
     logsByDate.get(key)!.push(log);
   }
 
   // Completed break minutes grouped by the calendar date the break started.
   const breakMinutesByDate = new Map<string, number>();
-  for (const b of breaks) {
+  for (const b of tenantScopedBreaks) {
     if (b.status !== 'completed' || !b.endTime) continue;
-    const key = toDateOnly(new Date(b.startTime));
+    const key = tenantDateKey(tenant, new Date(b.startTime));
     const mins = (new Date(b.endTime).getTime() - new Date(b.startTime).getTime()) / 60000;
     breakMinutesByDate.set(key, (breakMinutesByDate.get(key) || 0) + Math.max(0, mins));
   }
 
-  const todayKey = toDateOnly(new Date());
+  const todayKey = tenantDateKey(tenant);
   const days: DailyEarning[] = [];
   let paidLeaveDaysSoFar = 0;
   let totalOvertimeHours = 0;
@@ -168,9 +183,8 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   let absentDays = 0;
 
   for (let day = 1; day <= totalDays; day++) {
-    const date = new Date(Date.UTC(year, month - 1, day));
-    const dateKey = toDateOnly(date);
-    const weekdayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const weekdayName = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tenant.timezone || 'Asia/Kolkata' }).format(tenantDateTime(tenant, dateKey, 12, 0));
 
     if (dateKey > todayKey) {
       days.push({ date: dateKey, status: 'future', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: 0, netPay: 0 });
@@ -180,8 +194,11 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     const leaveInfo = leaveByDate.get(dateKey) || null;
     const holidayName = holidayByDate.get(dateKey) || null;
     const isWeekend = weekendDays.includes(weekdayName);
+    const dayLogs = (logsByDate.get(dateKey) || []).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const checkIn = dayLogs.find((l) => l.type === 'check_in' && l.status !== 'rejected');
+    const checkOut = [...dayLogs].reverse().find((l) => l.type === 'check_out');
 
-    if (leaveInfo) {
+    if (leaveInfo && !checkIn && !holidayName && !isWeekend) {
       const { leaveType, policyId, dayFraction } = leaveInfo;
       const policy = policyId != null ? policyById.get(policyId) : undefined;
       const deductionPercent = policyDeductionPercent(policy as any);
@@ -224,10 +241,6 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     // who actually worked a weekend or holiday (overtime shift, on-call,
     // etc.) has real attendance data that must not be silently discarded
     // just because the calendar day is normally non-working.
-    const dayLogs = (logsByDate.get(dateKey) || []).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const checkIn = dayLogs.find((l) => l.type === 'check_in' && l.status !== 'rejected');
-    const checkOut = [...dayLogs].reverse().find((l) => l.type === 'check_out');
-
     if (!checkIn) {
       if (holidayName) {
         days.push({ date: dateKey, status: 'holiday', checkIn: null, checkOut: null, hoursWorked: 0, regularHours: 0, overtimeHours: 0, overtimePay: 0, breakMinutes: 0, excessBreakMinutes: 0, excessBreakDeduction: 0, isHalfDay: false, isShortDay: false, isLeave: false, leaveType: null, leaveChargeable: false, basePay: baseline.dailyRate, netPay: baseline.dailyRate });
@@ -251,10 +264,22 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
     const checkInTime = new Date(checkIn.createdAt);
     const checkOutTime = checkOut ? new Date(checkOut.createdAt) : (dateKey === todayKey ? new Date() : null);
     const breakMins = breakMinutesByDate.get(dateKey) || 0;
+
+    // Canonical source of truth: consume pre-computed workedMinutes and overtimeMinutes
+    // from checkOut/checkIn attendance logs if available; fallback to timestamp diff minus breaks.
+    const logWorkedMinutes = checkOut?.workedMinutes ?? checkIn?.workedMinutes ?? null;
+    const logOvertimeMinutes = checkOut?.overtimeMinutes ?? checkIn?.overtimeMinutes ?? null;
+
     const grossMins = checkOutTime ? (checkOutTime.getTime() - checkInTime.getTime()) / 60000 : 0;
-    const hoursWorked = Math.max(0, (grossMins - breakMins) / 60);
+    const hoursWorked = logWorkedMinutes !== null 
+      ? Math.max(0, logWorkedMinutes / 60)
+      : Math.max(0, (grossMins - breakMins) / 60);
+
     const regularHours = workedNonScheduledDay ? 0 : Math.min(hoursWorked, shiftHours);
-    const overtimeHours = workedNonScheduledDay ? hoursWorked : Math.max(0, hoursWorked - shiftHours);
+    const overtimeHours = workedNonScheduledDay 
+      ? hoursWorked 
+      : (logOvertimeMinutes !== null ? logOvertimeMinutes / 60 : Math.max(0, hoursWorked - shiftHours));
+
     const overtimePay = overtimeHours * overtimeRate;
     const budget = Number(tenant.dailyBreakBudgetMins ?? 60);
     const excessBreakMinutes = Math.max(0, breakMins - budget);
@@ -306,6 +331,7 @@ export async function computeEmployeeEarnings(userId: number, tenantId: number, 
   // makes, now fed the real computed totals so the two endpoints agree.
   const leaveDaysSplit = { totalDays: totalApprovedLeaveDays, paidDays: totalPaidLeaveDays, chargeableDays: totalChargeableLeaveDays };
   const monthlySummary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDaysSplit, totalOvertimeHours);
+  monthlySummary.monthlyNet = Math.round((monthlySummary.monthlyNet - totalExcessBreakDeduction) * 100) / 100;
 
   return {
     period: { year, month },

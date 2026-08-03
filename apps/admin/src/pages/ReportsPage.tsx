@@ -96,6 +96,21 @@ const REPORT_THEMES = [
   { id: 'compliance_red', name: 'Compliance Red', headerBg: '#991b1b', headerText: '#ffffff', accentColor: '#dc2626', border: '#fca5a5' }
 ];
 
+// Local (or tenant-timezone) calendar-date string — NOT `.toISOString()`,
+// which converts to UTC first: a Date built from local
+// year/month/day components (e.g. `new Date(y, m, 1)`) then serialized via
+// `.toISOString().split('T')[0]` silently rolls back a day for any
+// timezone ahead of UTC (local midnight on the 1st becomes the previous
+// UTC day). Every quick date-preset below used to do exactly this,
+// meaning "Today"/"This Month"/etc. could report the WRONG calendar day —
+// this is the fix.
+function localDateStr(date: Date, timezone?: string | null): string {
+  if (timezone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export default function ReportsPage({ user, embedded = false }: ReportsPageProps) {
   const token = localStorage.getItem('auth_token');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -266,10 +281,17 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
   const [showWatermark, setShowWatermark] = useState<boolean>(false);
   const [signatureLine, setSignatureLine] = useState<string>('');
   const [tenantBranding, setTenantBranding] = useState<{ name?: string; address?: string; logoUrl?: string }>({});
+  // The company's configured business timezone — quick date presets
+  // (Today/This Week/This Month/etc.) below should resolve against this,
+  // not the browser's, so "Today" means the company's today.
+  const [tenantTimezone, setTenantTimezone] = useState<string | null>(null);
   useEffect(() => {
     fetch('/api/tenant/config', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
-      .then((d) => setTenantBranding({ name: d?.tenant?.name, address: d?.tenant?.reportAddress, logoUrl: d?.tenant?.reportLogoUrl }))
+      .then((d) => {
+        setTenantBranding({ name: d?.tenant?.name, address: d?.tenant?.reportAddress, logoUrl: d?.tenant?.reportLogoUrl });
+        if (d?.tenant?.timezone) setTenantTimezone(d.tenant.timezone);
+      })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -279,11 +301,9 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
   const [startDate, setStartDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(1);
-    return d.toISOString().split('T')[0];
+    return localDateStr(d);
   });
-  const [endDate, setEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [endDate, setEndDate] = useState<string>(() => localDateStr(new Date()));
   const [department, setDepartment] = useState<string>('ALL');
   const [branchId, setBranchId] = useState<string>('ALL');
   const [status, setStatus] = useState<string>('ALL');
@@ -448,41 +468,38 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
     setDatePreset(preset);
     const now = new Date();
     if (preset === 'today') {
-      const today = now.toISOString().split('T')[0];
+      const today = localDateStr(now, tenantTimezone);
       setStartDate(today);
       setEndDate(today);
     } else if (preset === 'yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
-      const key = y.toISOString().split('T')[0];
+      const key = localDateStr(y, tenantTimezone);
       setStartDate(key);
       setEndDate(key);
     } else if (preset === 'this_week') {
-      const first = now.getDate() - now.getDay();
-      const firstDay = new Date(now.setDate(first)).toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
-      setStartDate(firstDay);
-      setEndDate(today);
+      const first = new Date(now);
+      first.setDate(now.getDate() - now.getDay());
+      setStartDate(localDateStr(first, tenantTimezone));
+      setEndDate(localDateStr(now, tenantTimezone));
     } else if (preset === 'last_week') {
-      const base = new Date();
-      const thisWeekStart = new Date(base);
-      thisWeekStart.setDate(base.getDate() - base.getDay());
+      const thisWeekStart = new Date(now);
+      thisWeekStart.setDate(now.getDate() - now.getDay());
       const lastWeekStart = new Date(thisWeekStart);
       lastWeekStart.setDate(thisWeekStart.getDate() - 7);
       const lastWeekEnd = new Date(thisWeekStart);
       lastWeekEnd.setDate(thisWeekStart.getDate() - 1);
-      setStartDate(lastWeekStart.toISOString().split('T')[0]);
-      setEndDate(lastWeekEnd.toISOString().split('T')[0]);
+      setStartDate(localDateStr(lastWeekStart, tenantTimezone));
+      setEndDate(localDateStr(lastWeekEnd, tenantTimezone));
     } else if (preset === 'this_month') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
-      setStartDate(firstDay);
-      setEndDate(today);
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDate(localDateStr(firstDay, tenantTimezone));
+      setEndDate(localDateStr(now, tenantTimezone));
     } else if (preset === 'last_month') {
-      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
-      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
-      setStartDate(firstDay);
-      setEndDate(lastDay);
+      const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      setStartDate(localDateStr(firstDay, tenantTimezone));
+      setEndDate(localDateStr(lastDay, tenantTimezone));
     }
   };
 

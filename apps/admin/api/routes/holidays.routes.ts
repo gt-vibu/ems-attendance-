@@ -4,6 +4,7 @@ import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { getOrCreatePayrollSettings } from './leavePayrollShared';
+import { tenantParts } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -68,8 +69,11 @@ router.post('/api/tenant/holidays/import-public', authenticate, async (req: any,
     if (!await hasPrivilege(req.user, 'holiday.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const settings = await getOrCreatePayrollSettings(req.user.tenantId);
-    const year = Number(req.body?.year || new Date().getUTCFullYear());
+    const [settings, tenantRows] = await Promise.all([
+      getOrCreatePayrollSettings(req.user.tenantId),
+      db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1),
+    ]);
+    const year = Number(req.body?.year || tenantParts(tenantRows[0] || null).year);
     const countryCode = String(req.body?.countryCode || settings.holidayCountryCode || 'IN');
     const response = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/${countryCode}`);
     if (!response.ok) {

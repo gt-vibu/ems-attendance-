@@ -52,6 +52,13 @@ export const tenants = pgTable('tenants', {
   // turns this on. Default false keeps every existing tenant's payroll
   // numbers byte-for-byte identical (overtimeHours always 0, as before).
   overtimePayrollEnabled: boolean('overtime_payroll_enabled').default(false),
+  // Notification quiet hours ('HH:MM', tenant-local per `timezone` above) —
+  // null/either-unset disables the feature entirely (existing behavior).
+  // Only 'immediate'-mode, non-critical-priority notifications are deferred
+  // into the digest queue during this window; critical notifications always
+  // bypass it. See notify() in services/notificationService.ts.
+  quietHoursStart: text('quiet_hours_start'),
+  quietHoursEnd: text('quiet_hours_end'),
   // --- Work From Home (WFH) policy — additive attendance mode alongside the
   // office flow above; every field here is optional/defaulted so existing
   // tenants behave exactly as before (WFH disabled) until an admin opts in. ---
@@ -287,6 +294,11 @@ export const users = pgTable('users', {
   // attendance/payroll history is deliberately NOT deleted (needed for
   // statutory retention) — only direct-identifier fields are scrubbed.
   dataErasedAt: timestamp('data_erased_at'),
+  // Per-employee channel opt-out — intersected with a notification policy's
+  // configured `channels` before delivery (an employee who's turned off
+  // email still gets in_app). Defaults both on so this is purely additive;
+  // absent/null is treated as "both enabled" the same as this default.
+  notificationChannelPrefs: jsonb('notification_channel_prefs').default('{"email":true,"in_app":true}'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -668,6 +680,26 @@ export const notificationPolicies = pgTable('notification_policies', {
   // managers" version of that bug to fix. Admin stays tenant-wide by design
   // (no branch/department concept applies to "the tenant admin").
   scopeHrToDepartment: boolean('scope_hr_to_department').notNull().default(false),
+  // Per-recipient delivery mode — replaces a single event-wide "is this
+  // batched" flag, since (e.g.) a manager may need an absence immediately
+  // while HR is fine seeing it in a daily rollup. 'immediate' preserves
+  // today's exact behavior (the default for every existing row/event, so
+  // nothing changes until an admin explicitly reclassifies it). 'digest'
+  // routes into notification_digest_queue instead of firing right away.
+  // 'none' means that recipient category gets nothing at all for this event
+  // even if its notify* flag above is true (lets e.g. a CEO be excluded from
+  // a specific noisy event while staying on the admin recipient list
+  // generally).
+  employeeMode: text('employee_mode').notNull().default('immediate'), // 'immediate' | 'digest' | 'none'
+  managerMode: text('manager_mode').notNull().default('immediate'),
+  hrMode: text('hr_mode').notNull().default('immediate'),
+  adminMode: text('admin_mode').notNull().default('immediate'),
+  // 'critical' always sends immediately regardless of *Mode above and
+  // bypasses quiet hours entirely. 'silent' forces channel to in_app only
+  // regardless of the configured `channels` column. 'high'/'medium'/'low'
+  // are informational tiers with no special handling beyond display/sort
+  // order in the admin UI today.
+  priority: text('priority').notNull().default('medium'), // 'critical' | 'high' | 'medium' | 'low' | 'silent'
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   tenantEventUnique: uniqueIndex('notification_policies_tenant_event_unique').on(table.tenantId, table.eventType),
@@ -710,6 +742,56 @@ export const notificationLog = pgTable('notification_log', {
   channel: text('channel').notNull(), // 'in_app' | 'email'
   status: text('status').notNull(), // 'sent' | 'failed'
   error: text('error'),
+  attempts: integer('attempts').notNull().default(1),
+  // Stored so a failed delivery can be retried with the exact original
+  // content from the admin UI's History tab, instead of only being able to
+  // re-fire a contextless notification of the same eventType.
+  subjectName: text('subject_name'),
+  data: jsonb('data').default('{}'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Holding area for 'digest'-mode notifications (see notificationPolicies'
+// *Mode columns) until the scheduled digestDispatcher job in
+// services/digestDispatcher.ts rolls them into one summary per recipient.
+// Same-day duplicates of the same (recipient, eventType) collapse into a
+// single row via the unique index below instead of accumulating one row per
+// occurrence — "GPS failed" five times becomes one row with
+// occurrenceCount: 5, not five rows.
+export const notificationDigestQueue = pgTable('notification_digest_queue', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  recipientUserId: integer('recipient_user_id').references(() => users.id).notNull(),
+  eventType: text('event_type').notNull(),
+  digestBucketDate: text('digest_bucket_date').notNull(), // 'YYYY-MM-DD', tenant-local day this occurrence belongs to
+  occurrenceCount: integer('occurrence_count').notNull().default(1),
+  sampleSubjectNames: jsonb('sample_subject_names').notNull().default('[]'), // string[], capped, for "John, Rahul, Arjun"
+  data: jsonb('data').notNull().default('{}'),
+  consumed: boolean('consumed').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  dedupeKey: uniqueIndex('digest_queue_dedupe_unique').on(table.tenantId, table.recipientUserId, table.eventType, table.digestBucketDate),
+}));
+
+// Admin-configurable "who gets the rollup, how often" — the fix for the old
+// hardcoded admins[0]-only daily summary. recipients supports both role
+// based defaults and arbitrary named employees:
+// [{type:'role', role:'manager'|'HR'|'tenant_admin'} | {type:'user', userId:number}]
+// so a tenant admin can add e.g. a specific COO to the executive digest
+// without that person needing the tenant_admin role. nextRunAt-driven due
+// check (same pattern as reportSchedules), not fixed hour/min branches, so
+// admin-configured send times just work without new scheduler code.
+export const notificationDigestSubscriptions = pgTable('notification_digest_subscriptions', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  digestType: text('digest_type').notNull(), // 'manager_daily' | 'manager_weekly' | 'hr_daily' | 'hr_weekly' | 'executive_daily' | 'executive_weekly'
+  frequency: text('frequency').notNull().default('daily'), // 'daily' | 'weekly'
+  timeOfDay: text('time_of_day').notNull().default('09:00'), // 'HH:MM', tenant-local
+  dayOfWeek: integer('day_of_week'), // 0=Sunday..6=Saturday, only for 'weekly'
+  recipients: jsonb('recipients').notNull().default('[]'),
+  active: boolean('active').notNull().default(true),
+  lastRunAt: timestamp('last_run_at'),
+  nextRunAt: timestamp('next_run_at').defaultNow(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -1082,6 +1164,11 @@ export const payrollSettings = pgTable('payroll_settings', {
   // "block release" policy.
   blockPayrollReleaseOnPendingAdjustments: boolean('block_payroll_release_on_pending_adjustments').default(false),
   workingDaysPerMonth: integer('working_days_per_month').notNull().default(26),
+  lopCalculationPolicy: text('lop_calculation_policy').default('fixed_26'), // 'fixed_26' | 'calendar_days' | 'working_days'
+  monthlySalaryBasis: text('monthly_salary_basis').default('actual_calendar_days'), // '30_days' | 'actual_calendar_days' | 'working_days'
+  includePaidHolidays: boolean('include_paid_holidays').default(true),
+  includePaidWeekends: boolean('include_paid_weekends').default(true),
+  includeApprovedPaidLeave: boolean('include_approved_paid_leave').default(true),
   maxPaidLeaveDaysPerMonth: real('max_paid_leave_days_per_month').notNull().default(0),
   excessLeavePenaltyPercent: real('excess_leave_penalty_percent').notNull().default(100),
   overtimeHourlyRate: real('overtime_hourly_rate').notNull().default(0),
@@ -1225,11 +1312,16 @@ export const payrollAdjustments = pgTable('payroll_adjustments', {
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   userId: integer('user_id').references(() => users.id).notNull(),
   payrollRunId: integer('payroll_run_id').references(() => payrollRuns.id).notNull(),
-  sourceType: text('source_type').notNull(), // 'attendance_correction' | 'manual'
-  sourceId: integer('source_id'), // attendanceCorrections.id when sourceType is 'attendance_correction'
+  sourceType: text('source_type').notNull(), // 'attendance_correction' | 'leave_adjustment' | 'salary_revision' | 'bonus' | 'reimbursement' | 'loan' | 'tax' | 'manual'
+  sourceId: integer('source_id'),
+  previousValue: real('previous_value'),
+  newValue: real('new_value'),
   amountDelta: real('amount_delta').notNull(), // positive = owed to employee, negative = owed back
   reason: text('reason').notNull(),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  auditId: text('audit_id'),
   status: text('status').notNull().default('pending'), // 'pending' | 'applied'
   appliedToNextCycle: boolean('applied_to_next_cycle').notNull().default(false),
   appliedAt: timestamp('applied_at'),

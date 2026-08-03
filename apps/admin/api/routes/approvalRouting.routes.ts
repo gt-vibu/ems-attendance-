@@ -3,7 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
-import { DEFAULT_POLICY_EVENT_TYPES } from '../services/notificationService';
+import { DEFAULT_POLICY_EVENT_TYPES, notify, retryNotificationLogEntry } from '../services/notificationService';
 import { logToAuditLedger } from '../services/audit';
 
 export const router = Router();
@@ -173,25 +173,34 @@ router.get('/api/tenant/notification-policies', authenticate, async (req: any, r
 router.put('/api/tenant/notification-policies', authenticate, async (req: any, res: any) => {
   try {
     if (!await requireNotificationPoliciesFeature(req, res)) return;
-    const { eventType, notifyEmployee, notifyManager, notifyHR, notifyAdmin, channels, scopeHrToDepartment } = req.body || {};
+    const { eventType, notifyEmployee, notifyManager, notifyHR, notifyAdmin, channels, scopeHrToDepartment, employeeMode, managerMode, hrMode, adminMode, priority } = req.body || {};
     if (!eventType) return res.status(400).json({ error: 'eventType is required.' });
     const resolvedChannels = Array.isArray(channels) && channels.length > 0 ? channels : ['in_app', 'email'];
+    const MODES = ['immediate', 'digest', 'none'];
+    const PRIORITIES = ['critical', 'high', 'medium', 'low', 'silent'];
+    const resolvedMode = (v: any) => (MODES.includes(v) ? v : 'immediate');
+    const resolvedPriority = PRIORITIES.includes(priority) ? priority : 'medium';
 
     const existing = await db.select().from(schema.notificationPolicies).where(
       and(eq(schema.notificationPolicies.tenantId, req.user.tenantId), eq(schema.notificationPolicies.eventType, eventType))
     ).limit(1);
 
+    const values = {
+      notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin,
+      channels: resolvedChannels, scopeHrToDepartment: !!scopeHrToDepartment,
+      employeeMode: resolvedMode(employeeMode), managerMode: resolvedMode(managerMode), hrMode: resolvedMode(hrMode), adminMode: resolvedMode(adminMode),
+      priority: resolvedPriority,
+    };
+
     let saved;
     if (existing.length > 0) {
       [saved] = await db.update(schema.notificationPolicies)
-        .set({ notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin, channels: resolvedChannels, scopeHrToDepartment: !!scopeHrToDepartment })
+        .set(values)
         .where(eq(schema.notificationPolicies.id, existing[0].id))
         .returning();
     } else {
       [saved] = await db.insert(schema.notificationPolicies).values({
-        tenantId: req.user.tenantId, eventType,
-        notifyEmployee: !!notifyEmployee, notifyManager: !!notifyManager, notifyHR: !!notifyHR, notifyAdmin: !!notifyAdmin,
-        channels: resolvedChannels, scopeHrToDepartment: !!scopeHrToDepartment,
+        tenantId: req.user.tenantId, eventType, ...values,
       }).returning();
     }
 
@@ -218,6 +227,7 @@ router.get('/api/tenant/notification-log', authenticate, async (req: any, res: a
       channel: schema.notificationLog.channel,
       status: schema.notificationLog.status,
       error: schema.notificationLog.error,
+      attempts: schema.notificationLog.attempts,
       createdAt: schema.notificationLog.createdAt,
       recipientName: schema.users.name,
     }).from(schema.notificationLog)
@@ -226,6 +236,100 @@ router.get('/api/tenant/notification-log', authenticate, async (req: any, res: a
       .orderBy(desc(schema.notificationLog.createdAt))
       .limit(100);
     res.json({ entries: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Re-sends a specific failed delivery exactly as originally attempted (see
+// retryNotificationLogEntry in notificationService.ts) — surfaced as a
+// "Retry now" action next to failed rows in the History tab.
+router.post('/api/tenant/notification-log/:id/retry', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const logId = parseInt(req.params.id, 10);
+    const rows = await db.select().from(schema.notificationLog).where(
+      and(eq(schema.notificationLog.id, logId), eq(schema.notificationLog.tenantId, req.user.tenantId)),
+    ).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Notification log entry not found.' });
+    if (rows[0].status !== 'failed') return res.status(400).json({ error: 'Only failed deliveries can be retried.' });
+    await retryNotificationLogEntry(logId, req.user.tenantId);
+    await logToAuditLedger({
+      tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name,
+      action: 'NOTIFICATION_DELIVERY_RETRIED', details: { logId },
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fires a real notify() call for the given event type, scoped ONLY to the
+// clicking admin (regardless of that event's actual configured recipients),
+// using synthetic placeholder data — lets an admin verify a policy/template
+// renders sensibly before enabling it broadly, without notifying anyone
+// else. Deliberately bypasses resolveRecipients() the same way
+// notifyDirectRecipient does, for the same reason: the caller already knows
+// exactly who should receive this (themself).
+router.post('/api/tenant/notifications/test', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const { eventType } = req.body || {};
+    if (!eventType) return res.status(400).json({ error: 'eventType is required.' });
+    await notify(req.user.tenantId, eventType, {
+      subjectUserId: req.user.userId,
+      subjectName: req.user.name,
+      data: { test: true, note: 'This is a test notification triggered from the Notification Center.' },
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Digest subscriptions — admin-configurable "who gets the rollup, how
+// often" (see notification_digest_subscriptions in schema.ts). Recipients
+// support both role defaults and arbitrary named employees:
+// [{type:'role', role:'manager'|'HR'|'tenant_admin'} | {type:'user', userId}]
+const DIGEST_TYPES = ['manager_daily', 'manager_weekly', 'hr_daily', 'hr_weekly', 'executive_daily', 'executive_weekly'];
+
+router.get('/api/tenant/notification-digest-subscriptions', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const rows = await db.select().from(schema.notificationDigestSubscriptions).where(eq(schema.notificationDigestSubscriptions.tenantId, req.user.tenantId));
+    res.json({ subscriptions: rows, digestTypes: DIGEST_TYPES });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/tenant/notification-digest-subscriptions/:id', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await requireNotificationPoliciesFeature(req, res)) return;
+    const id = parseInt(req.params.id, 10);
+    const existingRows = await db.select().from(schema.notificationDigestSubscriptions).where(eq(schema.notificationDigestSubscriptions.id, id)).limit(1);
+    if (existingRows.length === 0 || existingRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Digest subscription not found.' });
+
+    const { frequency, timeOfDay, dayOfWeek, recipients, active } = req.body || {};
+    const resolvedFrequency = frequency === 'weekly' ? 'weekly' : 'daily';
+    const resolvedRecipients = Array.isArray(recipients) ? recipients.filter((r: any) =>
+      (r?.type === 'role' && typeof r.role === 'string') || (r?.type === 'user' && Number.isFinite(r.userId))
+    ) : existingRows[0].recipients;
+
+    const [saved] = await db.update(schema.notificationDigestSubscriptions).set({
+      frequency: resolvedFrequency,
+      timeOfDay: timeOfDay || existingRows[0].timeOfDay,
+      dayOfWeek: resolvedFrequency === 'weekly' ? (Number.isFinite(dayOfWeek) ? dayOfWeek : (existingRows[0].dayOfWeek ?? 1)) : null,
+      recipients: resolvedRecipients,
+      active: active === undefined ? existingRows[0].active : !!active,
+    }).where(eq(schema.notificationDigestSubscriptions.id, id)).returning();
+
+    await logToAuditLedger({
+      tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name,
+      action: 'NOTIFICATION_DIGEST_SUBSCRIPTION_SAVED', details: { id, digestType: existingRows[0].digestType },
+    });
+
+    res.json({ subscription: saved });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

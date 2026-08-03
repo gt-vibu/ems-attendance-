@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, LogOut, Building2, Search, MoreHorizontal, type LucideIcon } from 'lucide-react';
+import { X, LogOut, Building2, Search, MoreHorizontal, User as UserIcon, Settings, ChevronDown, type LucideIcon } from 'lucide-react';
 import PageChrome from './PageChrome';
 import NotificationBell from './NotificationBell';
 
@@ -41,6 +41,8 @@ export default function PortalShell({
 }: PortalShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const submitSearch = (e: React.FormEvent) => {
@@ -49,8 +51,22 @@ export default function PortalShell({
     navigate(`/tenant/directory?q=${encodeURIComponent(searchQuery.trim())}`);
   };
 
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    if (!profileDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [profileDropdownOpen]);
+
   const bottomNavItems = navItems.slice(0, BOTTOM_NAV_VISIBLE_COUNT);
   const hasOverflow = navItems.length > BOTTOM_NAV_VISIBLE_COUNT;
+
+  const userInitial = (user.name || user.email || '?').charAt(0).toUpperCase();
 
   const SidebarContent = () => (
     <>
@@ -93,7 +109,7 @@ export default function PortalShell({
       <div className="px-2.5 py-2.5 border-t border-[var(--color-nexus-border)]">
         <div className="flex items-center gap-2.5 px-1.5 py-1.5 mb-1">
           <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary)] flex items-center justify-center text-xs font-bold text-white shrink-0">
-            {(user.name || user.email || '?').charAt(0).toUpperCase()}
+            {userInitial}
           </div>
           <div className="min-w-0">
             <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate leading-tight">{user.name || 'Account'}</span>
@@ -135,14 +151,14 @@ export default function PortalShell({
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-4 md:px-6 h-16 flex justify-between items-center gap-4 sticky top-0 z-40">
+        <header className="bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-3 md:px-6 h-14 md:h-16 flex justify-between items-center gap-3 md:gap-4 sticky top-0 z-40">
           <div className="flex items-center gap-3 min-w-0">
             <div className="min-w-0">
-              <h1 className="font-sans font-bold text-[17px] md:text-[19px] text-[var(--color-nexus-ink)] tracking-tight truncate leading-tight">{title}</h1>
+              <h1 className="font-sans font-bold text-[15px] md:text-[19px] text-[var(--color-nexus-ink)] tracking-tight truncate leading-tight">{title}</h1>
               {subtitle && <p className="hidden sm:block text-[12px] text-[var(--color-nexus-muted)] truncate mt-0.5">{subtitle}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <form onSubmit={submitSearch} className="hidden sm:block relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-nexus-muted)]" />
               <input
@@ -154,27 +170,74 @@ export default function PortalShell({
               <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-nexus-muted)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded px-1.5 py-0.5">⌘K</kbd>
             </form>
             <NotificationBell />
-            <PageChrome fallbackHref={fallbackHref} variant="compact" />
+            {/* Back + Landing buttons: desktop only */}
+            <div className="hidden md:block">
+              <PageChrome fallbackHref={fallbackHref} variant="compact" />
+            </div>
             {headerActions}
-            <div className="hidden sm:flex items-center gap-2.5 pl-3 border-l border-[var(--color-nexus-border)]">
+
+            {/* Desktop: inline user info */}
+            <div className="hidden md:flex items-center gap-2.5 pl-3 border-l border-[var(--color-nexus-border)]">
               <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center text-xs font-bold text-[var(--color-nexus-primary)] shrink-0" title={user.email}>
-                {(user.name || user.email || '?').charAt(0).toUpperCase()}
+                {userInitial}
               </div>
               <div className="min-w-0 leading-tight">
                 <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate max-w-[120px]">{user.name || 'Account'}</span>
                 <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate max-w-[120px]">{roleLabel || user.role}</span>
               </div>
             </div>
+
+            {/* Mobile: profile avatar button → dropdown with Sign Out */}
+            <div className="md:hidden relative" ref={profileDropdownRef}>
+              <button
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary)] flex items-center justify-center text-[11px] font-bold text-white shrink-0 active:scale-95 transition-transform"
+                aria-label="Account menu"
+              >
+                {userInitial}
+              </button>
+              {profileDropdownOpen && (
+                <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* User info */}
+                  <div className="px-4 py-3 border-b border-[var(--color-nexus-border)]">
+                    <p className="text-[13px] font-semibold text-[var(--color-nexus-ink)] truncate">{user.name || 'Account'}</p>
+                    <p className="text-[11px] text-[var(--color-nexus-muted)] truncate mt-0.5">{roleLabel || user.role}</p>
+                    {user.email && <p className="text-[10px] text-[var(--color-nexus-muted)] truncate mt-0.5">{user.email}</p>}
+                  </div>
+                  {/* Actions */}
+                  <div className="py-1">
+                    <button
+                      onClick={() => { setProfileDropdownOpen(false); onTabChange('overview'); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
+                    >
+                      <UserIcon size={14} className="text-[var(--color-nexus-muted)]" />
+                      Profile
+                    </button>
+                  </div>
+                  {/* Sign Out */}
+                  <div className="border-t border-[var(--color-nexus-border)] py-1">
+                    <button
+                      onClick={() => { setProfileDropdownOpen(false); onLogout(); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] transition-colors"
+                    >
+                      <LogOut size={14} />
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto p-4 md:p-6 w-full mb-16 md:mb-0">
+        <main className="max-w-7xl mx-auto p-3 md:p-6 w-full mb-14 md:mb-0">
           {children}
         </main>
       </div>
 
-      {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full z-40 flex items-stretch bg-[var(--color-nexus-surface)] border-t border-[var(--color-nexus-border)] shadow-[0_-2px_8px_rgba(25,28,30,0.06)] h-16">
+      {/* Mobile bottom tab bar — Sign Out removed; now lives in the
+          profile avatar dropdown in the top-right header. */}
+      <nav className="md:hidden fixed bottom-0 left-0 w-full z-40 flex items-stretch bg-[var(--color-nexus-surface)] border-t border-[var(--color-nexus-border)] shadow-[0_-2px_8px_rgba(25,28,30,0.06)] h-14">
         {bottomNavItems.map((item) => {
           const isActive = activeTab === item.id;
           const Icon = item.icon;
@@ -186,8 +249,8 @@ export default function PortalShell({
                 isActive ? 'text-[var(--color-nexus-primary)] font-bold' : 'text-[var(--color-nexus-muted)]'
               }`}
             >
-              <Icon size={20} />
-              <span className="text-[10px] font-semibold truncate max-w-[72px]">{item.label}</span>
+              <Icon size={18} />
+              <span className="text-[9px] font-semibold truncate max-w-[72px]">{item.label}</span>
             </button>
           );
         })}
@@ -196,21 +259,10 @@ export default function PortalShell({
             onClick={() => setMobileOpen(true)}
             className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[var(--color-nexus-muted)]"
           >
-            <MoreHorizontal size={20} />
-            <span className="text-[10px] font-semibold">More</span>
+            <MoreHorizontal size={18} />
+            <span className="text-[9px] font-semibold">More</span>
           </button>
         )}
-        {/* Sign Out lives here too, always — the hamburger used to be the
-            only mobile way to reach it, and a nav list with 4 or fewer items
-            (no "More") would otherwise leave no way to sign out on mobile
-            at all. */}
-        <button
-          onClick={onLogout}
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[var(--color-nexus-muted)]"
-        >
-          <LogOut size={20} />
-          <span className="text-[10px] font-semibold">Sign Out</span>
-        </button>
       </nav>
     </div>
   );

@@ -3,6 +3,8 @@ import { db, schema } from '../../db';
 import { logToAuditLedger } from './audit';
 import { dispatchWebhookEvent } from './webhooks';
 import { computeLeaveDays } from '../routes/leavePayrollShared';
+import { tenantDayRange, tenantDateTime } from './tenantTime';
+import { computeDayOutcome, computeLateness, computeExpectedCheckout, resolveEffectivePolicy } from './attendancePolicy';
 
 // Shared, reusable mutation logic for "someone with the right privilege
 // directly corrects a record after the fact." Used by both the standalone
@@ -12,12 +14,6 @@ import { computeLeaveDays } from '../routes/leavePayrollShared';
 // fix made directly always behave identically and reconcile the same way
 // with payroll/attendance-%% (both of which query attendance_logs/
 // leave_requests fresh on every read — there is no cache to invalidate).
-
-function dateRangeForDay(date: string): { start: Date; end: Date } {
-  const start = new Date(`${date}T00:00:00.000Z`);
-  const end = new Date(`${date}T23:59:59.999Z`);
-  return { start, end };
-}
 
 export interface EditAttendanceParams {
   tenantId: number;
@@ -34,6 +30,34 @@ export interface EditAttendanceParams {
   deviceInfo: string;
 }
 
+async function recomputeAttendanceDayFields(tenant: any, tenantId: number, targetUserId: number, date: string) {
+  const { start, end } = tenantDayRange(tenant, date);
+  const logs = await db.select().from(schema.attendanceLogs).where(
+    and(eq(schema.attendanceLogs.userId, targetUserId), eq(schema.attendanceLogs.tenantId, tenantId), gte(schema.attendanceLogs.createdAt, start), lte(schema.attendanceLogs.createdAt, end))
+  );
+  const checkIn = logs.find((log: any) => log.type === 'check_in' && log.status !== 'rejected');
+  if (!checkIn) return;
+  const checkOut = [...logs].reverse().find((log: any) => log.type === 'check_out' && log.status !== 'rejected');
+  const user = (await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1))[0];
+  const branch = user?.branchId ? (await db.select().from(schema.branches).where(eq(schema.branches.id, user.branchId)).limit(1))[0] : null;
+  const shift = user?.shiftId ? (await db.select().from(schema.shifts).where(eq(schema.shifts.id, user.shiftId)).limit(1))[0] : null;
+  const policy = resolveEffectivePolicy(tenant, branch, shift);
+  const checkInAt = new Date(checkIn.createdAt);
+  const lateness = computeLateness(policy, checkInAt, tenant);
+  const updates: Record<string, any> = {
+    isLate: lateness.isLate,
+    lateByMinutes: lateness.lateByMinutes,
+    expectedCheckoutAt: computeExpectedCheckout(policy, checkInAt, tenant),
+  };
+  if (checkOut) {
+    const outcome = computeDayOutcome(policy, checkInAt, new Date(checkOut.createdAt), 0);
+    updates.workedMinutes = Math.round(outcome.workedMinutes);
+    updates.overtimeMinutes = Math.round(outcome.overtimeMinutes);
+    updates.isHalfDay = outcome.isHalfDay;
+  }
+  await db.update(schema.attendanceLogs).set(updates).where(eq(schema.attendanceLogs.id, checkIn.id));
+}
+
 // Flips a day between present/absent. "Absent" in this app is a COMPUTED
 // state (no non-rejected check-in row for the day), not a stored row — see
 // computeEmployeeEarnings/computeAttendancePercent, both of which look for
@@ -44,7 +68,12 @@ export interface EditAttendanceParams {
 // actually happened).
 export async function editAttendanceDay(params: EditAttendanceParams) {
   const { tenantId, targetUserId, date, newStatus, checkInTime, checkOutTime, editedByUserId, editedByName, reason, ticketId, ipAddress, deviceInfo } = params;
-  const { start, end } = dateRangeForDay(date);
+  // Tenant-local day boundaries — MUST match tenantDateKey()'s bucketing
+  // (attendanceDayStatus.ts) exactly, or a correction targeting e.g. Monday
+  // for a non-UTC tenant can silently touch or miss the adjacent day's log.
+  const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  const tenant = tenantRows[0] || null;
+  const { start, end } = tenantDayRange(tenant, date);
 
   const existingLogs = await db.select().from(schema.attendanceLogs).where(
     and(eq(schema.attendanceLogs.userId, targetUserId), eq(schema.attendanceLogs.tenantId, tenantId), gte(schema.attendanceLogs.createdAt, start), lte(schema.attendanceLogs.createdAt, end))
@@ -66,14 +95,15 @@ export async function editAttendanceDay(params: EditAttendanceParams) {
       resultLogId = existingCheckIn.id;
     }
   } else {
-    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
+      const userRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
     const branchId = userRows[0]?.branchId ?? null;
 
     if (existingCheckIn) {
       await db.update(schema.attendanceLogs).set({ status: 'approved', explanation: reason }).where(eq(schema.attendanceLogs.id, existingCheckIn.id));
       resultLogId = existingCheckIn.id;
       if (checkOutTime) {
-        const checkoutAt = new Date(`${date}T${checkOutTime}:00.000Z`);
+        const [coH, coM] = checkOutTime.split(':').map(Number);
+        const checkoutAt = tenantDateTime(tenant, date, coH || 0, coM || 0);
         if (existingCheckOut) {
           await db.update(schema.attendanceLogs).set({ status: 'approved', checkoutAt, createdAt: checkoutAt }).where(eq(schema.attendanceLogs.id, existingCheckOut.id));
         } else {
@@ -85,7 +115,8 @@ export async function editAttendanceDay(params: EditAttendanceParams) {
         }
       }
     } else {
-      const checkInAt = new Date(`${date}T${checkInTime || '09:00'}:00.000Z`);
+      const [ciH, ciM] = (checkInTime || '09:00').split(':').map(Number);
+      const checkInAt = tenantDateTime(tenant, date, ciH || 9, ciM || 0);
       const [inserted] = await db.insert(schema.attendanceLogs).values({
         userId: targetUserId, tenantId, status: 'approved', type: 'check_in',
         createdAt: checkInAt, branchId, attendanceMode: 'office',
@@ -93,7 +124,8 @@ export async function editAttendanceDay(params: EditAttendanceParams) {
       }).returning();
       resultLogId = inserted.id;
       if (checkOutTime) {
-        const checkoutAt = new Date(`${date}T${checkOutTime}:00.000Z`);
+        const [coH, coM] = checkOutTime.split(':').map(Number);
+        const checkoutAt = tenantDateTime(tenant, date, coH || 0, coM || 0);
         await db.insert(schema.attendanceLogs).values({
           userId: targetUserId, tenantId, status: 'approved', type: 'check_out',
           createdAt: checkoutAt, checkoutAt, branchId, attendanceMode: 'office',
@@ -101,6 +133,7 @@ export async function editAttendanceDay(params: EditAttendanceParams) {
         });
       }
     }
+    await recomputeAttendanceDayFields(tenant, tenantId, targetUserId, date);
   }
 
   await logToAuditLedger({

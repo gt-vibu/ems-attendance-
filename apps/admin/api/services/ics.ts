@@ -16,7 +16,10 @@ function icsDateStamp(date: Date): string {
 function icsDateOnly(dateStr: string, addDays = 0): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + addDays);
-  return d.toISOString().slice(0, 10).replace(/-/g, '');
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
 }
 
 export function buildLeaveIcs(params: {

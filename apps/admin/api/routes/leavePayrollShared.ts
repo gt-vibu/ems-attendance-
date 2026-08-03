@@ -11,7 +11,10 @@ export function parseDateOnly(value: string) {
 }
 
 export function toDateOnly(value: Date) {
-  return value.toISOString().slice(0, 10);
+  const y = value.getUTCFullYear();
+  const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(value.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function diffDaysInclusive(startDate: string, endDate: string) {
@@ -20,8 +23,35 @@ export function diffDaysInclusive(startDate: string, endDate: string) {
   return Math.floor((end - start) / DAY_MS) + 1;
 }
 
-export function computeLeaveDays(startDate: string, endDate: string, halfDay: boolean) {
-  const days = diffDaysInclusive(startDate, endDate);
+export interface LeaveCalendarOptions {
+  weekendDays?: string[];
+  holidayDates?: Set<string>;
+}
+
+function dayNameForDateKey(dateKey: string) {
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(`${dateKey}T12:00:00Z`).getUTCDay()];
+}
+
+function isLeaveCountedDate(dateKey: string, options?: LeaveCalendarOptions) {
+  if (options?.holidayDates?.has(dateKey)) return false;
+  if (options?.weekendDays?.includes(dayNameForDateKey(dateKey))) return false;
+  return true;
+}
+
+export function computeLeaveDays(startDate: string, endDate: string, halfDay: boolean, options?: LeaveCalendarOptions) {
+  if (!options) {
+    const days = diffDaysInclusive(startDate, endDate);
+    if (days <= 0) return 0;
+    return halfDay && days === 1 ? 0.5 : days;
+  }
+  const start = parseDateOnly(startDate).getTime();
+  const end = parseDateOnly(endDate).getTime();
+  if (end < start) return 0;
+  let days = 0;
+  for (let ms = start; ms <= end; ms += DAY_MS) {
+    const dateKey = toDateOnly(new Date(ms));
+    if (isLeaveCountedDate(dateKey, options)) days += 1;
+  }
   if (days <= 0) return 0;
   return halfDay && days === 1 ? 0.5 : days;
 }
@@ -32,14 +62,21 @@ export function computeLeaveDays(startDate: string, endDate: string, halfDay: bo
 // 0.5 instead of counting as a full day. Omitting it keeps the old
 // whole-calendar-day behavior (still correct for every non-half-day
 // request, where totalDays already equals the full inclusive day count).
-export function overlapDaysInMonth(startDate: string, endDate: string, year: number, month: number, totalDays?: number) {
-  const monthStart = Date.UTC(year, month - 1, 1);
-  const monthEnd = Date.UTC(year, month, 0);
-  const start = parseDateOnly(startDate).getTime();
-  const end = parseDateOnly(endDate).getTime();
-  const overlapStart = Math.max(start, monthStart);
-  const overlapEnd = Math.min(end, monthEnd);
-  if (overlapEnd < overlapStart) return 0;
+export function overlapDaysInMonth(startDate: string, endDate: string, year: number, month: number, totalDays?: number, options?: LeaveCalendarOptions) {
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
+  const overlapStartKey = startDate > monthStart ? startDate : monthStart;
+  const overlapEndKey = endDate < monthEnd ? endDate : monthEnd;
+  if (overlapEndKey < overlapStartKey) return 0;
+  if (options) {
+    const overlapCountedDays = computeLeaveDays(overlapStartKey, overlapEndKey, false, options);
+    if (totalDays == null) return overlapCountedDays;
+    const fullCountedDays = computeLeaveDays(startDate, endDate, false, options);
+    const ratio = fullCountedDays > 0 ? totalDays / fullCountedDays : 1;
+    return overlapCountedDays * ratio;
+  }
+  const overlapStart = parseDateOnly(overlapStartKey).getTime();
+  const overlapEnd = parseDateOnly(overlapEndKey).getTime();
   const overlapCalendarDays = Math.floor((overlapEnd - overlapStart) / DAY_MS) + 1;
   if (totalDays == null) return overlapCalendarDays;
   const fullDays = diffDaysInclusive(startDate, endDate);
@@ -77,13 +114,14 @@ export function splitLeaveDaysForPayroll(
   policies: Array<{ id: number; defaultDeductionPercent: number | null }>,
   year: number,
   month: number,
+  options?: LeaveCalendarOptions,
 ): LeaveDaysSplit {
   const policyById = new Map(policies.map((p) => [p.id, p]));
   let totalDays = 0;
   let paidDays = 0;
   let chargeableDays = 0;
   for (const request of requests) {
-    const daysInMonth = overlapDaysInMonth(request.startDate, request.endDate, year, month, request.totalDays);
+    const daysInMonth = overlapDaysInMonth(request.startDate, request.endDate, year, month, request.totalDays, options);
     if (daysInMonth <= 0) continue;
     totalDays += daysInMonth;
     const deductionPercent = policyDeductionPercent(request.policyId != null ? policyById.get(request.policyId) : undefined);
@@ -227,7 +265,7 @@ export async function resolveAttendanceDrivenInputs(tenant: any, userId: number,
   return computeAttendanceDrivenPayrollInputs(tenantId, userId, year, month);
 }
 
-export function buildPayrollSummary(profile: any, components: any[], settings: any, leaveDays: LeaveDaysSplit, overtimeHours: number, attendanceDriven?: AttendanceDrivenInputs | null) {
+export function buildPayrollSummary(profile: any, components: any[], settings: any, leaveDays: LeaveDaysSplit, overtimeHours: number, attendanceDriven?: AttendanceDrivenInputs | null, year?: number, month?: number) {
   const annualCtc = Number(profile?.annualCtc || 0);
   const annualBreakdown = components.map((component) => {
     const annualAmount = componentAnnualAmount(annualCtc, component);
@@ -243,14 +281,19 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const monthlyGross = annualEarnings / 12;
   const monthlyDeductions = annualDeductions / 12;
   const monthlyBaseNet = monthlyGross - monthlyDeductions;
-  const workingDays = attendanceDriven ? attendanceDriven.workingDays : Number(settings?.workingDaysPerMonth || 26);
-  // Paid-leave days (0%-deduction policies) are free up to this monthly
-  // quota; only the excess beyond it is charged, at excessLeavePenaltyPercent
-  // — e.g. "your first 2 casual-leave days a month don't cost anything, a
-  // 3rd this month does." Chargeable-by-policy days (Leave Without Pay,
-  // etc.) are never subject to this quota — they were never "paid" leave to
-  // begin with, so they're deducted in full regardless of how many paid
-  // days were also taken.
+  
+  // Policy-driven LOP daily salary divisor resolution
+  // fixed_26: fixed workingDaysPerMonth (default 26)
+  // calendar_days: total days in the period month (28..31)
+  // working_days: actual working days in month excluding weekends/holidays
+  const policy = settings?.lopCalculationPolicy || 'fixed_26';
+  let workingDays = Number(settings?.workingDaysPerMonth || 26);
+  if (policy === 'calendar_days' && year && month) {
+    workingDays = new Date(year, month, 0).getDate();
+  } else if (policy === 'working_days' && attendanceDriven?.workingDays) {
+    workingDays = attendanceDriven.workingDays;
+  }
+
   const maxPaidLeaveDays = Number(settings?.maxPaidLeaveDaysPerMonth || 0);
   const excessLeavePenaltyPercent = Number(settings?.excessLeavePenaltyPercent || 100) / 100;
   const excessPaidDays = Math.max(0, leaveDays.paidDays - maxPaidLeaveDays);
@@ -280,6 +323,7 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
     monthlyGross,
     monthlyDeductions,
     monthlyBaseNet,
+    workingDays,
     dailyRate,
     approvedLeaveDays: leaveDays.totalDays,
     chargeableLeaveDays,

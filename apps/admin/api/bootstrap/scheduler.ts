@@ -3,7 +3,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, schema, tryAcquireSchedulerLeadership } from '../../db';
 import { logger } from '../../logger';
 import { reverseGeocode } from '../../geocoding.js';
-import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail, sendAutoAbsentAlertEmail } from '../../mail.js';
+import { sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail, sendAutoAbsentAlertEmail } from '../../mail.js';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { logToAuditLedger } from '../services/audit';
@@ -16,10 +16,10 @@ import { isPlatformFeatureAllowed } from '../auth/rbac';
 import { getEffectiveShift } from '../services/shiftOverrides';
 import { resolveEffectivePolicy } from '../services/attendancePolicy';
 import { resolveApprovers } from '../services/approvalRouting';
-import { localDateKey } from '../services/dateUtils';
-import { tenantDateKey, tenantParts } from '../services/tenantTime';
+import { tenantDateKey, tenantParts, tenantStartOfDay, tenantDateTime, tenantDateLabel } from '../services/tenantTime';
 import { registerReportSchedulerHandler, enqueueDueReportSchedules } from '../services/reportScheduler';
-import { notify, registerNotificationDeliveryHandler } from '../services/notificationService';
+import { notify, notifyDirectRecipient, registerNotificationDeliveryHandler } from '../services/notificationService';
+import { dispatchDueDigests } from '../services/digestDispatcher';
 import { registerPayrollBatchCalculationHandler } from '../services/payrollBatchCalculation';
 
 export function runBackgroundScheduler() {
@@ -30,16 +30,16 @@ export function runBackgroundScheduler() {
   // EACH tenant's own configured timezone (tenants.timezone), which can
   // differ from the server's clock and from each other.
   const lastAbsenteesRun = new Map<number, string>();
-  let lastCheckoutRun = '';
-  let lastSummaryRun = '';
-  let lastAttendanceCheckRun = '';
-  let lastArchivalRun = '';
+  const lastCheckoutRun = new Map<number, string>();
+  const lastAttendanceCheckRun = new Map<number, string>();
+  const lastArchivalRun = new Map<number, string>();
   // Missed-checkout verification (Phase 5) runs every minute per-user
   // (each has a different shiftEnd+grace trigger time), not once at a
   // fixed hour — this dedupes so a user isn't processed twice in one day.
   // Cleared at midnight below.
   let missedCheckoutProcessed = new Set<string>();
   let lastReportScheduleCheck = '';
+  let lastDigestDispatchCheck = '';
 
   // Register the queue job handler that actually executes a scheduled
   // report (see services/reportScheduler.ts) — must happen before the poll
@@ -108,7 +108,7 @@ export function runBackgroundScheduler() {
           }
 
           // Send alerts
-          await sendBreakViolationAlert(brk.userEmail, brk.userName, new Date().toLocaleDateString(), Math.round(elapsedMins), budget);
+          await sendBreakViolationAlert(brk.userEmail, brk.userName, tenantDateLabel(tenantList[0]), Math.round(elapsedMins), budget);
           
           // Get Tenant Admin to escalate
           const admins = await db.select().from(schema.users).where(
@@ -159,6 +159,19 @@ export function runBackgroundScheduler() {
         }
       }
 
+      // --- Notification digest dispatch (services/digestDispatcher.ts) —
+      // same once-a-minute cadence + nextRunAt-driven due check as the
+      // report schedules above, so admin-configured digest send times just
+      // work without a dedicated fixed-hour branch per possible time. ---
+      if (lastDigestDispatchCheck !== thisMinuteKey) {
+        lastDigestDispatchCheck = thisMinuteKey;
+        try {
+          await dispatchDueDigests();
+        } catch (err) {
+          logger.error('scheduler: digest dispatch failed', { error: (err as any)?.message });
+        }
+      }
+
       // --- Auto-mark absentees (at 11:00 AM in EACH tenant's own timezone) ---
       // Previously gated by the SERVER's clock (`currentHour === 11`) for
       // every tenant at once, and never told anyone it happened — an
@@ -185,8 +198,12 @@ export function runBackgroundScheduler() {
             )
           );
 
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
+          // Tenant-local "today," matching the tTodayKey this job's own
+          // trigger just computed above — server-local midnight here
+          // previously disagreed with that by the tenant's UTC offset,
+          // meaning a late-evening check-in near midnight could count (or
+          // fail to count) toward the wrong calendar day's absence check.
+          const todayStart = tenantStartOfDay(tenant, now);
 
           for (const emp of employees) {
             if (emp.employeeStatus && emp.employeeStatus !== 'active') continue;
@@ -253,8 +270,8 @@ export function runBackgroundScheduler() {
         const verifyTenants = (await db.select().from(schema.tenants)).filter((t: any) => isPlatformFeatureAllowed(t, 'missed_checkout_verification'));
         for (const tenant of verifyTenants) {
           const graceMins = tenant.checkoutGraceMins ?? 15;
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
+          const todayStart = tenantStartOfDay(tenant, now);
+          const tTodayKeyVerify = tenantDateKey(tenant, now);
 
           const activeCheckIns = await db.execute(sql`
             WITH latest_logs AS (
@@ -272,21 +289,26 @@ export function runBackgroundScheduler() {
 
           for (const row of (activeCheckIns.rows || activeCheckIns) as any[]) {
             if (row.employee_status && row.employee_status !== 'active') continue;
-            const dedupeKey = `${row.user_id}:${todayKey}`;
+            const dedupeKey = `${row.user_id}:${tTodayKeyVerify}`;
             if (missedCheckoutProcessed.has(dedupeKey)) continue;
 
             const branch = row.branch_id ? (await db.select().from(schema.branches).where(eq(schema.branches.id, row.branch_id)).limit(1))[0] || null : null;
-            const shift = await getEffectiveShift(tenant.id, row.user_id as number, localDateKey(now));
+            // Tenant-local date key for shift lookup — server-local
+            // localDateKey(now) inside this tenant-timezone-gated job could
+            // resolve to the wrong calendar day's shift for a non-UTC
+            // tenant near a day boundary.
+            const shift = await getEffectiveShift(tenant.id, row.user_id as number, tTodayKeyVerify);
             const policy = resolveEffectivePolicy(tenant, branch, shift);
             const [endH, endM] = policy.shiftEndStr.split(':').map(Number);
-            const shiftEndToday = new Date();
-            shiftEndToday.setHours(endH || 18, endM || 0, 0, 0);
+            // Tenant-local shift-end-of-day, not the shift's hour/minute
+            // glued onto the SERVER's current calendar day.
+            const shiftEndToday = tenantDateTime(tenant, tTodayKeyVerify, endH || 18, endM || 0);
             const triggerAt = new Date(shiftEndToday.getTime() + graceMins * 60000);
             if (now < triggerAt) continue;
 
             missedCheckoutProcessed.add(dedupeKey);
 
-            const heartbeatIsFromToday = row.last_heartbeat_at && new Date(row.last_heartbeat_at as any).toDateString() === todayKey;
+            const heartbeatIsFromToday = row.last_heartbeat_at && tenantDateKey(tenant, new Date(row.last_heartbeat_at as any)) === tTodayKeyVerify;
             let outsideOffice = false;
             if (heartbeatIsFromToday && tenant.locationLat && tenant.locationLng) {
               const distance = haversineMeters(row.last_heartbeat_lat as number, row.last_heartbeat_lng as number, tenant.locationLat, tenant.locationLng);
@@ -340,163 +362,126 @@ export function runBackgroundScheduler() {
         }
       }
 
-      // --- Auto-checkout (at 11:59 PM daily) — unchanged for tenants that
-      // haven't enabled missed_checkout_verification above. ---
-      if (currentHour === 23 && currentMin === 59 && lastCheckoutRun !== todayKey) {
-        lastCheckoutRun = todayKey;
-        console.log('Running Auto-Checkout Job...');
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+      // --- Auto-checkout (at 11:59 PM in EACH tenant's own timezone) — for
+      // tenants that haven't enabled missed_checkout_verification above.
+      // Previously gated by the SERVER's fixed 23:59 clock for every tenant
+      // in one shared query — the same bug class already fixed for the
+      // auto-mark-absentees/low-attendance jobs above, migrated here too:
+      // trigger time, "today" query boundary, and heartbeat-freshness check
+      // are now all resolved in each tenant's own configured timezone. ---
+      {
+        const legacyCheckoutTenants = (await db.select().from(schema.tenants)).filter((t: any) => !isPlatformFeatureAllowed(t, 'missed_checkout_verification'));
+        for (const tenant of legacyCheckoutTenants) {
+          const tParts = tenantParts(tenant, now);
+          const tTodayKey = tenantDateKey(tenant, now);
+          if (!(tParts.hour === 23 && tParts.minute === 59 && lastCheckoutRun.get(tenant.id) !== tTodayKey)) continue;
+          lastCheckoutRun.set(tenant.id, tTodayKey);
+          console.log(`Running Auto-Checkout Job for tenant ${tenant.id}...`);
+          const todayStart = tenantStartOfDay(tenant, now);
 
-        // Fetch users whose last approved attendance status today is
-        // check_in, along with their last GPS heartbeat and their tenant's
-        // geofence — used below to guess whether they're actually still
-        // on-premises (the server can't reach a closed browser tab for a
-        // live GPS read at this point).
-        const activeCheckIns = await db.execute(sql`
-          WITH latest_logs AS (
-            SELECT DISTINCT ON (user_id) *
-            FROM attendance_logs
-            WHERE created_at >= ${todayStart} AND status = 'approved'
-            ORDER BY user_id, id DESC
-          )
-          SELECT l.*, u.name as user_name, u.email as user_email,
-                 u.last_heartbeat_lat, u.last_heartbeat_lng, u.last_heartbeat_at,
-                 t.location_lat as tenant_lat, t.location_lng as tenant_lng, t.location_radius_meters as tenant_radius
-          FROM latest_logs l
-          JOIN users u ON l.user_id = u.id
-          JOIN tenants t ON l.tenant_id = t.id
-          WHERE l.type = 'check_in'
-        `);
+          // Fetch users whose last approved attendance status today is
+          // check_in, along with their last GPS heartbeat and their
+          // tenant's geofence — used below to guess whether they're
+          // actually still on-premises (the server can't reach a closed
+          // browser tab for a live GPS read at this point).
+          const activeCheckIns = await db.execute(sql`
+            WITH latest_logs AS (
+              SELECT DISTINCT ON (user_id) *
+              FROM attendance_logs
+              WHERE tenant_id = ${tenant.id} AND created_at >= ${todayStart} AND status = 'approved'
+              ORDER BY user_id, id DESC
+            )
+            SELECT l.*, u.name as user_name, u.email as user_email,
+                   u.last_heartbeat_lat, u.last_heartbeat_lng, u.last_heartbeat_at
+            FROM latest_logs l
+            JOIN users u ON l.user_id = u.id
+            WHERE l.type = 'check_in'
+          `);
 
-        const rows = activeCheckIns.rows || activeCheckIns;
-        for (const row of rows) {
-          const heartbeatIsFromToday = row.last_heartbeat_at && new Date(row.last_heartbeat_at as any).toDateString() === todayKey;
+          const rows = activeCheckIns.rows || activeCheckIns;
+          for (const row of rows) {
+            const heartbeatIsFromToday = row.last_heartbeat_at && tenantDateKey(tenant, new Date(row.last_heartbeat_at as any)) === tTodayKey;
 
-          let outsideOffice = false;
-          if (heartbeatIsFromToday && row.tenant_lat && row.tenant_lng) {
-            const distance = haversineMeters(row.last_heartbeat_lat as number, row.last_heartbeat_lng as number, row.tenant_lat as number, row.tenant_lng as number);
-            const radius = (row.tenant_radius as number) || 100;
-            outsideOffice = distance > radius;
-          }
+            let outsideOffice = false;
+            if (heartbeatIsFromToday && tenant.locationLat && tenant.locationLng) {
+              const distance = haversineMeters(row.last_heartbeat_lat as number, row.last_heartbeat_lng as number, tenant.locationLat, tenant.locationLng);
+              const radius = tenant.locationRadiusMeters || 100;
+              outsideOffice = distance > radius;
+            }
 
-          const reason = outsideOffice
-            ? 'Auto check-out: Detected outside office premises at end-of-day'
-            : 'Auto check-out: System triggered at end-of-day (location unavailable or still on-premises)';
+            const reason = outsideOffice
+              ? 'Auto check-out: Detected outside office premises at end-of-day'
+              : 'Auto check-out: System triggered at end-of-day — location could not be confirmed as outside the office';
 
-          await db.insert(schema.attendanceLogs).values({
-            userId: row.user_id,
-            tenantId: row.tenant_id,
-            status: 'approved',
-            type: 'check_out',
-            reason
-          });
-
-          await logToAuditLedger({
-            tenantId: row.tenant_id,
-            actorId: row.user_id,
-            actorName: row.user_name,
-            action: 'CHECK_OUT',
-            details: { info: reason }
-          });
-
-          // Couldn't confirm they'd actually left — flag it for a manager
-          // to review rather than silently trusting the guess.
-          if (!outsideOffice) {
-            await raiseAttendanceAlert({
-              tenantId: row.tenant_id as number,
-              userId: row.user_id as number,
-              type: 'auto_checkout_unverified',
-              message: `${row.user_name} was auto-checked-out at end-of-day, but their location couldn't be confirmed as outside the office. Please review.`,
+            await db.insert(schema.attendanceLogs).values({
+              userId: row.user_id,
+              tenantId: tenant.id,
+              status: 'approved',
+              type: 'check_out',
+              reason,
+              // Previously always omitted here, so this day silently
+              // resolved to plain 'present' in attendanceDayStatus.ts
+              // regardless of whether departure was ever actually
+              // confirmed — the in-app alert below existed, but nothing on
+              // the record itself reflected the uncertainty, unlike the
+              // newer missed_checkout_verification path (Phase 5, above)
+              // which already sets this. Setting it here too means an
+              // unconfirmed legacy auto-checkout now resolves to
+              // 'pending_checkout_verification' instead of a false
+              // "present", and shows up for review the same way the newer
+              // job's uncertain cases do.
+              pendingVerification: !outsideOffice,
             });
-            // This legacy path previously never notified anyone (in-app or
-            // email) — closing that gap for tenants that opt in, without
-            // changing behavior for tenants that haven't.
-            const rowTenant = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, row.tenant_id as number)).limit(1))[0];
-            if (rowTenant && isPlatformFeatureAllowed(rowTenant, 'unified_notifications')) {
-              await notify(row.tenant_id as number, 'attendance_missed_checkout', { subjectUserId: row.user_id as number, subjectName: row.user_name as string, data: {} }).catch(() => undefined);
+
+            await logToAuditLedger({
+              tenantId: tenant.id,
+              actorId: row.user_id,
+              actorName: row.user_name,
+              action: 'CHECK_OUT',
+              details: { info: reason }
+            });
+
+            // Couldn't confirm they'd actually left — flag it for a
+            // manager to review rather than silently trusting the guess.
+            if (!outsideOffice) {
+              await raiseAttendanceAlert({
+                tenantId: tenant.id,
+                userId: row.user_id as number,
+                type: 'auto_checkout_unverified',
+                message: `${row.user_name} was auto-checked-out at end-of-day, but their location couldn't be confirmed as outside the office. Please review.`,
+              });
+              if (isPlatformFeatureAllowed(tenant, 'unified_notifications')) {
+                await notify(tenant.id, 'attendance_missed_checkout', { subjectUserId: row.user_id as number, subjectName: row.user_name as string, data: {} }).catch(() => undefined);
+              }
             }
           }
         }
       }
 
-      // --- Daily Attendance Summaries (at 7:00 PM) ---
-      if (currentHour === 19 && currentMin === 0 && lastSummaryRun !== todayKey) {
-        lastSummaryRun = todayKey;
-        console.log('Running Daily Summaries Job...');
-        const tenantsList = await db.select().from(schema.tenants);
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+      // Daily Attendance Summary at a fixed 7pm server-clock time, emailed
+      // only to admins[0], used to live here. Superseded by the
+      // 'executive_daily' notification_digest_subscriptions row every
+      // tenant is seeded with (bootstrap/database.ts) — same present/
+      // absent/late/violations counts plus leave + pending-corrections,
+      // dispatched via dispatchDueDigests() above to every configured
+      // recipient (all tenant_admins by default, extendable to named
+      // employees via the Notification Center UI), not just the first one.
 
-        for (const tenant of tenantsList) {
-          const admins = await db.select().from(schema.users).where(
-            and(
-              eq(schema.users.tenantId, tenant.id),
-              eq(schema.users.role, 'tenant_admin')
-            )
-          );
-          if (admins.length === 0) continue;
-
-          const totalEmployees = await db.select().from(schema.users).where(
-            and(
-              eq(schema.users.tenantId, tenant.id),
-              eq(schema.users.role, 'employee')
-            )
-          );
-
-          const checkedIn = await db.execute(sql`
-            SELECT COUNT(DISTINCT user_id) as count 
-            FROM attendance_logs 
-            WHERE tenant_id = ${tenant.id} AND created_at >= ${todayStart} AND status = 'approved' AND type = 'check_in'
-          `);
-
-          const late = await db.execute(sql`
-            SELECT COUNT(DISTINCT user_id) as count 
-            FROM attendance_logs 
-            WHERE tenant_id = ${tenant.id} AND created_at >= ${todayStart} AND status = 'approved' AND type = 'check_in' AND reason LIKE '%Late Arrival%'
-          `);
-
-          const violations = await db.select().from(schema.auditLedger).where(
-            and(
-              eq(schema.auditLedger.tenantId, tenant.id),
-              sql`timestamp >= ${todayStart}`,
-              sql`action IN ('FRAUD_CLOCK_MANIPULATION', 'BREAK_VIOLATION', 'FRAUD_GEOFENCE_BYPASS', 'FRAUD_NETWORK_BYPASS')`
-            )
-          );
-
-          const checkInCount = checkedIn.rows ? checkedIn.rows[0].count : checkedIn[0].count;
-          const lateCount = late.rows ? late.rows[0].count : late[0].count;
-          const absentCount = totalEmployees.length - Number(checkInCount);
-
-          await sendEmail({
-            to: admins[0].email,
-            subject: `Smart Teams Daily Summary: ${tenant.name}`,
-            text: `Daily Summary for ${tenant.name} (${new Date().toLocaleDateString()}):\n\nTotal Employees: ${totalEmployees.length}\nPresent: ${checkInCount}\nLate Arrivals: ${lateCount}\nAbsent: ${absentCount}\nPolicy Violations today: ${violations.length}\n\nBest Regards,\nSmart Teams Security Engine`,
-            html: `
-              <div style="font-family: sans-serif; padding: 20px; color: #1E293B;">
-                <h2>Daily Summary for ${tenant.name}</h2>
-                <p>Date: <strong>${new Date().toLocaleDateString()}</strong></p>
-                <ul>
-                  <li>Total Employees: <strong>${totalEmployees.length}</strong></li>
-                  <li>Present: <strong>${checkInCount}</strong></li>
-                  <li>Late Arrivals: <strong>${lateCount}</strong></li>
-                  <li>Absent: <strong>${absentCount}</strong></li>
-                  <li>Policy Violations Today: <strong style="color:#EF4444;">${violations.length}</strong></li>
-                </ul>
-                <p>Please check the administrator audit ledger for detail entries.</p>
-              </div>
-            `
-          });
-        }
-      }
-
-      // --- Low-Attendance Alerts (at 8:30 PM daily) ---
-      if (currentHour === 20 && currentMin === 30 && lastAttendanceCheckRun !== todayKey) {
-        lastAttendanceCheckRun = todayKey;
-        console.log('Running Low-Attendance Alert Job...');
+      // --- Low-Attendance Alerts (at 8:30 PM in EACH tenant's own timezone)
+      // — previously gated by the SERVER's clock for every tenant at once
+      // (the same bug class the auto-mark-absentees job above was already
+      // fixed for); migrated to the identical per-tenant tenantParts()
+      // pattern so a tenant's alert fires at their own local 8:30 PM. ---
+      {
         const tenantsList = await db.select().from(schema.tenants);
 
         for (const tenant of tenantsList) {
+          const tParts = tenantParts(tenant, now);
+          const tTodayKey = tenantDateKey(tenant, now);
+          if (!(tParts.hour === 20 && tParts.minute === 30 && lastAttendanceCheckRun.get(tenant.id) !== tTodayKey)) continue;
+          lastAttendanceCheckRun.set(tenant.id, tTodayKey);
+          console.log(`Running Low-Attendance Alert Job for tenant ${tenant.id}...`);
+
           const threshold = tenant.minAttendancePercent ?? 75;
           const monitoredUsers = await db.select().from(schema.users).where(
             and(
@@ -542,16 +527,27 @@ export function runBackgroundScheduler() {
       // move-in-place statement, so an interrupted run is safe to resume —
       // ON CONFLICT DO NOTHING means re-running never double-inserts, and
       // the delete only ever removes rows already confirmed archived.
-      const archivalMonthKey = `${now.getFullYear()}-${now.getMonth()}`;
-      if (now.getDate() === 1 && currentHour === 2 && currentMin === 0 && lastArchivalRun !== archivalMonthKey) {
-        lastArchivalRun = archivalMonthKey;
-        console.log('Running Attendance Log Archival Job...');
+      // Tenant-local "1st of month, 2 AM" trigger + tenant-local retention
+      // cutoff — previously gated by the SERVER's calendar/clock for every
+      // tenant at once, so "1st of month" could fire on the wrong tenant-
+      // local day, and the retention cutoff itself was computed from the
+      // server's own current date, not the tenant's.
+      {
         const tenantsList = await db.select().from(schema.tenants);
         for (const tenant of tenantsList) {
+          const tParts = tenantParts(tenant, now);
+          const archivalMonthKey = tenantDateKey(tenant, now).slice(0, 7);
+          if (!(tParts.day === 1 && tParts.hour === 2 && tParts.minute === 0 && lastArchivalRun.get(tenant.id) !== archivalMonthKey)) continue;
+          lastArchivalRun.set(tenant.id, archivalMonthKey);
+          console.log(`Running Attendance Log Archival Job for tenant ${tenant.id}...`);
+
           const months = tenant.attendanceRetentionMonths || 0;
           if (months <= 0) continue;
-          const cutoff = new Date();
-          cutoff.setMonth(cutoff.getMonth() - months);
+          const [tYear, tMonth] = tenantDateKey(tenant, now).split('-').map(Number);
+          let cutoffYear = tYear;
+          let cutoffMonth = tMonth - months;
+          while (cutoffMonth <= 0) { cutoffMonth += 12; cutoffYear -= 1; }
+          const cutoff = tenantDateTime(tenant, `${cutoffYear}-${String(cutoffMonth).padStart(2, '0')}-01`, 0, 0);
 
           try {
             await db.execute(sql`
@@ -598,7 +594,9 @@ export function runBackgroundScheduler() {
         await db.update(schema.tickets).set({ escalationLevel: next.level, currentAssigneeUserId: next.userId, lastAssignedAt: new Date(), updatedAt: new Date() }).where(eq(schema.tickets.id, ticket.id));
         await logToAuditLedger({ tenantId: ticket.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'TICKET_AUTO_ESCALATED', details: { ticketId: ticket.id, toLevel: next.level, toUserId: next.userId } });
         dispatchWebhookEvent(ticket.tenantId, 'ticket.escalated', { ticketId: ticket.id, toLevel: next.level, toUserId: next.userId, auto: true });
-        await notifyUser(next.userId, `Ticket auto-escalated to you: ${ticket.subject}`, `This ${ticket.priority} priority ticket wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+        await notifyDirectRecipient(ticket.tenantId, 'ticket_escalated', { id: next.userId, name: next.name, email: next.email },
+          `Ticket auto-escalated to you: ${ticket.subject}`,
+          `This ${ticket.priority} priority ticket wasn't actioned within 24 hours, so it was automatically escalated to you.`).catch(() => undefined);
       }
 
       const staleAlerts = await db.select().from(schema.attendanceAlerts).where(
@@ -609,7 +607,9 @@ export function runBackgroundScheduler() {
         if (!next) continue;
         await db.update(schema.attendanceAlerts).set({ escalationLevel: next.level, currentAssigneeUserId: next.userId, lastAssignedAt: new Date() }).where(eq(schema.attendanceAlerts.id, alert.id));
         await logToAuditLedger({ tenantId: alert.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'ALERT_AUTO_ESCALATED', details: { alertId: alert.id, type: alert.type, toLevel: next.level, toUserId: next.userId } });
-        await notifyUser(next.userId, `Alert auto-escalated to you`, `An unresolved ${alert.type.replace(/_/g, ' ')} alert wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+        await notifyDirectRecipient(alert.tenantId, 'attendance_alert_escalated', { id: next.userId, name: next.name, email: next.email },
+          `Alert auto-escalated to you`,
+          `An unresolved ${alert.type.replace(/_/g, ' ')} alert wasn't actioned within 24 hours, so it was automatically escalated to you.`).catch(() => undefined);
       }
     } catch (err) {
       console.error('Error in ticket/alert auto-escalation job:', err);
@@ -640,7 +640,9 @@ export function runBackgroundScheduler() {
           fromLevel: req.escalationLevel, toLevel: next.level, reason: 'auto_24h_timeout',
         });
         await logToAuditLedger({ tenantId: req.tenantId, actorId: null, actorName: 'System (24h auto-escalation)', action: 'LEAVE_REQUEST_AUTO_ESCALATED', details: { leaveRequestId: req.id, toLevel: next.level, toUserId: next.userId } });
-        await notifyUser(next.userId, `Leave request auto-escalated to you`, `A pending leave request wasn't actioned within 24 hours, so it was automatically escalated to you.`);
+        await notifyDirectRecipient(req.tenantId, 'leave_request_escalated', { id: next.userId, name: next.name, email: next.email },
+          `Leave request auto-escalated to you`,
+          `A pending leave request wasn't actioned within 24 hours, so it was automatically escalated to you.`).catch(() => undefined);
       }
     } catch (err) {
       console.error('Error in leave request auto-escalation job:', err);
@@ -654,10 +656,19 @@ export function runBackgroundScheduler() {
   // "active" badge on something that no longer grants anything.
   setInterval(async () => {
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      await db.update(schema.delegations)
-        .set({ status: 'expired' })
-        .where(and(eq(schema.delegations.status, 'active'), sql`${schema.delegations.endDate} < ${today}`));
+      // Per-tenant "today" — endDate is a tenant-entered business date, so
+      // comparing it against a single UTC "today" for every tenant at once
+      // could flip a delegation to 'expired' up to ~a day early/late for
+      // any tenant not on UTC. Cosmetic-only (per the comment above — the
+      // real access check is live-date-range based), but worth getting
+      // right since the badge is what admins actually look at.
+      const tenantsList = await db.select({ id: schema.tenants.id, timezone: schema.tenants.timezone }).from(schema.tenants);
+      for (const tenant of tenantsList) {
+        const today = tenantDateKey(tenant, new Date());
+        await db.update(schema.delegations)
+          .set({ status: 'expired' })
+          .where(and(eq(schema.delegations.tenantId, tenant.id), eq(schema.delegations.status, 'active'), sql`${schema.delegations.endDate} < ${today}`));
+      }
     } catch (err) {
       console.error('Error in delegation auto-expiry job:', err);
     }

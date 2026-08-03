@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { User } from '../lib/auth';
-import { Bell, Mail, Smartphone, FileText, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Bell, Mail, Smartphone, FileText, Clock, CheckCircle2, XCircle, Send, RotateCcw, Layers, GitBranch } from 'lucide-react';
 
 interface NotificationPoliciesPageProps {
   user: User;
@@ -39,7 +40,12 @@ const EVENT_LABELS: Record<string, string> = {
   reimbursement_approved: 'Reimbursement Approved / Rejected',
   payroll_adjustment_created: 'Payroll Adjustment Created',
   report_generation_completed: 'Scheduled Report Delivered',
+  notification_delivery_failed: 'Notification Delivery Failed (Critical)',
+  payroll_batch_calculation_failed: 'Payroll Batch Calculation Failed (Critical)',
 };
+
+type DeliveryMode = 'immediate' | 'digest' | 'none';
+type Priority = 'critical' | 'high' | 'medium' | 'low' | 'silent';
 
 interface Policy {
   eventType: string;
@@ -49,7 +55,26 @@ interface Policy {
   notifyAdmin: boolean;
   channels: string[];
   scopeHrToDepartment: boolean;
+  employeeMode: DeliveryMode;
+  managerMode: DeliveryMode;
+  hrMode: DeliveryMode;
+  adminMode: DeliveryMode;
+  priority: Priority;
 }
+
+const MODE_OPTIONS: { value: DeliveryMode; label: string }[] = [
+  { value: 'immediate', label: 'Immediate' },
+  { value: 'digest', label: 'Digest' },
+  { value: 'none', label: 'None' },
+];
+
+const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
+  { value: 'critical', label: 'Critical' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+  { value: 'silent', label: 'Silent (in-app only)' },
+];
 
 interface Template {
   eventType: string;
@@ -78,16 +103,19 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
   const token = localStorage.getItem('auth_token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 
-  const [activeTab, setActiveTab] = useState<'recipients' | 'templates' | 'history'>('recipients');
+  const [activeTab, setActiveTab] = useState<'recipients' | 'digests' | 'escalation' | 'templates' | 'history'>('recipients');
 
   const [eventTypes, setEventTypes] = useState<string[]>([]);
   const [policies, setPolicies] = useState<Record<string, Policy>>({});
   const [loading, setLoading] = useState(true);
   const [savingEvent, setSavingEvent] = useState<string | null>(null);
+  const [testingEvent, setTestingEvent] = useState<string | null>(null);
+  const [testSentFor, setTestSentFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const defaultPolicy = (eventType: string): Policy => ({
     eventType, notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], scopeHrToDepartment: false,
+    employeeMode: 'immediate', managerMode: 'immediate', hrMode: 'immediate', adminMode: 'immediate', priority: 'medium',
   });
 
   const fetchPolicies = useCallback(async () => {
@@ -99,13 +127,33 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
       if (!res.ok) { setError(d.error || 'Failed to load.'); return; }
       const map: Record<string, Policy> = {};
       for (const et of (d.eventTypes || [])) map[et] = defaultPolicy(et);
-      for (const p of (d.policies || [])) map[p.eventType] = { eventType: p.eventType, notifyEmployee: p.notifyEmployee, notifyManager: p.notifyManager, notifyHR: p.notifyHR, notifyAdmin: p.notifyAdmin, channels: Array.isArray(p.channels) ? p.channels : ['in_app', 'email'], scopeHrToDepartment: !!p.scopeHrToDepartment };
+      for (const p of (d.policies || [])) map[p.eventType] = {
+        eventType: p.eventType, notifyEmployee: p.notifyEmployee, notifyManager: p.notifyManager, notifyHR: p.notifyHR, notifyAdmin: p.notifyAdmin,
+        channels: Array.isArray(p.channels) ? p.channels : ['in_app', 'email'], scopeHrToDepartment: !!p.scopeHrToDepartment,
+        employeeMode: p.employeeMode || 'immediate', managerMode: p.managerMode || 'immediate', hrMode: p.hrMode || 'immediate', adminMode: p.adminMode || 'immediate',
+        priority: p.priority || 'medium',
+      };
       setEventTypes(d.eventTypes || []);
       setPolicies(map);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const sendTest = async (eventType: string) => {
+    setTestingEvent(eventType);
+    setTestSentFor(null);
+    try {
+      const res = await fetch('/api/tenant/notifications/test', {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventType }),
+      });
+      if (res.ok) { setTestSentFor(eventType); setTimeout(() => setTestSentFor(null), 3000); }
+      else { const d = await res.json(); setError(d.error || 'Failed to send test notification.'); }
+    } finally {
+      setTestingEvent(null);
+    }
+  };
 
   useEffect(() => { fetchPolicies(); }, [fetchPolicies]);
 
@@ -208,9 +256,10 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
   useEffect(() => { if (activeTab === 'templates') fetchTemplates(); }, [activeTab, fetchTemplates]);
 
   // ---- History tab state ----
-  interface LogEntry { id: number; eventType: string; channel: string; status: string; error: string | null; createdAt: string; recipientName: string | null; }
+  interface LogEntry { id: number; eventType: string; channel: string; status: string; error: string | null; attempts?: number; createdAt: string; recipientName: string | null; }
   const [historyEntries, setHistoryEntries] = useState<LogEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [retryingId, setRetryingId] = useState<number | null>(null);
 
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -224,6 +273,93 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
   }, []);
 
   useEffect(() => { if (activeTab === 'history') fetchHistory(); }, [activeTab, fetchHistory]);
+
+  const retryDelivery = async (id: number) => {
+    setRetryingId(id);
+    try {
+      const res = await fetch(`/api/tenant/notification-log/${id}/retry`, { method: 'POST', headers: authHeaders });
+      if (res.ok) await fetchHistory();
+      else { const d = await res.json(); setError(d.error || 'Failed to retry delivery.'); }
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  // ---- Digests tab state ----
+  interface DigestSubscription { id: number; digestType: string; frequency: string; timeOfDay: string; dayOfWeek: number | null; recipients: any[]; active: boolean; lastRunAt: string | null; }
+  const [subscriptions, setSubscriptions] = useState<DigestSubscription[]>([]);
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(true);
+  const [savingSubscription, setSavingSubscription] = useState<number | null>(null);
+
+  const DIGEST_LABELS: Record<string, string> = {
+    manager_daily: 'Manager Digest (Daily)', manager_weekly: 'Manager Digest (Weekly)',
+    hr_daily: 'HR Digest (Daily)', hr_weekly: 'HR Digest (Weekly)',
+    executive_daily: 'Executive Summary (Daily)', executive_weekly: 'Executive Summary (Weekly)',
+  };
+
+  const fetchSubscriptions = useCallback(async () => {
+    setSubscriptionsLoading(true);
+    try {
+      const res = await fetch('/api/tenant/notification-digest-subscriptions', { headers: authHeaders });
+      const d = await res.json();
+      if (res.ok) setSubscriptions(Array.isArray(d.subscriptions) ? d.subscriptions : []);
+    } finally {
+      setSubscriptionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { if (activeTab === 'digests') fetchSubscriptions(); }, [activeTab, fetchSubscriptions]);
+
+  const updateSubscriptionLocal = (id: number, patch: Partial<DigestSubscription>) => {
+    setSubscriptions((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  };
+
+  const saveSubscription = async (sub: DigestSubscription) => {
+    setSavingSubscription(sub.id);
+    try {
+      const res = await fetch(`/api/tenant/notification-digest-subscriptions/${sub.id}`, {
+        method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frequency: sub.frequency, timeOfDay: sub.timeOfDay, dayOfWeek: sub.dayOfWeek, recipients: sub.recipients, active: sub.active }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || 'Failed to save digest subscription.'); }
+      else await fetchSubscriptions();
+    } finally {
+      setSavingSubscription(null);
+    }
+  };
+
+  // Same "fetch the full tenant employee list once, filter client-side"
+  // pattern DelegationPage.tsx already uses for its own recipient picker —
+  // no dedicated employee-search endpoint/component exists in this app yet
+  // to build against instead.
+  interface EmployeeOption { id: number; name: string; email: string; role: string }
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    if (activeTab !== 'digests') return;
+    fetch('/api/tenant/employees', { headers: authHeaders })
+      .then((r) => r.json())
+      .then((d) => setEmployeeOptions(Array.isArray(d.employees) ? d.employees : []))
+      .catch(() => setEmployeeOptions([]));
+  }, [activeTab]);
+
+  const addNamedRecipient = (sub: DigestSubscription, employee: EmployeeOption) => {
+    const already = sub.recipients.some((r: any) => r.type === 'user' && r.userId === employee.id);
+    if (already) return;
+    updateSubscriptionLocal(sub.id, { recipients: [...sub.recipients, { type: 'user', userId: employee.id, name: employee.name, email: employee.email }] });
+    setEmployeeSearch((prev) => ({ ...prev, [sub.id]: '' }));
+  };
+
+  const removeRecipient = (sub: DigestSubscription, index: number) => {
+    updateSubscriptionLocal(sub.id, { recipients: sub.recipients.filter((_: any, i: number) => i !== index) });
+  };
+
+  const toggleRoleRecipient = (sub: DigestSubscription, role: string) => {
+    const idx = sub.recipients.findIndex((r: any) => r.type === 'role' && r.role === role);
+    const next = idx >= 0 ? sub.recipients.filter((_: any, i: number) => i !== idx) : [...sub.recipients, { type: 'role', role }];
+    updateSubscriptionLocal(sub.id, { recipients: next });
+  };
 
   useEffect(() => {
     if (!editEventType) { setEditSubject(''); setEditBody(''); return; }
@@ -261,19 +397,25 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
       <div className="flex items-center gap-2 mb-4 pb-4 border-b border-slate-200">
         <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600"><Bell className="w-5 h-5" /></span>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Notifications</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Notification Center</h1>
           <p className="text-sm text-slate-500">Choose who gets notified, how, and what the message says. Changes only affect tenants with Unified Notifications enabled.</p>
         </div>
       </div>
 
-      <div className="flex gap-1 mb-5 border-b border-slate-200">
-        <button onClick={() => setActiveTab('recipients')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition ${activeTab === 'recipients' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+      <div className="flex gap-1 mb-5 border-b border-slate-200 overflow-x-auto">
+        <button onClick={() => setActiveTab('recipients')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'recipients' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           <Bell className="w-3.5 h-3.5" /> Recipients & Channels
         </button>
-        <button onClick={() => setActiveTab('templates')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition ${activeTab === 'templates' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => setActiveTab('digests')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'digests' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+          <Layers className="w-3.5 h-3.5" /> Digests
+        </button>
+        <button onClick={() => setActiveTab('escalation')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'escalation' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+          <GitBranch className="w-3.5 h-3.5" /> Escalation
+        </button>
+        <button onClick={() => setActiveTab('templates')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'templates' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           <FileText className="w-3.5 h-3.5" /> Message Templates
         </button>
-        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition ${activeTab === 'history' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'history' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
           <Clock className="w-3.5 h-3.5" /> History
         </button>
       </div>
@@ -348,6 +490,7 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
                   <th className="p-3 text-center"><Bell className="w-3.5 h-3.5 inline" /> In-App</th>
                   <th className="p-3 text-center"><Mail className="w-3.5 h-3.5 inline" /> Email</th>
                   <th className="p-3 text-center text-slate-300"><Smartphone className="w-3.5 h-3.5 inline" /> SMS (future)</th>
+                  <th className="p-3">Priority</th>
                   <th className="p-3"></th>
                   <th className="p-3"></th>
                 </tr>
@@ -355,12 +498,28 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
               <tbody className="divide-y divide-slate-100">
                 {eventTypes.map((et) => {
                   const p = policies[et] || defaultPolicy(et);
+                  const modeSelect = (recipientKey: 'employeeMode' | 'managerMode' | 'hrMode' | 'adminMode', enabled: boolean) => enabled && (
+                    <select
+                      value={p[recipientKey]}
+                      onChange={(e) => updateLocal(et, { [recipientKey]: e.target.value as DeliveryMode } as Partial<Policy>)}
+                      className="block mt-1 text-[9px] border border-slate-200 rounded px-1 py-0.5 bg-white text-slate-500 w-full"
+                      title="Immediate = sent right away. Digest = batched into the recipient's next scheduled rollup. None = this recipient gets nothing for this event."
+                    >
+                      {MODE_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  );
                   return (
                     <tr key={et}>
                       <td className="p-3 font-medium text-slate-700">{EVENT_LABELS[et] || et}</td>
-                      <td className="p-3 text-center"><input type="checkbox" checked={p.notifyEmployee} onChange={(e) => updateLocal(et, { notifyEmployee: e.target.checked })} className="rounded text-indigo-600" /></td>
-                      <td className="p-3 text-center"><input type="checkbox" checked={p.notifyManager} onChange={(e) => updateLocal(et, { notifyManager: e.target.checked })} className="rounded text-indigo-600" /></td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center align-top">
+                        <input type="checkbox" checked={p.notifyEmployee} onChange={(e) => updateLocal(et, { notifyEmployee: e.target.checked })} className="rounded text-indigo-600" />
+                        {modeSelect('employeeMode', p.notifyEmployee)}
+                      </td>
+                      <td className="p-3 text-center align-top">
+                        <input type="checkbox" checked={p.notifyManager} onChange={(e) => updateLocal(et, { notifyManager: e.target.checked })} className="rounded text-indigo-600" />
+                        {modeSelect('managerMode', p.notifyManager)}
+                      </td>
+                      <td className="p-3 text-center align-top">
                         <input type="checkbox" checked={p.notifyHR} onChange={(e) => updateLocal(et, { notifyHR: e.target.checked })} className="rounded text-indigo-600" />
                         {p.notifyHR && (
                           <label className="block mt-1 text-[9px] text-slate-400 font-normal cursor-pointer" title="Only notify HR in the employee's own department, not every HR-privileged user tenant-wide.">
@@ -368,11 +527,25 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
                             own dept.
                           </label>
                         )}
+                        {modeSelect('hrMode', p.notifyHR)}
                       </td>
-                      <td className="p-3 text-center"><input type="checkbox" checked={p.notifyAdmin} onChange={(e) => updateLocal(et, { notifyAdmin: e.target.checked })} className="rounded text-indigo-600" /></td>
+                      <td className="p-3 text-center align-top">
+                        <input type="checkbox" checked={p.notifyAdmin} onChange={(e) => updateLocal(et, { notifyAdmin: e.target.checked })} className="rounded text-indigo-600" />
+                        {modeSelect('adminMode', p.notifyAdmin)}
+                      </td>
                       <td className="p-3 text-center"><input type="checkbox" checked={p.channels.includes('in_app')} onChange={() => toggleChannel(et, 'in_app')} className="rounded text-indigo-600" /></td>
                       <td className="p-3 text-center"><input type="checkbox" checked={p.channels.includes('email')} onChange={() => toggleChannel(et, 'email')} className="rounded text-indigo-600" /></td>
                       <td className="p-3 text-center"><input type="checkbox" disabled className="rounded opacity-30" /></td>
+                      <td className="p-3">
+                        <select
+                          value={p.priority}
+                          onChange={(e) => updateLocal(et, { priority: e.target.value as Priority })}
+                          className="text-[10px] border border-slate-200 rounded-lg px-1.5 py-1 bg-white text-slate-600 w-full"
+                          title="Critical always sends immediately and bypasses quiet hours. Silent forces in-app only."
+                        >
+                          {PRIORITY_OPTIONS.map((pr) => <option key={pr.value} value={pr.value}>{pr.label}</option>)}
+                        </select>
+                      </td>
                       <td className="p-3">
                         {groups.length > 0 && (
                           <select
@@ -386,7 +559,10 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
                           </select>
                         )}
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-right whitespace-nowrap">
+                        <button onClick={() => sendTest(et)} disabled={testingEvent === et} title="Send a real test notification to yourself only" className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 disabled:opacity-50 mr-1.5 inline-flex items-center gap-1">
+                          <Send className="w-3 h-3" /> {testingEvent === et ? '…' : testSentFor === et ? 'Sent ✓' : 'Test'}
+                        </button>
                         <button onClick={() => save(et)} disabled={savingEvent === et} className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
                           {savingEvent === et ? 'Saving…' : 'Save'}
                         </button>
@@ -399,6 +575,108 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
             </div>
           </div>
         )
+      )}
+
+      {activeTab === 'digests' && (
+        subscriptionsLoading ? (
+          <div className="p-10 text-center text-xs text-slate-400">Loading…</div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500 -mt-1 mb-2">
+              Events set to "Digest" in Recipients & Channels are batched here instead of sent immediately. Each rollup below controls how often it's summarized, at what time, and who receives it — role-based recipients (e.g. "every Manager") update automatically as people join or change roles; named employees are fixed additions.
+            </p>
+            {subscriptions.map((sub) => (
+              <div key={sub.id} className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" checked={sub.active} onChange={(e) => updateSubscriptionLocal(sub.id, { active: e.target.checked })} className="rounded text-indigo-600" />
+                      <span className="text-sm font-semibold text-slate-700">{DIGEST_LABELS[sub.digestType] || sub.digestType}</span>
+                    </label>
+                  </div>
+                  <button onClick={() => saveSubscription(sub)} disabled={savingSubscription === sub.id} className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+                    {savingSubscription === sub.id ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  <select value={sub.frequency} onChange={(e) => updateSubscriptionLocal(sub.id, { frequency: e.target.value, dayOfWeek: e.target.value === 'weekly' ? (sub.dayOfWeek ?? 1) : null })} className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                  {sub.frequency === 'weekly' && (
+                    <select value={sub.dayOfWeek ?? 1} onChange={(e) => updateSubscriptionLocal(sub.id, { dayOfWeek: Number(e.target.value) })} className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700">
+                      {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => <option key={i} value={i}>{d}</option>)}
+                    </select>
+                  )}
+                  <input type="time" value={sub.timeOfDay} onChange={(e) => updateSubscriptionLocal(sub.id, { timeOfDay: e.target.value })} className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5" />
+                  {sub.lastRunAt && <span className="text-[11px] text-slate-400">Last sent {new Date(sub.lastRunAt).toLocaleString()}</span>}
+                </div>
+
+                <div className="mb-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Recipients</div>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(['manager', 'HR', 'tenant_admin'] as const).map((role) => {
+                      const active = sub.recipients.some((r: any) => r.type === 'role' && r.role === role);
+                      return (
+                        <button key={role} onClick={() => toggleRoleRecipient(sub, role)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition ${active ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}>
+                          {active ? '✓ ' : '+ '}Every {role === 'tenant_admin' ? 'Tenant Admin' : role}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {sub.recipients.filter((r: any) => r.type === 'user').map((r: any, idx: number) => {
+                      const realIdx = sub.recipients.indexOf(r);
+                      return (
+                        <span key={`${r.userId}-${idx}`} className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-slate-50 border border-slate-200 rounded-full pl-2.5 pr-1.5 py-1 text-slate-600">
+                          {r.name || employeeOptions.find((e) => e.id === r.userId)?.name || `User #${r.userId}`}
+                          <button onClick={() => removeRecipient(sub, realIdx)} className="text-slate-400 hover:text-rose-600 font-bold px-1">×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div className="relative max-w-xs">
+                    <input
+                      type="text"
+                      value={employeeSearch[sub.id] || ''}
+                      onChange={(e) => setEmployeeSearch((prev) => ({ ...prev, [sub.id]: e.target.value }))}
+                      placeholder="Add a specific employee (e.g. COO)…"
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5"
+                    />
+                    {(employeeSearch[sub.id] || '').trim().length > 1 && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {employeeOptions
+                          .filter((e) => `${e.name} ${e.email}`.toLowerCase().includes((employeeSearch[sub.id] || '').toLowerCase()))
+                          .slice(0, 8)
+                          .map((e) => (
+                            <button key={e.id} onClick={() => addNamedRecipient(sub, e)} className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center justify-between gap-2">
+                              <span className="font-medium text-slate-700">{e.name}</span>
+                              <span className="text-slate-400 text-[10px]">{e.role}</span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {activeTab === 'escalation' && (
+        <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <p className="text-sm text-slate-600 mb-3">
+            When a Leave Request, Ticket, or Attendance Alert sits unactioned for 24 hours, it automatically escalates one level up (Manager → GM → Tenant Admin) and re-notifies the new assignee through this same Notification Center — visible in the History tab as <code className="bg-slate-100 px-1 rounded text-[11px]">*_escalated</code> events.
+          </p>
+          <p className="text-sm text-slate-600 mb-4">
+            Configurable approval-routing rules (who approves what, by category/department/branch) live on their own screen:
+          </p>
+          <Link to="/tenant/approval-routing" className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+            Open Approval Routing <GitBranch className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       )}
 
       {activeTab === 'templates' && (
@@ -489,7 +767,9 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
                     <th className="p-3">Recipient</th>
                     <th className="p-3">Channel</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3 text-center">Attempts</th>
                     <th className="p-3">When</th>
+                    <th className="p-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -505,7 +785,15 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
                           <span className="inline-flex items-center gap-1 text-rose-700" title={e.error || undefined}><XCircle className="w-3.5 h-3.5" /> Failed</span>
                         )}
                       </td>
+                      <td className="p-3 text-center text-slate-500">{e.attempts ?? 1}</td>
                       <td className="p-3 text-slate-400">{new Date(e.createdAt).toLocaleString()}</td>
+                      <td className="p-3 text-right">
+                        {e.status === 'failed' && (
+                          <button onClick={() => retryDelivery(e.id)} disabled={retryingId === e.id} className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 disabled:opacity-50 inline-flex items-center gap-1">
+                            <RotateCcw className="w-3 h-3" /> {retryingId === e.id ? '…' : 'Retry now'}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

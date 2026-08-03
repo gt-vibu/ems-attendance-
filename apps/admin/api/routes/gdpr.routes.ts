@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
 import { deleteDocument } from '../services/documentStorage';
+import { tenantDateKey } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -47,7 +48,8 @@ router.get('/api/employees/me/data-export', authenticate, async (req: any, res: 
       deviceInfo: req.headers['user-agent'] || '', details: {}
     });
 
-    res.setHeader('Content-Disposition', `attachment; filename="my-data-${new Date().toISOString().slice(0, 10)}.json"`);
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+    res.setHeader('Content-Disposition', `attachment; filename="my-data-${tenantDateKey(tenantRows[0] || null)}.json"`);
     res.json({
       exportedAt: new Date().toISOString(),
       profile,

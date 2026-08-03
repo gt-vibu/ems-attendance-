@@ -6,6 +6,8 @@ import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileg
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser } from '../services/notifications';
 import { notify } from '../services/notificationService';
+import { resolveDayStatus } from '../services/attendanceDayStatus';
+import { tenantDateKey } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -448,6 +450,80 @@ router.get('/api/employees/my-team', authenticate, async (req: any, res: any) =>
     res.json({
       manager: manager && manager.tenantId === tenantId ? { id: manager.id, name: manager.name, designation: manager.designation || '', department: manager.department || '' } : null,
       colleagues: colleagueRows.slice(0, 25).map((u) => ({ id: u.id, name: u.name, designation: u.designation || '', department: u.department || '' })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Self-service — every authenticated user can read/update their OWN
+// per-channel notification opt-out (no employee.edit privilege required,
+// unlike the general employee-profile PUT above, since this only ever
+// touches the caller's own row and can't affect anyone else's data).
+router.get('/api/employees/me/notification-preferences', authenticate, async (req: any, res: any) => {
+  try {
+    const rows = await db.select({ notificationChannelPrefs: (schema.users as any).notificationChannelPrefs }).from(schema.users).where(eq(schema.users.id, req.user.userId)).limit(1);
+    const prefs = (rows[0] as any)?.notificationChannelPrefs || { email: true, in_app: true };
+    res.json({ preferences: prefs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/api/employees/me/notification-preferences', authenticate, async (req: any, res: any) => {
+  try {
+    const { email, in_app } = req.body || {};
+    const preferences = { email: email !== false, in_app: in_app !== false };
+    await db.update(schema.users).set({ notificationChannelPrefs: preferences } as any).where(eq(schema.users.id, req.user.userId));
+    res.json({ preferences });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// "Today's Team" card (EmployeeDashboard.tsx, Your Team tab) — Present/
+// Absent/Late/Pending Leave/Pending Correction counts for a manager's own
+// direct reports, computed via the same resolveDayStatus() classification
+// already used everywhere else in this app (calendar views, payroll's
+// attendance-driven mode), instead of a bespoke count query that could
+// drift out of sync with what "present"/"absent" actually means elsewhere.
+// Deliberately scoped to req.user's own direct reports only (managerId =
+// req.user.userId) — NOT the whole department — matching how every other
+// manager-facing notification/escalation in this app resolves "my team."
+router.get('/api/employees/my-team/today-summary', authenticate, async (req: any, res: any) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const reports = await db.select().from(schema.users).where(
+      and(eq(schema.users.tenantId, tenantId), eq(schema.users.managerId, req.user.userId), ne(schema.users.employeeStatus, 'terminated'))
+    );
+    if (reports.length === 0) {
+      return res.json({ hasReports: false, present: 0, absent: 0, late: 0, pendingLeave: 0, pendingCorrections: 0, total: 0 });
+    }
+    const reportIds = reports.map((r) => r.id);
+    const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0] || null;
+    const todayKey = tenantDateKey(tenantRow);
+
+    let present = 0, absent = 0, late = 0;
+    for (const r of reports) {
+      const entry = await resolveDayStatus(tenantId, r.id, todayKey);
+      if (entry.status === 'present' || entry.status === 'half_day' || entry.status === 'regularized') present++;
+      else if (entry.status === 'late') { present++; late++; }
+      else if (entry.status === 'absent_pending_review' || entry.status === 'lop') absent++;
+    }
+
+    const pendingLeaveRows = await db.select().from(schema.leaveRequests).where(
+      and(inArray(schema.leaveRequests.userId, reportIds), eq(schema.leaveRequests.status, 'pending'))
+    );
+    const pendingCorrectionRows = await db.select().from(schema.attendanceCorrections).where(
+      and(inArray(schema.attendanceCorrections.userId, reportIds), eq(schema.attendanceCorrections.status, 'pending'))
+    );
+
+    res.json({
+      hasReports: true,
+      total: reports.length,
+      present, absent, late,
+      pendingLeave: pendingLeaveRows.length,
+      pendingCorrections: pendingCorrectionRows.length,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
