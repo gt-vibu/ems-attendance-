@@ -72,6 +72,7 @@ export default function DataTable<T>({
   const [mobileDisplayMode, setMobileDisplayMode] = useState<'cards' | 'table'>('cards');
   // Mobile card expansion — separate from expandedRowId (which is the desktop detail row).
   const [mobileExpandedRowId, setMobileExpandedRowId] = useState<string | null>(null);
+  const [selectedMobileRow, setSelectedMobileRow] = useState<any | null>(null);
 
   const globalFilterFn = useMemo(() => {
     return (row: any, _columnId: string, filterValue: string) => {
