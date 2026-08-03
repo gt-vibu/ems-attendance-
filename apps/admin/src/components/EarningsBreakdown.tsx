@@ -148,9 +148,9 @@ export default function EarningsBreakdown({ token }: { token: string | null }) {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
             <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gross Salary</span>
-              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{money(s.monthlyGross || 0)}</span>
-              <span className="text-[10px] text-slate-400">Monthly Base</span>
+              <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Earned Gross</span>
+              <span className="text-base sm:text-lg font-extrabold text-white mt-0.5 block">{money(s.earnedGross ?? Math.max(0, (s.monthlyGross || 0) - (s.leaveDeduction || 0) - (s.lopDeduction || 0)))}</span>
+              <span className="text-[10px] text-slate-400">Assigned Base: {money(s.monthlyGross || 0)}</span>
             </div>
             
             <div className="bg-white/5 rounded-xl p-3 border border-white/10">

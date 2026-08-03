@@ -307,6 +307,7 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const lopDeduction = dailyRate * unpaidAbsenceDays;
   const overtimeRate = Number(profile?.overtimeHourlyRate ?? settings?.overtimeHourlyRate ?? 0);
   const overtimePay = overtimeHours * overtimeRate;
+  const earnedGross = Math.max(0, Math.round((monthlyGross - leaveDeduction - lopDeduction) * 100) / 100);
   const preStatutoryNet = monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay;
 
   // Statutory deductions come out of pre-statutory net — they reduce actual
@@ -321,6 +322,7 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
     annualDeductions,
     annualEmployerContributions: annualEmployer,
     monthlyGross,
+    earnedGross,
     monthlyDeductions,
     monthlyBaseNet,
     workingDays,

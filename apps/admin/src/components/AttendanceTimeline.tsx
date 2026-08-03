@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, List, LayoutGrid, Filter, MoreHorizontal, Camera, Download, RotateCcw, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, List, LayoutGrid, Filter, MoreHorizontal, Camera, Download, RotateCcw, Check, X } from 'lucide-react';
 
 // Zoho People-style "Attendance Summary" week timeline, built entirely from
 // real data already available to the caller (attendance history, approved
@@ -115,6 +115,8 @@ export default function AttendanceTimeline({
   const [moreOpen, setMoreOpen] = useState(false);
   const [showShiftModal, setShowShiftModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<Set<DayInfo['kind']>>(new Set());
+  const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null);
+  const [showMoreDrawer, setShowMoreDrawer] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -483,7 +485,15 @@ export default function AttendanceTimeline({
             <button
               type="button"
               title="More"
-              onClick={() => { setMoreOpen((v) => !v); setFilterOpen(false); }}
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.innerWidth < 640) {
+                  setShowMoreDrawer(true);
+                  setFilterOpen(false);
+                } else {
+                  setMoreOpen((v) => !v);
+                  setFilterOpen(false);
+                }
+              }}
               className="w-8 h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
             >
               <MoreHorizontal size={14} />
@@ -565,24 +575,48 @@ export default function AttendanceTimeline({
                   </div>
                 </div>
 
-                {/* Mobile row — stacked, no fixed-width columns and no
-                    absolute-position pill, so it can never be wider than the
-                    viewport. */}
-                <div className="sm:hidden px-3 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold ${day.isToday ? 'bg-[var(--color-nexus-primary)] text-white' : 'text-[var(--color-nexus-muted)]'}`}>{day.d.getDate()}</span>
-                      <span className="text-[11px] font-bold text-[var(--color-nexus-ink)] truncate">{day.isToday ? 'Today' : DAY_NAMES[day.d.getDay()]}</span>
-                    </div>
-                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-[var(--color-nexus-muted)]">{kindLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mt-1.5">
-                    <span className="text-[11px] text-[var(--color-nexus-ink)]">
-                      {day.checkIn ? `${fmtTime(new Date(day.checkIn.createdAt))}${day.checkOut ? ` – ${fmtTime(new Date(day.checkOut.createdAt))}` : ''}` : '—'}
+                {/* Mobile row — ultra-compact single line card with tap-to-view Bottom Sheet Modal */}
+                <div
+                  onClick={() => setSelectedDay(day)}
+                  className="sm:hidden px-3 py-2.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] flex items-center justify-between gap-2 active:scale-[0.99] cursor-pointer hover:border-[var(--color-nexus-primary)]/50 transition-all shadow-2xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-extrabold ${day.isToday ? 'bg-[var(--color-nexus-primary)] text-white' : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-ink)] border border-[var(--color-nexus-border)]'}`}>
+                      {day.d.getDate()}
                     </span>
-                    <span className="text-[11px] font-mono text-[var(--color-nexus-muted)]">{hoursWorkedLabel(day)}</span>
+                    <div className="min-w-0 leading-tight">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-[var(--color-nexus-ink)] truncate">
+                          {day.isToday ? 'Today' : DAY_NAMES[day.d.getDay()]}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-[var(--color-nexus-muted)] block truncate mt-0.5">
+                        {day.checkIn ? `${fmtTime(new Date(day.checkIn.createdAt))}${day.checkOut ? ` – ${fmtTime(new Date(day.checkOut.createdAt))}` : ''}` : 'No Check-in'}
+                      </span>
+                    </div>
                   </div>
-                  {lateEarly && <span className={`block text-[9px] font-bold mt-1 ${lateEarly.danger ? 'text-[var(--color-nexus-warning)]' : 'text-[var(--color-nexus-secondary)]'}`}>{lateEarly.text}</span>}
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right leading-tight">
+                      <span className="text-[11px] font-mono font-bold text-[var(--color-nexus-ink)] block">
+                        {hoursWorkedLabel(day)}
+                      </span>
+                      {lateEarly && (
+                        <span className={`text-[9px] font-bold block ${lateEarly.danger ? 'text-[var(--color-nexus-warning)]' : 'text-[var(--color-nexus-secondary)]'}`}>
+                          {lateEarly.text}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                      day.kind === 'present' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' :
+                      day.kind === 'late' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20' :
+                      day.kind === 'absent' ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20' :
+                      'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]'
+                    }`}>
+                      {kindLabel}
+                    </span>
+                    <ChevronRight size={14} className="text-[var(--color-nexus-muted)]" />
+                  </div>
                 </div>
               </div>
             );
@@ -704,6 +738,116 @@ export default function AttendanceTimeline({
               className="w-full bg-[var(--color-nexus-primary)] text-white font-bold text-xs uppercase tracking-wider py-2.5 rounded-lg transition-opacity hover:opacity-90"
             >
               Close
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Mobile Day Details Bottom Sheet Modal */}
+      {selectedDay && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setSelectedDay(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-[var(--color-nexus-surface)] rounded-t-2xl sm:rounded-2xl border border-[var(--color-nexus-border)] shadow-2xl p-5 max-h-[85vh] overflow-y-auto space-y-4 font-sans animate-in slide-in-from-bottom-4 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-1 bg-[var(--color-nexus-border)] rounded-full mx-auto" />
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-[var(--color-nexus-border)]">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Attendance Details</span>
+                <h3 className="text-base font-extrabold text-[var(--color-nexus-ink)] mt-0.5">
+                  {selectedDay.d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </h3>
+              </div>
+              <button type="button" onClick={() => setSelectedDay(null)} className="p-1.5 rounded-full hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Status</span>
+                <span className="font-bold uppercase text-[var(--color-nexus-ink)]">{selectedDay.kind}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Check-In Time</span>
+                <span className="font-bold text-[var(--color-nexus-ink)]">{selectedDay.checkIn ? fmtTime(new Date(selectedDay.checkIn.createdAt)) : '—'}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Check-Out Time</span>
+                <span className="font-bold text-[var(--color-nexus-ink)]">{selectedDay.checkOut ? fmtTime(new Date(selectedDay.checkOut.createdAt)) : '—'}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Hours Worked</span>
+                <span className="font-bold font-mono text-[var(--color-nexus-ink)]">{hoursWorkedLabel(selectedDay)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                <span className="text-[var(--color-nexus-muted)] font-medium">Shift Policy</span>
+                <span className="font-bold text-[var(--color-nexus-ink)]">{shiftLabel}</span>
+              </div>
+              {selectedDay.checkIn?.device && (
+                <div className="flex justify-between py-2 border-b border-[var(--color-nexus-border)]/50">
+                  <span className="text-[var(--color-nexus-muted)] font-medium">Verification Device</span>
+                  <span className="font-bold text-[var(--color-nexus-ink)]">{selectedDay.checkIn.device}</span>
+                </div>
+              )}
+            </div>
+
+            <button type="button" onClick={() => setSelectedDay(null)} className="w-full py-3 rounded-xl bg-[var(--color-nexus-surface-alt)] font-bold text-xs uppercase text-[var(--color-nexus-ink)] border border-[var(--color-nexus-border)]">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile More Options Side Sheet / Slide-over Drawer */}
+      {showMoreDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-200" onClick={() => setShowMoreDrawer(false)}>
+          <div className="w-full max-w-xs h-full bg-[var(--color-nexus-surface)] border-l border-[var(--color-nexus-border)] shadow-2xl p-5 space-y-5 animate-in slide-in-from-right duration-200 flex flex-col justify-between" onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[var(--color-nexus-border)]">
+                <div>
+                  <h3 className="text-base font-extrabold text-[var(--color-nexus-ink)]">Attendance Tools</h3>
+                  <p className="text-[11px] text-[var(--color-nexus-muted)]">Export & view options</p>
+                </div>
+                <button type="button" onClick={() => setShowMoreDrawer(false)} className="p-1.5 rounded-full hover:bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => { exportCsv(); setShowMoreDrawer(false); }}
+                  className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-bold text-xs text-[var(--color-nexus-ink)] hover:border-[var(--color-nexus-primary)] transition-all"
+                >
+                  <Download size={16} className="text-[var(--color-nexus-primary)]" />
+                  <span>Export as CSV</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setWeekOffset(0); setShowMoreDrawer(false); }}
+                  className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-bold text-xs text-[var(--color-nexus-ink)] hover:border-[var(--color-nexus-primary)] transition-all"
+                >
+                  <RotateCcw size={16} className="text-[var(--color-nexus-secondary)]" />
+                  <span>Jump to Current Week</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowShiftModal(true); setShowMoreDrawer(false); }}
+                  className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-bold text-xs text-[var(--color-nexus-ink)] hover:border-[var(--color-nexus-primary)] transition-all"
+                >
+                  <Calendar size={16} className="text-amber-500" />
+                  <span>Shift Policy</span>
+                </button>
+              </div>
+            </div>
+
+            <button type="button" onClick={() => setShowMoreDrawer(false)} className="w-full py-3 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] font-bold text-xs uppercase text-[var(--color-nexus-ink)]">
+              Close Options
             </button>
           </div>
         </div>
