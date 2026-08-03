@@ -51,7 +51,7 @@ export default function EmployeeLogin({ onLogin }: { onLogin: (u: User) => void 
     if (next && next.startsWith('/qr/')) {
       navigate(next);
     } else {
-      navigate('/employee/attendance');
+      navigate('/employee/dashboard');
     }
   };
 

@@ -192,13 +192,8 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
       });
       const data = await res.json();
       const state: TodayState = data.state || 'not_started';
-      if (state === 'checked_in') {
+      if (state === 'checked_in' || state === 'checked_out') {
         navigate('/employee/dashboard');
-        return;
-      }
-      setTodayState(state);
-      if (state === 'checked_out') {
-        setLoading(false);
         return;
       }
 
@@ -874,6 +869,12 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
             </div>
             <h2 className="text-lg font-sans font-bold text-[var(--color-nexus-ink)]">Attendance completed for today</h2>
             <p className="text-xs text-[var(--color-nexus-muted)]">You've already checked in and checked out today. Come back tomorrow!</p>
+            <button
+              onClick={() => navigate('/employee/dashboard')}
+              className="w-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold uppercase tracking-wider py-3.5 rounded-xl transition-all shadow-md cursor-pointer"
+            >
+              Go to Dashboard
+            </button>
             <button
               onClick={() => setShowCorrectionModal(true)}
               className="w-full text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] text-xs font-bold uppercase tracking-wider py-2 transition-colors cursor-pointer"
