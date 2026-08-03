@@ -1928,6 +1928,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 emptyMessage="No payslips generated yet — one is recorded automatically each month you visit this page."
                 mobileCardTitleKey="period"
                 mobileCardStatusKey="status"
+                hideMobileTableToggle
               />
             </div>
           </div>

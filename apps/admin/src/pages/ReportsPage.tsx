@@ -338,7 +338,7 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
   // REPORT DESIGNER & SECTION LAYOUT STATE
   const [designerOpen, setDesignerOpen] = useState<boolean>(false);
   const [selectedColumnIds, setSelectedColumnIds] = useState<string[]>([
-    'employeeCode', 'employeeName', 'department', 'checkInTime', 'checkOutTime', 'workingHours', 'attendanceStatus'
+    'employeeId', 'employeeName', 'designation', 'department', 'present', 'absent', 'leave', 'workingHours', 'attendancePct', 'status'
   ]);
   const [selectedThemeId, setSelectedThemeId] = useState<string>('executive_indigo');
   const [showCoverPage, setShowCoverPage] = useState<boolean>(true);

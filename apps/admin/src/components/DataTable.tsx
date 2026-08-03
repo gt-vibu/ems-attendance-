@@ -46,6 +46,8 @@ interface DataTableProps<T> {
   mobileCardStatusKey?: string;
   /** Optional: up to N priority keys to show collapsed in mobile card; rest behind expand. 0 = show all. */
   mobileVisibleFields?: number;
+  /** Optional: hide the mobile Cards/Table toggle button to force mobile cards view. */
+  hideMobileTableToggle?: boolean;
 }
 
 export default function DataTable<T>({
@@ -63,6 +65,7 @@ export default function DataTable<T>({
   mobileCardTitleKey,
   mobileCardStatusKey,
   mobileVisibleFields = 4,
+  hideMobileTableToggle = false,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
@@ -144,30 +147,32 @@ export default function DataTable<T>({
           </select>
         )}
         {/* Mobile View Toggle (Cards vs Full Table) */}
-        <div className="md:hidden flex items-center justify-end gap-1 ml-auto">
-          <button
-            type="button"
-            onClick={() => setMobileDisplayMode('cards')}
-            className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
-              mobileDisplayMode === 'cards'
-                ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
-                : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
-            }`}
-          >
-            Cards
-          </button>
-          <button
-            type="button"
-            onClick={() => setMobileDisplayMode('table')}
-            className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
-              mobileDisplayMode === 'table'
-                ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
-                : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
-            }`}
-          >
-            Table
-          </button>
-        </div>
+        {!hideMobileTableToggle && (
+          <div className="md:hidden flex items-center justify-end gap-1 ml-auto">
+            <button
+              type="button"
+              onClick={() => setMobileDisplayMode('cards')}
+              className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
+                mobileDisplayMode === 'cards'
+                  ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
+                  : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
+              }`}
+            >
+              Cards
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileDisplayMode('table')}
+              className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
+                mobileDisplayMode === 'table'
+                  ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
+                  : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
+              }`}
+            >
+              Table
+            </button>
+          </div>
+        )}
 
         {onAddNew && (
           <button

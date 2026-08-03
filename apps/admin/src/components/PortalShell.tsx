@@ -64,6 +64,7 @@ export default function PortalShell({
   }, [profileDropdownOpen]);
 
   const bottomNavItems = navItems.slice(0, BOTTOM_NAV_VISIBLE_COUNT);
+  const moreNavItems = navItems.filter((item) => !bottomNavItems.some((b) => b.id === item.id));
   const hasOverflow = navItems.length > BOTTOM_NAV_VISIBLE_COUNT;
 
   const userInitial = (user.name || user.email || '?').charAt(0).toUpperCase();
@@ -152,7 +153,7 @@ export default function PortalShell({
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1 pb-4">
-              {navItems.map((item) => {
+              {(moreNavItems.length > 0 ? moreNavItems : navItems).map((item) => {
                 const isActive = activeTab === item.id;
                 const Icon = item.icon;
                 return (
@@ -161,11 +162,11 @@ export default function PortalShell({
                     onClick={() => { onTabChange(item.id); setMobileOpen(false); }}
                     className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
                       isActive
-                        ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)] font-bold shadow-sm'
-                        : 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]'
+                        ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold shadow-xs'
+                        : 'bg-slate-50/80 border-slate-200/80 text-slate-800 hover:bg-blue-50/50 hover:border-blue-200'
                     }`}
                   >
-                    <div className={`p-2 rounded-lg ${isActive ? 'bg-[var(--color-nexus-primary)] text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
+                    <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-2xs shrink-0 flex items-center justify-center">
                       <Icon size={18} />
                     </div>
                     <div className="min-w-0 flex-1">
