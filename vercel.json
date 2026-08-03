@@ -3,7 +3,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @company/admin build:web",
   "outputDirectory": "apps/admin/dist",
-  "cleanUrls": true,
+  "cleanUrls": false,
   "headers": [
     {
       "source": "/assets/(.*)",
@@ -25,9 +25,7 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/((?!assets/|api/|.*\\.[a-zA-Z0-9]+$).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/assets/(.*)", "destination": "/assets/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
