@@ -453,7 +453,7 @@ export default function AttendanceTimeline({
               <Filter size={14} />
             </button>
             {filterOpen && (
-              <div className="absolute right-0 top-full mt-2 z-20 w-52 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] shadow-lg p-2">
+              <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-20 w-52 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] shadow-lg p-2">
                 <div className="flex items-center justify-between px-2 py-1">
                   <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-nexus-muted)]">Filter by status</span>
                   {statusFilter.size > 0 && (
@@ -489,7 +489,7 @@ export default function AttendanceTimeline({
               <MoreHorizontal size={14} />
             </button>
             {moreOpen && (
-              <div className="absolute right-0 top-full mt-2 z-20 w-48 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] shadow-lg p-1.5">
+              <div className="absolute right-0 top-full mt-2 z-20 w-48 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] shadow-lg p-1.5">
                 <button type="button" onClick={exportCsv} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors">
                   <Download size={13} className="text-[var(--color-nexus-muted)]" /> Export as CSV
                 </button>

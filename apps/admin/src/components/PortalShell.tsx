@@ -197,7 +197,7 @@ export default function PortalShell({
                 {userInitial}
               </button>
               {profileDropdownOpen && (
-                <div className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 top-[calc(100%+8px)] w-56 max-w-[calc(100vw-2rem)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                   {/* User info */}
                   <div className="px-4 py-3 border-b border-[var(--color-nexus-border)]">
                     <p className="text-[13px] font-semibold text-[var(--color-nexus-ink)] truncate">{user.name || 'Account'}</p>
