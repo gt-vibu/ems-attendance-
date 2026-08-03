@@ -1091,9 +1091,16 @@ export async function buildReportPdf(
     // intentionally shows no cards at all (flat table only, per the preview).
     // Both skip this generic Totals-driven card block so the two KPI
     // sources never show two different metric sets for the same report.
-    const isAttendanceShapedExport = columns.some((c) => c.key === 'date') && rows.some((r) => r.date);
-    const isLeaveShapedExport = columns.some((c) => c.key === 'leaveType') && rows.some((r) => r.leaveType);
-    const isPayrollShapedExport = columns.some((c) => c.key === 'grossSalary') && rows.some((r) => r.grossSalary !== undefined);
+    const isAttendanceShapedExport =
+      (columns.some((c) => ['date', 'status', 'present', 'presentDays', 'workingHours', 'employeeId', 'attendancePct', 'lateMins'].includes(c.key)) ||
+        (meta.title && meta.title.toLowerCase().includes('attendance'))) &&
+      rows.some((r) => r.employeeId !== undefined || r.employeeName !== undefined || r.date !== undefined);
+    const isLeaveShapedExport =
+      columns.some((c) => ['leaveType', 'daysCount', 'leaveBalance'].includes(c.key)) ||
+      rows.some((r) => r.leaveType !== undefined);
+    const isPayrollShapedExport =
+      columns.some((c) => ['grossSalary', 'netSalary', 'deductions', 'pfAmount'].includes(c.key)) ||
+      rows.some((r) => r.grossSalary !== undefined);
     const isConsolidatedShapedExport = columns.some((c) => c.key === 'attendancePct');
     const usesCustomKpiCards = (isAttendanceShapedExport && (meta.layoutId === 'executive' || meta.layoutId === 'employee_summary')) || ((isLeaveShapedExport || isPayrollShapedExport || isConsolidatedShapedExport) && meta.layoutId === 'executive');
 
@@ -1123,17 +1130,17 @@ export async function buildReportPdf(
       doc.fontSize(10).fillColor('#64748b').text('No data for the selected filters.');
     } else if (meta.layoutId === 'weekly_grid') {
       drawWeeklyGridTable(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'date') && rows.some((r) => r.date)) {
+    } else if (meta.layoutId === 'executive' && isAttendanceShapedExport) {
       drawAttendanceExecutiveSummary(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'leaveType') && rows.some((r) => r.leaveType)) {
+    } else if (meta.layoutId === 'executive' && isLeaveShapedExport) {
       drawLeaveExecutiveSummary(doc, rows, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'grossSalary') && rows.some((r) => r.grossSalary !== undefined)) {
+    } else if (meta.layoutId === 'executive' && isPayrollShapedExport) {
       drawPayrollExecutiveSummary(doc, rows, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'executive' && columns.some((c) => c.key === 'attendancePct')) {
+    } else if (meta.layoutId === 'executive' && isConsolidatedShapedExport) {
       drawConsolidatedSummary(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'employee_summary' && columns.some((c) => c.key === 'date') && rows.some((r) => r.date)) {
+    } else if (meta.layoutId === 'employee_summary' && isAttendanceShapedExport) {
       drawEmployeeSummaryTable(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
-    } else if (meta.layoutId === 'detailed' && columns.some((c) => c.key === 'date') && rows.some((r) => r.date)) {
+    } else if (meta.layoutId === 'detailed' && isAttendanceShapedExport) {
       drawAttendanceRegister(doc, rows, columns, pageWidth, PAGE_MARGIN, theme);
     } else {
       const colWidth = pageWidth / columns.length;
