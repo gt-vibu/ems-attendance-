@@ -151,6 +151,12 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
     // buildPayrollSummary. dateOfLeaving isn't a real column on `users`
     // today (only employeeStatus/terminationRequests track exits), so exit
     // proration activates once that data exists; join proration is real now.
+
+
+    // Mid-month join/exit proration — dedicated engine, not embedded in
+    // buildPayrollSummary. dateOfLeaving isn't a real column on `users`
+    // today (only employeeStatus/terminationRequests track exits), so exit
+    // proration activates once that data exists; join proration is real now.
     const proration = prorateForJoinOrExit(monthlyNet, year, month, emp.dateOfJoining, null);
     let finalNet = proration ? monthlyNet + proration.amount : monthlyNet;
     const breakdown: any[] = [...summary.annualBreakdown];
@@ -159,9 +165,79 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
 
     // Loans/Advances/Bonuses/Reimbursements (P3/P4) — read-only inputs into
     // this month's net pay, never inlined into employeeSalaryComponents.
-    // Recovery/payout amounts are capped at the remaining balance and the
-    // source record is updated in the same pass so a loan/advance closes
-    // itself out and a bonus/reimbursement is marked paid exactly once.
+    const activeLoans = await db.select().from(schema.payrollLoans).where(and(
+      eq(schema.payrollLoans.tenantId, tenantId),
+      eq(schema.payrollLoans.userId, emp.id),
+      eq(schema.payrollLoans.status, 'active'),
+      or(lt(schema.payrollLoans.startYear, year), and(eq(schema.payrollLoans.startYear, year), sql`${schema.payrollLoans.startMonth} <= ${month}`))
+    ));
+    for (const loan of activeLoans) {
+      if (!hasStartedByPeriod(loan, year, month)) continue;
+      const recovery = Math.min(loan.emiAmount, loan.remainingBalance);
+      if (recovery <= 0) continue;
+      finalNet -= recovery;
+      breakdown.push({ type: 'loan_recovery', loanId: loan.id, amount: -recovery, reason: `Loan EMI (#${loan.id})` });
+    }
+
+    const activeAdvances = await db.select().from(schema.payrollAdvances).where(and(
+      eq(schema.payrollAdvances.tenantId, tenantId),
+      eq(schema.payrollAdvances.userId, emp.id),
+      eq(schema.payrollAdvances.status, 'active'),
+      or(lt(schema.payrollAdvances.startYear, year), and(eq(schema.payrollAdvances.startYear, year), sql`${schema.payrollAdvances.startMonth} <= ${month}`))
+    ));
+    for (const advance of activeAdvances) {
+      if (!hasStartedByPeriod(advance, year, month)) continue;
+      const recovery = Math.min(advance.recoveryPerMonth, advance.remainingBalance);
+      if (recovery <= 0) continue;
+      finalNet -= recovery;
+      breakdown.push({ type: 'advance_recovery', advanceId: advance.id, amount: -recovery, reason: `Advance recovery (#${advance.id})` });
+    }
+
+    const approvedBonuses = await db.select().from(schema.payrollBonuses).where(and(eq(schema.payrollBonuses.tenantId, tenantId), eq(schema.payrollBonuses.userId, emp.id), eq(schema.payrollBonuses.status, 'approved')));
+    for (const bonus of approvedBonuses) {
+      finalNet += bonus.amount;
+      breakdown.push({ type: 'bonus', bonusId: bonus.id, amount: bonus.amount, reason: `${bonus.type} bonus` });
+    }
+
+    const approvedReimbursements = await db.select().from(schema.payrollReimbursements).where(and(eq(schema.payrollReimbursements.tenantId, tenantId), eq(schema.payrollReimbursements.userId, emp.id), eq(schema.payrollReimbursements.status, 'approved')));
+    for (const reimb of approvedReimbursements) {
+      finalNet += reimb.amount;
+      breakdown.push({ type: 'reimbursement', reimbursementId: reimb.id, amount: reimb.amount, reason: `${reimb.category} reimbursement` });
+    }
+
+    const [lineItem] = await db.insert(schema.payrollRuns).values({
+      tenantId, userId: emp.id, profileId: profile.id ?? null, year, month, batchId: batch.id,
+      workingDays: summary.workingDays,
+      approvedLeaveDays: leaveDays.totalDays,
+      unpaidAbsenceDays: summary.unpaidAbsenceDays,
+      lopDeduction: summary.lopDeduction,
+      overtimeHours,
+      grossPay: monthlyGross,
+      leaveDeduction: summary.leaveDeduction,
+      overtimePay: summary.overtimePay,
+      netPay: finalNet,
+      breakdown,
+      status: 'generated',
+      version: 1,
+    }).onConflictDoUpdate({
+      target: [schema.payrollRuns.userId, schema.payrollRuns.year, schema.payrollRuns.month, schema.payrollRuns.version],
+      set: {
+        profileId: profile.id ?? null,
+        batchId: batch.id,
+        workingDays: summary.workingDays,
+        approvedLeaveDays: leaveDays.totalDays,
+        unpaidAbsenceDays: summary.unpaidAbsenceDays,
+        lopDeduction: summary.lopDeduction,
+        overtimeHours,
+        grossPay: monthlyGross,
+        leaveDeduction: summary.leaveDeduction,
+        overtimePay: summary.overtimePay,
+        netPay: finalNet,
+        breakdown,
+        status: 'generated',
+      },
+    }).returning();
+
     totalGross += lineItem.grossPay;
     totalNet += lineItem.netPay;
     calculatedCount += 1;
