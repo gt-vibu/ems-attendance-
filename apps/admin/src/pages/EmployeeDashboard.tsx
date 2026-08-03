@@ -1035,61 +1035,6 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
             </div>
           )}
 
-          {todayState === 'checked_out' && (
-            <div className="nexus-card rounded-xl p-5 space-y-4 bg-gradient-to-br from-slate-50 to-indigo-50/40 border border-indigo-100">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Today's Attendance Summary</h3>
-                </div>
-                <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Completed
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Checked In</span>
-                  <span className="block text-base font-bold text-slate-900 mt-0.5">
-                    {checkInTime ? new Date(checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </span>
-                </div>
-                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Checked Out</span>
-                  <span className="block text-base font-bold text-slate-900 mt-0.5">
-                    {checkOutTime ? new Date(checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </span>
-                </div>
-                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Working Hours</span>
-                  <span className="block text-base font-bold text-indigo-600 mt-0.5">
-                    {serverFormattedHours || `${serverWorkingHours}h`}
-                  </span>
-                </div>
-                <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-2xs">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Break</span>
-                  <span className="block text-base font-bold text-slate-700 mt-0.5">
-                    {totalBreakMinsToday || 0}m
-                  </span>
-                </div>
-              </div>
-
-              {attendanceTimeline.length > 0 && (
-                <div className="pt-3 border-t border-slate-200/60">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Today's Timeline</span>
-                  <div className="space-y-1.5">
-                    {attendanceTimeline.map((item: any) => (
-                      <div key={item.id} className="flex items-center justify-between text-xs bg-white border border-slate-100 rounded-lg px-3 py-2">
-                        <span className="font-medium text-slate-800">{item.event}</span>
-                        <span className="font-mono text-slate-500">{item.time}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Take-a-Break popup — the type/note form used to sit permanently
               on screen; now it only appears once "Take a Break" is pressed,
               same modal chrome used elsewhere in this file (Apply Leave,
