@@ -1913,9 +1913,9 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           </div>
 
           <div className={`grid lg:grid-cols-3 gap-4 ${payrollSubTab === 'payslips' ? 'block' : 'hidden md:grid'}`}>
-            <div className="nexus-card p-5 bg-[var(--color-nexus-primary-container)] text-white lg:col-span-1 hidden sm:block">
-              <ShieldCheck size={20} className="text-[var(--color-nexus-tertiary-fixed)]" />
-              <h3 className="text-base font-bold mt-2">Secure Payout</h3>
+            <div className="nexus-card p-5 bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] text-white lg:col-span-1 hidden sm:block">
+              <ShieldCheck size={20} className="text-white/80" />
+              <h3 className="text-base font-bold mt-2 text-white">Secure Payout</h3>
               <p className="text-sm text-white/70 mt-2 leading-relaxed">Your salary is processed through encrypted financial channels.</p>
             </div>
             <div className="nexus-card rounded-xl p-4 sm:p-6 lg:col-span-2">

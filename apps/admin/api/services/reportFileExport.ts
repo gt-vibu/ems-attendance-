@@ -1162,6 +1162,30 @@ export async function buildReportPdf(
       doc.fontSize(8).fillColor('#94a3b8').font('Helvetica').text('Digitally generated — no signature required', PAGE_MARGIN, doc.y, { lineBreak: false });
     }
 
+    // ── Remove blank trailing pages ──
+    // PDFKit auto-creates pages when text() calls overflow a page boundary.
+    // After all content is drawn, any page whose y cursor never advanced
+    // past the top margin is an empty artifact. We detect these by
+    // flipping through the buffer and removing blank trailing pages.
+    // Since _pageBuffer is a PDFKit internal, we guard with a try/catch.
+    try {
+      const docAny = doc as any;
+      const buf = docAny._pageBuffer;
+      if (Array.isArray(buf) && buf.length > 1) {
+        // We know the signature text just landed on the CURRENT page.
+        // Find which index in the buffer that is.
+        const currentPage = docAny.page;
+        const currentIdx = buf.indexOf(currentPage);
+        // Everything after currentIdx is a blank auto-page — remove it.
+        if (currentIdx >= 0 && currentIdx < buf.length - 1) {
+          buf.splice(currentIdx + 1);
+        }
+      }
+    } catch {
+      // If the internal API changed, just skip — we'll have blank pages
+      // but won't crash the export.
+    }
+
     // Watermark + page numbers + confidentiality footer on every page
     const pageCount = doc.bufferedPageRange().count;
     for (let i = 0; i < pageCount; i++) {
