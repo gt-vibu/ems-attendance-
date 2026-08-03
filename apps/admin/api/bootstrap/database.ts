@@ -553,6 +553,11 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_standard_deduction REAL NOT NULL DEFAULT 50000;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_basic_percent_of_gross REAL NOT NULL DEFAULT 50;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS block_payroll_release_on_pending_adjustments BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS lop_calculation_policy TEXT DEFAULT 'fixed_26';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS monthly_salary_basis TEXT DEFAULT 'actual_calendar_days';`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_holidays BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_weekends BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_approved_paid_leave BOOLEAN DEFAULT true;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_compensation_profiles (
@@ -651,6 +656,11 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS previous_value TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS new_value TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_by_user_id INTEGER REFERENCES users(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS audit_id INTEGER;`); } catch(e){}
 
     try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS batch_id INTEGER;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;`); } catch(e){}
