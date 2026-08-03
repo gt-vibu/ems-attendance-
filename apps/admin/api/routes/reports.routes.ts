@@ -197,6 +197,54 @@ router.get('/api/reports/data', authenticate, async (req: any, res: any) => {
   }
 });
 
+const ALL_COLUMN_LOOKUP: Record<string, ReportColumnMeta> = {
+  employeeId: { key: 'employeeId', label: 'ID' },
+  employeeName: { key: 'employeeName', label: 'Employee Name' },
+  designation: { key: 'designation', label: 'Designation' },
+  department: { key: 'department', label: 'Department' },
+  present: { key: 'present', label: 'Present (Days)' },
+  presentDays: { key: 'presentDays', label: 'Present (Days)' },
+  absent: { key: 'absent', label: 'Absent (Days)' },
+  absentDays: { key: 'absentDays', label: 'Absent (Days)' },
+  leave: { key: 'leave', label: 'Leave (Days)' },
+  leaveDays: { key: 'leaveDays', label: 'Leave (Days)' },
+  workingHours: { key: 'workingHours', label: 'Hours Logged', format: 'hours' },
+  attendancePct: { key: 'attendancePct', label: 'Attendance %' },
+  status: { key: 'status', label: 'Status' },
+  date: { key: 'date', label: 'Date' },
+  checkIn: { key: 'checkIn', label: 'Check In' },
+  checkOut: { key: 'checkOut', label: 'Check Out' },
+  lateMins: { key: 'lateMins', label: 'Late (mins)' },
+  overtimeHours: { key: 'overtimeHours', label: 'Overtime', format: 'hours' },
+  isWfh: { key: 'isWfh', label: 'WFH', format: 'boolean' },
+  verificationMode: { key: 'verificationMode', label: 'Attendance Mode' },
+  approvalStatus: { key: 'approvalStatus', label: 'Approval Status' },
+  notes: { key: 'notes', label: 'Notes' },
+  leaveType: { key: 'leaveType', label: 'Leave Type' },
+  startDate: { key: 'startDate', label: 'Start Date' },
+  endDate: { key: 'endDate', label: 'End Date' },
+  daysCount: { key: 'daysCount', label: 'Days' },
+  reason: { key: 'reason', label: 'Reason' },
+  appliedOn: { key: 'appliedOn', label: 'Applied On' },
+  monthYear: { key: 'monthYear', label: 'Period' },
+  grossSalary: { key: 'grossSalary', label: 'Gross', format: 'currency' },
+  deductions: { key: 'deductions', label: 'Deductions', format: 'currency' },
+  netSalary: { key: 'netSalary', label: 'Net Salary', format: 'currency' },
+  lopDays: { key: 'lopDays', label: 'LOP Days' },
+  pfAmount: { key: 'pfAmount', label: 'PF', format: 'currency' },
+  esiAmount: { key: 'esiAmount', label: 'ESI', format: 'currency' },
+  taxAmount: { key: 'taxAmount', label: 'Tax (TDS)', format: 'currency' },
+  loanRecovery: { key: 'loanRecovery', label: 'Loan/Advance Recovery', format: 'currency' },
+  bonusPaid: { key: 'bonusPaid', label: 'Bonus/Reimbursement', format: 'currency' },
+  email: { key: 'email', label: 'Email' },
+  role: { key: 'role', label: 'Role' },
+  kycStatus: { key: 'kycStatus', label: 'KYC Status' },
+  joinedDate: { key: 'joinedDate', label: 'Joined On' },
+  grossPay: { key: 'grossPay', label: 'Gross Pay', format: 'currency' },
+  netPay: { key: 'netPay', label: 'Net Pay', format: 'currency' },
+  payrollStatus: { key: 'payrollStatus', label: 'Payroll Status' },
+};
+
 /**
  * GET /api/reports/export?format=pdf|xlsx — real file downloads (the CSV
  * download button is client-side, apps/admin/src/lib/csv.ts). Every export
@@ -217,20 +265,14 @@ router.get('/api/reports/export', authenticate, async (req: any, res: any) => {
     const title = `${filters.type.charAt(0).toUpperCase()}${filters.type.slice(1)} Report`;
     const meta = await buildExportMeta(req, title, filters);
 
-    // REPORT_COLUMNS_BY_TYPE/REPORT_SUMMARY_BY_TYPE are only keyed by the 4
-    // types with dedicated column shapes. buildReportData() (reportData.ts)
-    // only gives 'leave'/'payroll'/'employee' their own builder — every other
-    // filters.type value (executive/compliance/wfh, Advanced Mode's category
-    // tabs) falls through to buildAttendanceReport and is attendance-shaped.
-    // Without this fallback those types resolved to an empty columns array,
-    // which made buildReportPdf's "No data" branch fire even though
-    // buildReportData had already returned real rows.
     const columnLookupType = ['leave', 'payroll', 'overtime', 'employee', 'consolidated'].includes(filters.type) ? filters.type : 'attendance';
     const allColumns = REPORT_COLUMNS_BY_TYPE[columnLookupType] || [];
-    const requestedKeys = typeof req.query.columns === 'string' && req.query.columns.length > 0
-      ? new Set(req.query.columns.split(','))
+    const requestedKeyList = typeof req.query.columns === 'string' && req.query.columns.length > 0
+      ? req.query.columns.split(',').filter(Boolean)
       : null;
-    const columns = requestedKeys ? allColumns.filter((c) => requestedKeys.has(c.key)) : allColumns;
+    const columns: ReportColumnMeta[] = requestedKeyList
+      ? requestedKeyList.map((k) => ALL_COLUMN_LOOKUP[k] || { key: k, label: k })
+      : allColumns;
     const allSummaryFields = REPORT_SUMMARY_BY_TYPE[columnLookupType] || [];
     const requestedSummaryKeys = typeof req.query.summaryFields === 'string' && req.query.summaryFields.length > 0
       ? new Set(req.query.summaryFields.split(','))
