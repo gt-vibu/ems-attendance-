@@ -463,23 +463,36 @@ function drawAttendanceExecutiveSummary(doc: any, rows: any[], columns: ReportCo
   });
   doc.y = y + 10; doc.x = marginLeft;
 
-  // Employee Summary — grouped by department, trimmed columns, status badge.
+  // Employee Summary — grouped by department, dynamic columns matching preview, status badge.
   doc.fontSize(9).fillColor('#0f172a').font('Helvetica-Bold').text('Employee Summary');
   doc.moveDown(0.2);
-  const showStatusColPdf = columns.some((c) => c.key === 'status');
-  const empCols = [
-    { key: 'employeeId', label: 'ID', w: 45 }, { key: 'employeeName', label: 'Name', w: 95 }, { key: 'designation', label: 'Designation', w: 90 },
-    ...(showStatusColPdf ? [{ key: 'present', label: 'Pres', w: 32 }, { key: 'absent', label: 'Abs', w: 32 }, { key: 'leave', label: 'Lv', w: 28 }] : []),
-    ...(showHrsCol ? [{ key: 'workingHours', label: 'Hrs', w: 30 }] : []),
-    ...(showStatusColPdf ? [{ key: 'attendancePct', label: 'Attn%', w: 34 }, { key: 'status', label: 'Status', w: 70 }] : []),
-  ];
+
+  const empCols = columns.map((c) => {
+    let w = 50;
+    if (c.key === 'employeeId') w = 35;
+    else if (c.key === 'employeeName') w = 105;
+    else if (c.key === 'designation') w = 85;
+    else if (c.key === 'department') w = 75;
+    else if (c.key === 'present' || c.key === 'presentDays') w = 55;
+    else if (c.key === 'absent' || c.key === 'absentDays') w = 55;
+    else if (c.key === 'leave' || c.key === 'leaveDays') w = 55;
+    else if (c.key === 'workingHours') w = 60;
+    else if (c.key === 'attendancePct') w = 65;
+    else if (c.key === 'status') w = 80;
+    return { key: c.key, label: c.label, w };
+  });
   const totalColW = empCols.reduce((n, c) => n + c.w, 0);
-  const scale = pageWidth / totalColW;
+  const scale = pageWidth / Math.max(totalColW, 1);
+
   const drawEmpHeader = (yy: number) => {
     doc.rect(marginLeft, yy, pageWidth, ROW_HEIGHT).fill(theme.tableHeaderHex);
-    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(6.5);
     let x = marginLeft;
-    for (const c of empCols) { doc.text(c.label, x + 2, yy + 4, { width: c.w * scale - 4, align: ['employeeId', 'employeeName', 'designation'].includes(c.key) ? 'left' : 'center' }); x += c.w * scale; }
+    for (const c of empCols) {
+      const align = ['employeeId', 'employeeName', 'designation', 'department'].includes(c.key) ? 'left' : 'center';
+      doc.text(c.label.toUpperCase(), x + 2, yy + 4, { width: c.w * scale - 4, align, ellipsis: true });
+      x += c.w * scale;
+    }
   };
 
   for (const dept of departments) {
@@ -495,20 +508,53 @@ function drawAttendanceExecutiveSummary(doc: any, rows: any[], columns: ReportCo
       if (y + ROW_HEIGHT > doc.page.height - PAGE_MARGIN - 20) { doc.addPage(); y = PAGE_MARGIN; drawEmpHeader(y); y += ROW_HEIGHT; doc.font('Helvetica').fontSize(7); }
       if (i % 2 === 1) doc.rect(marginLeft, y, pageWidth, ROW_HEIGHT).fill('#f8fafc');
       const badge = attendanceStatusBadgeHex(e.attendancePct);
-      const valByKey: Record<string, string | number> = { employeeId: e.employeeId, employeeName: e.employeeName, designation: e.designation || '-', present: e.present, absent: e.absent, leave: e.leave, workingHours: Math.round(e.workingHours * 10) / 10, attendancePct: `${e.attendancePct}%` };
-      // The 'status' badge column (if present) is always last and drawn in
-      // its accent color instead of plain text — everything else is drawn
-      // as text first.
-      const textCols = showStatusColPdf ? empCols.slice(0, -1) : empCols;
+      const valByKey: Record<string, string | number> = {
+        employeeId: e.employeeId,
+        employeeName: e.employeeName,
+        designation: e.designation || 'Employee',
+        department: e.department || 'General',
+        present: e.present,
+        presentDays: e.present,
+        absent: e.absent,
+        absentDays: e.absent,
+        leave: e.leave,
+        leaveDays: e.leave,
+        workingHours: Math.round(e.workingHours * 10) / 10,
+        attendancePct: `${e.attendancePct}%`,
+        status: badge.label,
+      };
+
       let x = marginLeft;
-      doc.fillColor('#334155');
-      textCols.forEach((c) => {
-        doc.text(String(valByKey[c.key]), x + 2, y + 4, { width: c.w * scale - 4, align: ['employeeId', 'employeeName', 'designation'].includes(c.key) ? 'left' : 'center', ellipsis: true });
-        x += c.w * scale;
-      });
-      if (showStatusColPdf) {
-        doc.fillColor(badge.hex).font('Helvetica-Bold').text(badge.label, x + 2, y + 4, { width: empCols[empCols.length - 1].w * scale - 4, align: 'center', ellipsis: true });
-        doc.font('Helvetica');
+      for (const c of empCols) {
+        const cellW = c.w * scale;
+        if (c.key === 'status') {
+          const pillW = Math.min(cellW - 6, 75);
+          const pillH = 11;
+          const pillX = x + (cellW - pillW) / 2;
+          const pillY = y + 2.5;
+          const isExcellent = badge.label === 'Excellent';
+          const isGood = badge.label === 'Good';
+          const fillBg = isExcellent ? '#ecfdf5' : isGood ? '#fffbeb' : '#fef2f2';
+          const strokeBg = isExcellent ? '#a7f3d0' : isGood ? '#fde68a' : '#fecaca';
+
+          doc.roundedRect(pillX, pillY, pillW, pillH, 5).fillAndStroke(fillBg, strokeBg);
+          doc.fillColor(badge.hex).font('Helvetica-Bold').fontSize(6).text(badge.label, pillX, pillY + 2, { width: pillW, align: 'center', ellipsis: true });
+        } else if (c.key === 'employeeName') {
+          const initial = (e.employeeName || 'E').charAt(0).toUpperCase();
+          const avatarColors = ['#f43f5e', '#f59e0b', '#6366f1', '#8b5cf6', '#10b981', '#3b82f6', '#ec4899', '#14b8a6'];
+          const avatarBg = avatarColors[i % avatarColors.length];
+
+          doc.circle(x + 8, y + 8, 5.5).fill(avatarBg);
+          doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(5.5).text(initial, x + 2.5, y + 6, { width: 11, align: 'center' });
+          doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(7).text(e.employeeName, x + 16, y + 4, { width: cellW - 18, ellipsis: true });
+        } else {
+          const align = ['employeeId', 'designation', 'department'].includes(c.key) ? 'left' : 'center';
+          const isBold = ['employeeId', 'present', 'presentDays', 'absent', 'absentDays', 'leave', 'leaveDays', 'attendancePct'].includes(c.key);
+          const textColor = isBold ? '#0f172a' : '#475569';
+          doc.fillColor(textColor).font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7);
+          doc.text(String(valByKey[c.key] ?? '-'), x + 2, y + 4, { width: cellW - 4, align, ellipsis: true });
+        }
+        x += cellW;
       }
       y += ROW_HEIGHT;
     });
