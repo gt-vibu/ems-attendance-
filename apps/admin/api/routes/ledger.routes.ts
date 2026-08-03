@@ -31,6 +31,21 @@ export const router = Router();
   // employee actually uses). Compared as text, not cast to int, so a row
   // whose details happens to use either key for something unrelated can
   // never throw a cast error — it just won't match.
+function formatAuditRow(r: any) {
+  let ts = r.timestamp;
+  if (ts) {
+    if (ts instanceof Date) {
+      ts = ts.toISOString();
+    } else if (typeof ts === 'string') {
+      const s = ts.trim();
+      if (!s.endsWith('Z') && !s.includes('+')) {
+        ts = new Date(s.replace(' ', 'T') + 'Z').toISOString();
+      }
+    }
+  }
+  return { ...r, timestamp: ts };
+}
+
 router.get('/api/audit/mine', authenticate, async (req: any, res: any) => {
     try {
       const userId = req.user.userId;
@@ -46,7 +61,8 @@ router.get('/api/audit/mine', authenticate, async (req: any, res: any) => {
         ORDER BY id DESC
         LIMIT 200
       `);
-      const rows = result.rows || result;
+      const rawRows = result.rows || result;
+      const rows = Array.isArray(rawRows) ? rawRows.map(formatAuditRow) : [];
       res.json({ ledger: rows });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -79,16 +95,13 @@ router.get('/api/tenant/ledger', authenticate, async (req: any, res: any) => {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
 
-      // Display-only list — capped so the payload/scan cost doesn't grow
-      // unbounded as the ledger accumulates over weeks of use. The
-      // integrity-verification endpoint below intentionally reads the full
-      // table instead, since hash-chain verification needs every block.
-      const ledger = await db.select()
+      const rawLedger = await db.select()
         .from(schema.auditLedger)
         .where(eq(schema.auditLedger.tenantId, req.user.tenantId || 1))
         .orderBy(desc(schema.auditLedger.timestamp))
         .limit(2000);
 
+      const ledger = rawLedger.map(formatAuditRow);
       res.json({ ledger });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

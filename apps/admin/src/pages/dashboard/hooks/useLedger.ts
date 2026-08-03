@@ -31,15 +31,26 @@ export function useLedger(token: string | null) {
 
   const handleExportLedgerCsv = () => {
     const header = ['Timestamp', 'Actor', 'Actor ID', 'Action', 'IP Address', 'Device Info', 'Block Hash'];
-    const rows = ledger.map((log: any) => [
-      new Date(log.timestamp).toLocaleString(),
-      log.actorName,
-      log.actorId ?? 'SYS',
-      log.action,
-      log.ipAddress || '',
-      log.deviceInfo || '',
-      log.hash,
-    ]);
+    const rows = ledger.map((log: any) => {
+      let tsStr = log.timestamp;
+      if (tsStr) {
+        let s = String(tsStr).trim();
+        if (!s.endsWith('Z') && !s.includes('+') && !s.includes('Z')) {
+          s = s.replace(' ', 'T') + 'Z';
+        }
+        const d = new Date(s);
+        tsStr = isNaN(d.getTime()) ? String(log.timestamp) : d.toLocaleString();
+      }
+      return [
+        tsStr,
+        log.actorName,
+        log.actorId ?? 'SYS',
+        log.action,
+        log.ipAddress || '',
+        log.deviceInfo || '',
+        log.hash,
+      ];
+    });
     downloadCsv(`audit-ledger-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...rows]);
   };
 

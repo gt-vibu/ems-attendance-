@@ -4,6 +4,17 @@ import { useEffect, useState } from 'react';
 // app required 'reports.view' (manager/admin-only); this is the same data
 // source scoped to just what the caller personally did or was the subject
 // of, with no privilege required.
+const formatTimestamp = (raw: any) => {
+  if (!raw) return '';
+  if (raw instanceof Date) return raw.toLocaleString();
+  let s = String(raw).trim();
+  if (s && !s.endsWith('Z') && !s.includes('+') && !s.includes('Z')) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? String(raw) : d.toLocaleString();
+};
+
 export default function MyActivityPanel() {
   const token = localStorage.getItem('auth_token');
   const [entries, setEntries] = useState<any[]>([]);
@@ -56,7 +67,7 @@ export default function MyActivityPanel() {
           <div key={e.id} className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs bg-[var(--color-nexus-surface-alt)] rounded-lg p-2.5 gap-1 border border-[var(--color-nexus-border)]/50">
             <span className="absolute -left-4 top-3.5 w-2 h-2 rounded-full bg-[var(--color-nexus-primary)] ring-4 ring-[var(--color-nexus-surface)]" />
             <span className="font-semibold text-[var(--color-nexus-ink)] capitalize">{String(e.action).replace(/_/g, ' ')}</span>
-            <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{new Date(e.timestamp).toLocaleString()}</span>
+            <span className="text-[10px] font-mono text-[var(--color-nexus-muted)]">{formatTimestamp(e.timestamp)}</span>
           </div>
         ))}
       </div>

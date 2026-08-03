@@ -89,7 +89,18 @@ export default function LedgerTab({
                 const isFraud = log.action.startsWith('FRAUD') || log.action.includes('VIOLATION');
                 return (
                   <tr key={log.id} className="border-b border-[var(--color-nexus-border)] text-xs hover:bg-[var(--color-nexus-primary-fixed)]/50 transition-colors">
-                    <td className="py-4 px-4 text-[var(--color-nexus-muted)] whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                    <td className="py-4 px-4 text-[var(--color-nexus-muted)] whitespace-nowrap">{
+                      (() => {
+                        if (!log.timestamp) return '';
+                        if (log.timestamp instanceof Date) return log.timestamp.toLocaleString();
+                        let s = String(log.timestamp).trim();
+                        if (s && !s.endsWith('Z') && !s.includes('+') && !s.includes('Z')) {
+                          s = s.replace(' ', 'T') + 'Z';
+                        }
+                        const d = new Date(s);
+                        return isNaN(d.getTime()) ? String(log.timestamp) : d.toLocaleString();
+                      })()
+                    }</td>
                     <td className="py-4 px-4">
                       <span className="font-semibold text-[var(--color-nexus-ink)] block">{log.actorName}</span>
                       <span className="text-[10px] text-[var(--color-nexus-muted)] font-mono">ID: #{log.actorId || 'SYS'}</span>
