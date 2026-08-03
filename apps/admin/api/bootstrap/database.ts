@@ -205,6 +205,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employment_type TEXT DEFAULT 'full_time';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id);`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_joining TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_status TEXT DEFAULT 'active';`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP DEFAULT NOW();`); } catch(e){}
