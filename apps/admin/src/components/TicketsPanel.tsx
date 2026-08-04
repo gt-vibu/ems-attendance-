@@ -215,48 +215,66 @@ export default function TicketsPanel({ user }: { user: User }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Tickets</h2>
-        <button onClick={() => setShowRaise((v) => !v)} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-white bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] px-3.5 py-2 rounded-xl transition-colors">
-          {showRaise ? <X size={13} /> : <Plus size={13} />} {showRaise ? 'Cancel' : 'Raise a Ticket'}
-        </button>
-      </div>
-      <p className="text-xs text-[var(--color-nexus-muted)] mb-4">Raise a dispute or request — e.g. "I was marked absent but I was present." Routed to your manager first, then GM, then the tenant admin if nobody is available.</p>
+        </div>
+      )}
 
+      {/* Center-justified Header */}
+      <div className="text-center mb-5 pb-3 border-b border-[var(--color-nexus-border)]">
+        <h2 className="text-base sm:text-lg font-bold text-[var(--color-nexus-ink)] font-sans tracking-tight">
+          My Tickets & Requests
+        </h2>
+      </div>
+
+      {/* Modal Form for Raising Ticket / Attendance Regularization */}
       {showRaise && (
-        <form onSubmit={handleRaise} className="mb-6 p-4 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Category</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none">
-                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150" onClick={() => setShowRaise(false)}>
+          <div className="w-full max-w-md bg-[var(--color-nexus-surface)] rounded-2xl border border-[var(--color-nexus-border)] shadow-2xl p-5 space-y-4 font-sans animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-nexus-border)]">
+              <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Raise Ticket / Regularization</h3>
+              <button type="button" onClick={() => setShowRaise(false)} className="p-1 text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+                <X size={18} />
+              </button>
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full px-3 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none">
-                {PRIORITIES.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-              </select>
-            </div>
+            <form onSubmit={handleRaise} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Category</label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none">
+                    {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Priority</label>
+                  <select value={priority} onChange={(e) => setPriority(e.target.value)} className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none">
+                    {PRIORITIES.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                  </select>
+                </div>
+              </div>
+              {category === 'attendance_dispute' && (
+                <div>
+                  <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Date in Question</label>
+                  <DateSelect value={relatedDate} onChange={setRelatedDate} />
+                </div>
+              )}
+              <div>
+                <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Subject</label>
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} required className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none" placeholder="Brief summary of request..." />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Description</label>
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} required rows={3} className="w-full px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none resize-none" placeholder="Details of request..." />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowRaise(false)} className="flex-1 py-2.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] text-xs font-bold text-[var(--color-nexus-ink)]">
+                  Cancel
+                </button>
+                <button type="submit" disabled={submitting} className="flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50">
+                  {submitting ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </div>
+            </form>
           </div>
-          {category === 'attendance_dispute' && (
-            <div>
-              <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Date in question</label>
-              <DateSelect value={relatedDate} onChange={setRelatedDate} />
-            </div>
-          )}
-          <div>
-            <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Subject</label>
-            <input value={subject} onChange={(e) => setSubject(e.target.value)} required className="w-full px-3 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none" placeholder="e.g. Marked absent on a day I was present" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-1">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} required rows={3} className="w-full px-3 py-2.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none" placeholder="Explain what happened..." />
-          </div>
-          <button type="submit" disabled={submitting} className="text-[10px] font-bold uppercase tracking-wider text-white bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] px-4 py-2.5 rounded-xl disabled:opacity-50">
-            {submitting ? 'Submitting...' : 'Submit Ticket'}
-          </button>
-        </form>
+        </div>
       )}
 
       {myTickets.length === 0 ? (
@@ -264,7 +282,7 @@ export default function TicketsPanel({ user }: { user: User }) {
       ) : (
         <div className="space-y-2">
           {myTickets.map((t) => (
-            <div key={t.id} className="flex items-center justify-between gap-3 bg-[var(--color-nexus-surface-alt)] rounded-xl px-4 py-3">
+            <div key={t.id} className="flex items-center justify-between gap-3 bg-[var(--color-nexus-surface-alt)] rounded-xl px-4 py-3 border border-[var(--color-nexus-border)]/60">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${priorityColor[t.priority]}`}>{t.priority}</span>
@@ -286,6 +304,18 @@ export default function TicketsPanel({ user }: { user: User }) {
           ))}
         </div>
       )}
+
+      {/* Bottom Floating Action Button (+) */}
+      <div className="fixed bottom-18 right-4 z-40">
+        <button
+          type="button"
+          onClick={() => setShowRaise(true)}
+          className="w-12 h-12 rounded-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white shadow-xl flex items-center justify-center transition-all active:scale-95"
+          title="Raise Ticket / Regularization"
+        >
+          <Plus size={22} />
+        </button>
+      </div>
     </div>
   );
 }

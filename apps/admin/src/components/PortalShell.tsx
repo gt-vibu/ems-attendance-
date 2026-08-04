@@ -260,7 +260,7 @@ export default function PortalShell({
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto p-3 md:p-6 w-full mb-14 md:mb-0">
+        <main className="max-w-7xl mx-auto p-3 md:p-6 w-full pb-20 md:pb-6 flex-1 min-h-0">
           {children}
         </main>
       </div>
