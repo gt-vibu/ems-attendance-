@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, Plus, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
