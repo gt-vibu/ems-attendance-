@@ -21,6 +21,7 @@ import { registerReportSchedulerHandler, enqueueDueReportSchedules } from '../se
 import { notify, notifyDirectRecipient, registerNotificationDeliveryHandler } from '../services/notificationService';
 import { dispatchDueDigests } from '../services/digestDispatcher';
 import { registerPayrollBatchCalculationHandler } from '../services/payrollBatchCalculation';
+import { processPresenceAutoCheckout } from '../services/presenceEngine';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
@@ -259,6 +260,18 @@ export function runBackgroundScheduler() {
             }
           }
         }
+      }
+
+      // --- Presence Engine & Auto-Checkout Policy loop (runs every minute) ---
+      try {
+        const allTenants = await db.select().from(schema.tenants);
+        for (const t of allTenants) {
+          if (t.status === 'active') {
+            await processPresenceAutoCheckout(t.id).catch((err) => logger.error(`presence process error for tenant ${t.id}:`, err));
+          }
+        }
+      } catch (err) {
+        logger.error('Presence Engine scheduler loop error:', err);
       }
 
       // --- Missed-checkout verification (Phase 5) — per-user shiftEnd +

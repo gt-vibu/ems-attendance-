@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
 
 interface CalendarEvent {
   date: string;
@@ -24,7 +23,9 @@ const TYPE_STYLE: Record<string, { dot: string; label: string }> = {
 // One aggregated read-only view over data that already lives in Holidays,
 // Leave, and the Payroll Calendar — no new events are created here, this
 // just merges and sorts what already exists chronologically.
-export default function BusinessCalendarPage({ user }: { user: User }) {
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
+
+export default function BusinessCalendarPage({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
 
@@ -41,7 +42,7 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
       .then(d => setEvents(Array.isArray(d.events) ? d.events : []))
       .catch(() => setEvents([]))
       .finally(() => setLoading(false));
-  }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [year, month, token]);
 
   const shiftMonth = (delta: number) => {
     let m = month + delta;
@@ -59,12 +60,13 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
   }, {});
 
   return (
-    <div className="min-h-screen premium-mesh-bg font-sans p-6">
-      <PageChrome fallbackHref="/dashboard" />
-      <div className="max-w-3xl mx-auto">
-        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] mb-6 transition-colors">
-          <ArrowLeft size={14} /> Back to Dashboard
-        </button>
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Business Calendar"
+      subtitle="Holidays, leave, and payroll milestones in one place."
+    >
+      <div className="space-y-6">
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex items-center gap-3 min-w-0">
@@ -114,6 +116,6 @@ export default function BusinessCalendarPage({ user }: { user: User }) {
           </div>
         )}
       </div>
-    </div>
+    </AdminWorkspaceLayout>
   );
 }

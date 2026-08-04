@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { User } from '../lib/auth';
 import { Bell, Mail, Smartphone, FileText, Clock, CheckCircle2, XCircle, Send, RotateCcw, Layers, GitBranch } from 'lucide-react';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 
 interface NotificationPoliciesPageProps {
   user: User;
+  onLogout?: () => void;
 }
 
 // Human-readable labels for every event type currently wired to notify()
@@ -99,7 +101,7 @@ interface RecipientGroup {
 // already existed server-side — services/notificationTemplates.ts renders
 // a tenant's custom subject/body over the generic default whenever one is
 // saved here, no new backend logic).
-export default function NotificationPoliciesPage({ user }: NotificationPoliciesPageProps) {
+export default function NotificationPoliciesPage({ user, onLogout }: NotificationPoliciesPageProps) {
   const token = localStorage.getItem('auth_token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -393,14 +395,13 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
   const customizedFor = (eventType: string) => templates.some((t) => t.eventType === eventType);
 
   return (
-    <div className="w-full p-3 sm:p-6 max-w-5xl mx-auto font-sans text-slate-800">
-      <div className="flex items-center gap-2 mb-4 pb-4 border-b border-slate-200">
-        <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600"><Bell className="w-5 h-5" /></span>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Notification Center</h1>
-          <p className="text-sm text-slate-500">Choose who gets notified, how, and what the message says. Changes only affect tenants with Unified Notifications enabled.</p>
-        </div>
-      </div>
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Notification Center & Policies"
+      subtitle="Choose who gets notified, how, and what the message says across organization events."
+    >
+      <div className="space-y-6 font-sans">
 
       <div className="flex gap-1 mb-5 border-b border-slate-200 overflow-x-auto">
         <button onClick={() => setActiveTab('recipients')} className={`flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2.5 -mb-px border-b-2 transition whitespace-nowrap ${activeTab === 'recipients' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
@@ -806,6 +807,7 @@ export default function NotificationPoliciesPage({ user }: NotificationPoliciesP
       <p className="text-[11px] text-slate-400 mt-4">
         Note: this schema tracks Employee / Manager / HR / Tenant Admin as recipient categories — there is no separate "Finance" recipient today (Finance-specific payroll events already route to Tenant Admin). SMS and Push are reserved columns, not yet wired to a delivery provider.
       </p>
-    </div>
+      </div>
+    </AdminWorkspaceLayout>
   );
 }

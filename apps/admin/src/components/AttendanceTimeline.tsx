@@ -417,41 +417,32 @@ export default function AttendanceTimeline({
   return (
     <div className="nexus-card rounded-xl p-6 space-y-5">
       {/* Sub-tabs */}
-      <div className="flex items-center gap-4 border-b border-[var(--color-nexus-border)] pb-3">
+      <div className="flex items-center justify-between border-b border-[var(--color-nexus-border)] pb-3">
         <span className="text-sm font-bold text-[var(--color-nexus-ink)] border-b-2 border-[var(--color-nexus-primary)] pb-3 -mb-3">Attendance Summary</span>
-        <button
-          type="button"
-          onClick={() => setShowShiftModal(true)}
-          className="text-sm font-medium text-[var(--color-nexus-primary)] hover:underline flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] uppercase">
-            {shiftLabel}
-          </span>
-        </button>
       </div>
 
       {/* Header control row */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <button onClick={() => setWeekOffset((w) => w - 1)} aria-label="Previous week" className="w-8 h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors">
-            <ChevronLeft size={15} />
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap max-w-full">
+          <button onClick={() => setWeekOffset((w) => w - 1)} aria-label="Previous week" className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors shrink-0">
+            <ChevronLeft size={14} />
           </button>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-nexus-border)] text-xs font-bold text-[var(--color-nexus-ink)]">
-            <Calendar size={13} className="text-[var(--color-nexus-muted)]" />
-            {rangeLabel}
+          <div className="flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-[var(--color-nexus-border)] text-[11px] sm:text-xs font-bold text-[var(--color-nexus-ink)] whitespace-nowrap">
+            <Calendar size={12} className="text-[var(--color-nexus-muted)] shrink-0" />
+            <span>{rangeLabel}</span>
           </div>
-          <button onClick={() => setWeekOffset((w) => w + 1)} aria-label="Next week" className="w-8 h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors">
-            <ChevronRight size={15} />
+          <button onClick={() => setWeekOffset((w) => w + 1)} aria-label="Next week" className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors shrink-0">
+            <ChevronRight size={14} />
           </button>
           {weekOffset !== 0 && (
-            <button onClick={() => setWeekOffset(0)} className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-nexus-primary)] hover:underline">This week</button>
+            <button onClick={() => setWeekOffset(0)} className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-nexus-primary)] hover:underline whitespace-nowrap">This week</button>
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={() => setViewMode('list')} title="List view" className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${viewMode === 'list' ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}>
+          <button onClick={() => setViewMode('list')} title="List view" className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center transition-colors ${viewMode === 'list' ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}>
             <List size={14} />
           </button>
-          <button onClick={() => setViewMode('grid')} title="Grid view" className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${viewMode === 'grid' ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}>
+          <button onClick={() => setViewMode('grid')} title="Grid view" className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center transition-colors ${viewMode === 'grid' ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}>
             <LayoutGrid size={14} />
           </button>
           <div className="relative" ref={filterRef}>
@@ -459,7 +450,7 @@ export default function AttendanceTimeline({
               type="button"
               title="Filter"
               onClick={() => { setFilterOpen((v) => !v); setMoreOpen(false); }}
-              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${statusFilter.size > 0 ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}
+              className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border flex items-center justify-center transition-colors ${statusFilter.size > 0 ? 'bg-[var(--color-nexus-primary-fixed)] border-[var(--color-nexus-primary)]/40 text-[var(--color-nexus-primary)]' : 'border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)]'}`}
             >
               <Filter size={14} />
             </button>
@@ -503,7 +494,7 @@ export default function AttendanceTimeline({
                   setFilterOpen(false);
                 }
               }}
-              className="w-8 h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg border border-[var(--color-nexus-border)] flex items-center justify-center text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
             >
               <MoreHorizontal size={14} />
             </button>
@@ -521,25 +512,29 @@ export default function AttendanceTimeline({
         </div>
       </div>
 
-      {/* Shift info + check-in bar — reuses the REAL check-in flow (face +
-          GPS verification at /employee/attendance); this is deliberately not
-          a bare button that fakes an instant check-in. */}
-      <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 flex items-center gap-3 flex-wrap">
-        <span className="text-xs font-bold text-[var(--color-nexus-ink)] shrink-0">{shiftLabel}</span>
+      {/* Shift info + check-in bar — displayed ONCE here */}
+      <div className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3">
+        <button
+          type="button"
+          onClick={() => setShowShiftModal(true)}
+          className="text-xs font-bold text-[var(--color-nexus-ink)] hover:text-[var(--color-nexus-primary)] transition-colors text-left shrink-0"
+        >
+          {shiftLabel}
+        </button>
         <input
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           disabled={checkedIn || checkedOut}
           placeholder="Add notes for check-in"
-          className="flex-1 min-w-[160px] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg px-3 py-2 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] disabled:opacity-50"
+          className="flex-1 min-w-0 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg px-3 py-1.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)] disabled:opacity-50"
         />
         <button
           onClick={onMarkAttendance}
           disabled={checkedOut}
-          className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold text-white flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${checkedIn ? 'bg-[var(--color-nexus-error)] hover:brightness-110' : 'bg-[color:var(--color-nexus-success-text)] hover:brightness-110'}`}
+          className={`w-full sm:w-auto shrink-0 rounded-full px-3.5 py-1.5 sm:px-4 sm:py-2 text-xs font-bold text-white flex items-center justify-center gap-1.5 transition-all whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${checkedIn ? 'bg-[var(--color-nexus-error)] hover:brightness-110' : 'bg-[color:var(--color-nexus-success-text)] hover:brightness-110'}`}
         >
-          <Camera size={13} />
-          {checkedOut ? 'Completed' : checkedIn ? `Check-out / ${hoursWorked} Hrs` : todayPending ? 'Pending Approval' : 'Check-in / 00:00:00 Hrs'}
+          <Camera size={13} className="shrink-0" />
+          <span className="truncate">{checkedOut ? 'Completed' : checkedIn ? `Check-out / ${hoursWorked} Hrs` : todayPending ? 'Pending Approval' : 'Check-in / 00:00:00 Hrs'}</span>
         </button>
       </div>
 

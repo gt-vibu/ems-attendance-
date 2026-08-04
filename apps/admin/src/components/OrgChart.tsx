@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users, Search, Building2, UserCheck } from 'lucide-react';
 
 interface OrgNode {
   id: number;
@@ -14,13 +14,6 @@ interface TreeNode extends OrgNode {
   children: TreeNode[];
 }
 
-// Builds a tree from managerId. Anyone whose manager isn't set, or whose
-// manager falls outside the caller's scope (see the org-chart endpoint's
-// own reassignment of dangling references to null), becomes a root — so a
-// tenant with a completely flat structure just renders every employee as a
-// sibling at the top, never crashes on missing links. Cycle-guarded: if bad
-// data somehow created a loop, a node already seen anywhere on its own
-// ancestor path is cut off as a root instead of recursing forever.
 function buildTree(nodes: OrgNode[]): TreeNode[] {
   const byId = new Map<number, OrgNode>(nodes.map((n) => [n.id, n]));
   const childrenOf = new Map<number, OrgNode[]>();
@@ -41,13 +34,13 @@ function buildTree(nodes: OrgNode[]): TreeNode[] {
   return roots.map((r) => build(r, new Set()));
 }
 
-function TreeRow({ node, depth, expanded, toggle, onAssignManager, allNodes, canEdit }: {
+function TreeRow({ node, depth, expanded, toggle, onAssignManager, uniqueManagers, canEdit }: {
   node: TreeNode;
   depth: number;
   expanded: Set<number>;
   toggle: (id: number) => void;
   onAssignManager: (userId: number, managerId: number | null) => void;
-  allNodes: OrgNode[];
+  uniqueManagers: OrgNode[];
   canEdit: boolean;
 }) {
   const isOpen = expanded.has(node.id);
@@ -55,60 +48,71 @@ function TreeRow({ node, depth, expanded, toggle, onAssignManager, allNodes, can
   return (
     <div>
       <div
-        className="flex items-center gap-2 py-2 px-2 rounded-lg hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
-        style={{ paddingLeft: `${depth * 24 + 8}px` }}
+        className="flex items-center gap-3 py-2.5 px-3 rounded-xl hover:bg-[var(--color-nexus-surface-alt)] transition-colors border border-transparent hover:border-[var(--color-nexus-border)]"
+        style={{ paddingLeft: `${depth * 24 + 12}px` }}
       >
         <button
           type="button"
           onClick={() => hasChildren && toggle(node.id)}
-          className={`w-5 h-5 flex items-center justify-center shrink-0 ${hasChildren ? 'text-[var(--color-nexus-muted)]' : 'invisible'}`}
+          className={`w-5 h-5 flex items-center justify-center shrink-0 ${hasChildren ? 'text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] cursor-pointer' : 'invisible'}`}
         >
           {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
-        <div className="w-7 h-7 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] flex items-center justify-center text-[10px] font-bold shrink-0">
+
+        <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] flex items-center justify-center text-xs font-bold shrink-0">
           {node.name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')}
         </div>
+
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="text-xs font-bold text-[var(--color-nexus-ink)] truncate">{node.name}</span>
+            <span className="text-[10px] font-mono text-[var(--color-nexus-secondary)]">EMP-{String(node.id).padStart(4, '0')}</span>
             <span className="text-[10px] text-[var(--color-nexus-muted)] shrink-0">{node.designation || node.role}</span>
           </div>
-          {node.department && <span className="text-[10px] text-[var(--color-nexus-muted)]">{node.department}</span>}
+          {node.department && <span className="text-[10px] text-[var(--color-nexus-muted)] block">{node.department}</span>}
         </div>
-        {hasChildren && <span className="text-[9px] font-bold text-[var(--color-nexus-muted)] shrink-0">{node.children.length} report{node.children.length === 1 ? '' : 's'}</span>}
+
+        {hasChildren && <span className="text-[10px] font-mono font-bold text-[var(--color-nexus-muted)] px-2 py-0.5 rounded-full bg-[var(--color-nexus-surface-alt)] shrink-0">{node.children.length} report{node.children.length === 1 ? '' : 's'}</span>}
+
         {canEdit && (
           <select
             value={node.managerId ?? ''}
             onChange={(e) => onAssignManager(node.id, e.target.value ? Number(e.target.value) : null)}
-            className="text-[10px] shrink-0 max-w-[140px] rounded-lg border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-1.5 py-1 focus:outline-none"
+            className="text-xs shrink-0 max-w-[200px] rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-2 py-1.5 focus:outline-none focus:border-[var(--color-nexus-primary)] font-semibold text-[var(--color-nexus-ink)] cursor-pointer"
             title="Reporting manager"
           >
             <option value="">No manager (root)</option>
-            {allNodes.filter((n) => n.id !== node.id).map((n) => (
-              <option key={n.id} value={n.id}>{n.name}</option>
+            {uniqueManagers.filter((n) => n.id !== node.id).map((n) => (
+              <option key={n.id} value={n.id}>
+                {n.name} (EMP-{String(n.id).padStart(4, '0')}) {n.department ? `— ${n.department}` : ''}
+              </option>
             ))}
           </select>
         )}
       </div>
       {isOpen && node.children.map((child) => (
-        <TreeRow key={child.id} node={child} depth={depth + 1} expanded={expanded} toggle={toggle} onAssignManager={onAssignManager} allNodes={allNodes} canEdit={canEdit} />
+        <TreeRow
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          expanded={expanded}
+          toggle={toggle}
+          onAssignManager={onAssignManager}
+          uniqueManagers={uniqueManagers}
+          canEdit={canEdit}
+        />
       ))}
     </div>
   );
 }
 
-// Reporting-structure visualization built from users.managerId — an
-// indented, collapsible tree rather than a box-and-line diagram, so it
-// renders correctly at any depth/width without a charting library. Anyone
-// with employee.edit can fix a wrong/missing manager assignment directly
-// from here via the per-row dropdown, since that's the one thing standing
-// between "the data exists" and "the chart is actually useful."
 export default function OrgChart({ canEdit }: { canEdit: boolean }) {
   const token = localStorage.getItem('auth_token');
   const [nodes, setNodes] = useState<OrgNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   const refresh = async () => {
     setLoading(true);
@@ -119,10 +123,7 @@ export default function OrgChart({ canEdit }: { canEdit: boolean }) {
       if (!res.ok) throw new Error(data.error || 'Could not load the org chart.');
       const fetched: OrgNode[] = Array.isArray(data.nodes) ? data.nodes : [];
       setNodes(fetched);
-      // Start with every root (and the roots' first level) expanded so the
-      // chart isn't a single collapsed line on first load.
-      const tree = buildTree(fetched);
-      setExpanded(new Set(tree.map((r) => r.id)));
+      setExpanded(new Set(fetched.map((n) => n.id)));
     } catch (err: any) {
       setError(err.message || 'Could not load the org chart.');
     } finally {
@@ -130,50 +131,72 @@ export default function OrgChart({ canEdit }: { canEdit: boolean }) {
     }
   };
 
-  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, []);
+
+  // Deduplicate managers list by ID to eliminate duplicate entries in dropdowns
+  const uniqueManagers = useMemo(() => {
+    const map = new Map<number, OrgNode>();
+    nodes.forEach((n) => {
+      if (n.id && !map.has(n.id)) {
+        map.set(n.id, n);
+      }
+    });
+    return Array.from(map.values());
+  }, [nodes]);
 
   const tree = useMemo(() => buildTree(nodes), [nodes]);
 
-  const toggle = (id: number) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
   const handleAssignManager = async (userId: number, managerId: number | null) => {
-    // Optimistic update — the dropdown itself is the confirmation UI, no
-    // need to round-trip before reflecting the change.
-    setNodes((prev) => prev.map((n) => (n.id === userId ? { ...n, managerId } : n)));
     try {
-      const res = await fetch(`/api/tenant/employees/${userId}`, {
+      const res = await fetch(`/api/tenant/employees/${userId}/manager`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ managerId }),
       });
-      if (!res.ok) throw new Error();
-    } catch {
-      setError('Failed to update reporting manager — reloading.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to update manager.');
       refresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update manager.');
     }
   };
 
-  if (loading) return <p className="text-xs text-[var(--color-nexus-muted)] text-center py-12">Loading org chart…</p>;
-
   return (
-    <div className="nexus-card rounded-xl p-6">
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans flex items-center gap-2"><Users size={17} /> Org Chart</h2>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4 p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl shadow-xs">
+        <div>
+          <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Organization Reporting Structure</h2>
+          <p className="text-xs text-[var(--color-nexus-muted)]">Hierarchy automatically derived from employee reporting managers.</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setExpanded(expanded.size > 0 ? new Set() : new Set(nodes.map((n) => n.id)))}
+          className="px-3 py-1.5 rounded-xl border border-[var(--color-nexus-border)] text-xs font-bold text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] cursor-pointer"
+        >
+          {expanded.size > 0 ? 'Collapse All' : 'Expand All'}
+        </button>
       </div>
-      <p className="text-xs text-[var(--color-nexus-muted)] mb-4">Reporting structure built from each employee's assigned manager.{canEdit ? ' Use the dropdown on any row to set or change who they report to.' : ''}</p>
-      {error && <div className="mb-4 text-xs font-semibold text-[var(--color-nexus-error)] bg-[var(--color-nexus-error-soft)] rounded-xl px-4 py-2.5">{error}</div>}
-      {tree.length === 0 ? (
-        <p className="text-xs text-[var(--color-nexus-muted)] text-center py-8">No employees to show yet.</p>
+
+      {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">{error}</div>}
+
+      {loading ? (
+        <div className="p-8 text-center text-xs font-mono text-[var(--color-nexus-muted)]">Loading org chart...</div>
+      ) : tree.length === 0 ? (
+        <div className="p-8 text-center text-xs font-mono text-[var(--color-nexus-muted)]">No org chart nodes found.</div>
       ) : (
-        <div className="space-y-0.5">
-          {tree.map((root) => (
-            <TreeRow key={root.id} node={root} depth={0} expanded={expanded} toggle={toggle} onAssignManager={handleAssignManager} allNodes={nodes} canEdit={canEdit} />
+        <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl shadow-xs space-y-1">
+          {tree.map((rootNode) => (
+            <TreeRow
+              key={rootNode.id}
+              node={rootNode}
+              depth={0}
+              expanded={expanded}
+              toggle={(id) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; })}
+              onAssignManager={handleAssignManager}
+              uniqueManagers={uniqueManagers}
+              canEdit={canEdit}
+            />
           ))}
         </div>
       )}

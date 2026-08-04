@@ -38,6 +38,8 @@ import { router as configHealthRouter } from './configHealth.routes';
 import { router as slaDashboardRouter } from './slaDashboard.routes';
 import { router as delegationRouter } from './delegation.routes';
 import { router as businessCalendarRouter } from './businessCalendar.routes';
+import { router as attendancePreferencesRouter } from './attendancePreferences.routes';
+import { router as presenceRouter } from './presence.routes';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -85,4 +87,6 @@ export function registerRoutes(app: Express) {
   app.use(slaDashboardRouter);
   app.use(delegationRouter);
   app.use(businessCalendarRouter);
+  app.use(attendancePreferencesRouter);
+  app.use(presenceRouter);
 }

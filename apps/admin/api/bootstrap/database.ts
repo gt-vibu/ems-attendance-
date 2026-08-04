@@ -1420,6 +1420,129 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
+    // ── Attendance Preferences (configuration-driven policy engine) ──
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS attendance_preferences (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL UNIQUE,
+        allow_multiple_sessions BOOLEAN DEFAULT false,
+        max_sessions_per_day INTEGER DEFAULT 1,
+        min_gap_between_sessions_mins INTEGER DEFAULT 15,
+        require_checkout_before_new_checkin BOOLEAN DEFAULT true,
+        auto_close_open_sessions BOOLEAN DEFAULT false,
+        max_session_duration_mins INTEGER,
+        enabled_methods JSONB DEFAULT '["face_recognition","gps","manual"]',
+        default_method TEXT DEFAULT 'face_recognition',
+        method_hierarchy JSONB,
+        require_face_match BOOLEAN DEFAULT true,
+        require_gps BOOLEAN DEFAULT true,
+        require_office_wifi BOOLEAN DEFAULT false,
+        require_geo_fence BOOLEAN DEFAULT false,
+        require_device_verification BOOLEAN DEFAULT false,
+        require_liveness_detection BOOLEAN DEFAULT true,
+        allow_early_checkin BOOLEAN DEFAULT true,
+        early_checkin_buffer_mins INTEGER DEFAULT 30,
+        allow_late_checkout BOOLEAN DEFAULT true,
+        max_overtime_mins INTEGER,
+        allow_cross_midnight_sessions BOOLEAN DEFAULT false,
+        auto_split_at_midnight BOOLEAN DEFAULT false,
+        show_running_timer BOOLEAN DEFAULT true,
+        show_working_hours_live BOOLEAN DEFAULT true,
+        show_attendance_timeline BOOLEAN DEFAULT true,
+        allow_employee_notes BOOLEAN DEFAULT true,
+        allow_attendance_regularization BOOLEAN DEFAULT true,
+        allow_break_tracking BOOLEAN DEFAULT true,
+        allow_manual_checkout BOOLEAN DEFAULT true,
+        require_checkout_reason BOOLEAN DEFAULT false,
+        enable_breaks BOOLEAN DEFAULT true,
+        allow_multiple_breaks BOOLEAN DEFAULT true,
+        max_breaks INTEGER,
+        break_categories JSONB DEFAULT '["Lunch","Tea","Personal","Official","General"]',
+        use_camera_for_face BOOLEAN DEFAULT true,
+        require_rear_camera BOOLEAN DEFAULT false,
+        allow_offline_attendance BOOLEAN DEFAULT false,
+        offline_sync BOOLEAN DEFAULT false,
+        background_gps BOOLEAN DEFAULT false,
+        presence_engine_enabled BOOLEAN DEFAULT true,
+        presence_grace_period_mins INTEGER DEFAULT 30,
+        presence_heartbeat_interval_sec INTEGER DEFAULT 60,
+        auto_checkout_delay_mins INTEGER DEFAULT 15,
+        auto_checkout_confidence_threshold INTEGER DEFAULT 40,
+        max_session_duration_hours INTEGER DEFAULT 14,
+        enable_browser_heartbeat BOOLEAN DEFAULT true,
+        enable_browser_activity_tracking BOOLEAN DEFAULT true,
+        enable_gps_evaluation BOOLEAN DEFAULT true,
+        enable_wifi_evaluation BOOLEAN DEFAULT false,
+        enable_face_evaluation BOOLEAN DEFAULT true,
+        ignore_gps_during_break BOOLEAN DEFAULT true,
+        overtime_threshold_mins INTEGER DEFAULT 0,
+        effective_from TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        updated_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // ALTER TABLE for presence columns in case table was previously created
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_engine_enabled BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_grace_period_mins INTEGER DEFAULT 30;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_heartbeat_interval_sec INTEGER DEFAULT 60;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_delay_mins INTEGER DEFAULT 15;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_confidence_threshold INTEGER DEFAULT 40;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS max_session_duration_hours INTEGER DEFAULT 14;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_heartbeat BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_activity_tracking BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_gps_evaluation BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_wifi_evaluation BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_face_evaluation BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS ignore_gps_during_break BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS overtime_threshold_mins INTEGER DEFAULT 0;`); } catch(e){}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS attendance_preference_history (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        changed_by_user_id INTEGER REFERENCES users(id) NOT NULL,
+        changed_by_name TEXT NOT NULL,
+        field_name TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        ip_address TEXT,
+        device_info TEXT,
+        effective_from TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS presence_evaluations (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        attendance_log_id INTEGER REFERENCES attendance_logs(id),
+        state TEXT NOT NULL,
+        confidence_score REAL NOT NULL,
+        signals_evaluated JSONB NOT NULL,
+        decision TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        policy_version TEXT DEFAULT 'v1.0',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS presence_warnings (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        attendance_log_id INTEGER REFERENCES attendance_logs(id),
+        warned_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     console.log('Database tables verified and synchronized successfully.');
   } catch (err) {
     console.error('Failed to synchronize database tables:', err);
@@ -1432,10 +1555,11 @@ export async function verifyAndSyncDatabase() {
 // console and must be changed at first login.
 export async function seedSuperAdmin() {
   try {
+    const email = process.env.SEED_SUPER_ADMIN_EMAIL || 'superadmin@example.com';
+    const providedPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
+
     const existing = await db.select().from(schema.users).where(eq(schema.users.role, 'super_admin'));
     if (existing.length === 0) {
-      const email = process.env.SEED_SUPER_ADMIN_EMAIL || 'superadmin@example.com';
-      const providedPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
       const plainPassword = providedPassword || crypto.randomBytes(9).toString('base64url');
 
       console.log('Seeding Super Admin account...');
@@ -1459,6 +1583,18 @@ export async function seedSuperAdmin() {
       } else {
         console.log(`Super Admin seeded successfully: ${email}`);
       }
+    } else if (providedPassword) {
+      // Sync credentials to match .env if explicitly provided
+      const adminUser = existing[0];
+      const newHash = await hashPassword(providedPassword);
+      await db.update(schema.users)
+        .set({
+          email,
+          password: newHash,
+          mustChangePassword: false,
+        })
+        .where(eq(schema.users.id, adminUser.id));
+      console.log(`Super Admin credentials synced with .env: ${email}`);
     }
   } catch (err) {
     console.error('Failed to seed Super Admin account:', err);

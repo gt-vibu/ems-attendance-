@@ -8,7 +8,24 @@ import fs from 'fs';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
-dotenv.config({ path: path.join(process.cwd(), '../../.env') });
+import { fileURLToPath } from 'url';
+
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
+
+const envPaths = [
+  path.join(process.cwd(), '.env'),
+  path.join(process.cwd(), '../.env'),
+  path.join(process.cwd(), '../../.env'),
+  path.join(currentDir, '.env'),
+  path.join(currentDir, '../.env'),
+  path.join(currentDir, '../../.env'),
+];
+for (const p of envPaths) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+    break;
+  }
+}
 
 // Managed Postgres providers (Neon, Supabase, Render, RDS) require TLS. Enable
 // with SQL_SSL=true. rejectUnauthorized:false accepts the provider cert without

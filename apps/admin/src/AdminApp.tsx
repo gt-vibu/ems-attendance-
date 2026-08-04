@@ -48,6 +48,7 @@ const Branches = safeLazy(() => import('./pages/Branches'));
 const BranchDetail = safeLazy(() => import('./pages/BranchDetail'));
 const RolePermissions = safeLazy(() => import('./pages/RolePermissions'));
 const ReportsPage = safeLazy(() => import('./pages/ReportsPage'));
+const AdminOverviewPage = safeLazy(() => import('./pages/AdminOverviewPage'));
 const ApprovalRoutingPage = safeLazy(() => import('./pages/ApprovalRoutingPage'));
 const LeaveManagementPage = safeLazy(() => import('./pages/LeaveManagementPage'));
 const PayrollPage = safeLazy(() => import('./pages/PayrollPage'));
@@ -60,6 +61,13 @@ const PlanFeaturesPage = safeLazy(() => import('./pages/PlanFeaturesPage'));
 const BusinessCalendarPage = safeLazy(() => import('./pages/BusinessCalendarPage'));
 const EmployeeDirectory = safeLazy(() => import('./pages/EmployeeDirectory'));
 const TeamsPage = safeLazy(() => import('./pages/TeamsPage'));
+const WorkspaceBoundariesPage = safeLazy(() => import('./pages/WorkspaceBoundariesPage'));
+const AttendancePreferencesPage = safeLazy(() => import('./pages/AttendancePreferencesPage'));
+const AuditLedgerPage = safeLazy(() => import('./pages/AuditLedgerPage'));
+const TerminationsPage = safeLazy(() => import('./pages/TerminationsPage'));
+const ShiftSwapsPage = safeLazy(() => import('./pages/ShiftSwapsPage'));
+const TicketsPage = safeLazy(() => import('./pages/TicketsPage'));
+const OrgChartPage = safeLazy(() => import('./pages/OrgChartPage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
 // and register a device — Employee, Manager, HR, GM, Intern, or any
@@ -73,11 +81,7 @@ const canClockIn = (role?: string) => !!role && role !== 'super_admin' && role !
 // actually do once there. A plain 'employee' has no reason to be there.
 const canSeeDashboard = (role?: string) => !!role && role !== 'employee';
 const canManageLeaveDesk = (role?: string) => role === 'tenant_admin' || role === 'super_admin';
-// Teams is a personal "my team" workspace for delegated roles — the tenant
-// admin already administers the whole org via Administration, so they're
-// excluded here even though they otherwise satisfy canSeeDashboard (the
-// backend's own team.manage check mirrors this, see teams.routes.ts).
-const canManageTeams = (role?: string) => canSeeDashboard(role) && role !== 'tenant_admin';
+const canManageTeams = (role?: string) => canSeeDashboard(role);
 
 function landingPathFor(user: User) {
   // Attendance is mandatory for every non-admin operating role. Managers,
@@ -155,11 +159,11 @@ export default function AdminApp() {
             : user.role !== 'tenant_admin' ? <Navigate to={landingPathFor(user)} />
             : <BranchSetupWizard user={user} updateSession={updateSession} />
           } />
-          <Route path="/tenant/branches" element={user && canSeeDashboard(user.role) ? <Branches user={user} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/branches/:id" element={user && canSeeDashboard(user.role) ? <BranchDetail user={user} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/roles" element={user && canSeeDashboard(user.role) ? <RolePermissions user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/branches" element={user && canSeeDashboard(user.role) ? <Branches user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/branches/:id" element={user && canSeeDashboard(user.role) ? <BranchDetail user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/roles" element={user && canSeeDashboard(user.role) ? <RolePermissions user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/reports" element={user && canSeeDashboard(user.role) ? <ReportsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/approval-routing" element={user && canSeeDashboard(user.role) ? <ApprovalRoutingPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/approval-routing" element={user && canSeeDashboard(user.role) ? <ApprovalRoutingPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/leave" element={
             !user ? <Navigate to="/login" />
             : canManageLeaveDesk(user.role) ? <LeaveManagementPage user={user} onLogout={logout} />
@@ -169,14 +173,27 @@ export default function AdminApp() {
           <Route path="/tenant/payroll/setup/employee/:userId/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/setup/role/:roleName/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/history/:userId" element={user && canSeeDashboard(user.role) ? <PayrollHistoryPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/payroll/batches" element={user && canSeeDashboard(user.role) ? <PayrollBatchPage user={user} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/notification-center" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/payroll/batches" element={user && canSeeDashboard(user.role) ? <PayrollBatchPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/notification-center" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/notification-policies" element={<Navigate to="/tenant/notification-center" replace />} />
-          <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/super/plan-features/:tenantId" element={user && user.role === 'super_admin' ? <PlanFeaturesPage user={user} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/admin" element={user && canSeeDashboard(user.role) ? <AdminOverviewPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/directory" element={user && canSeeDashboard(user.role) ? <EmployeeDirectory user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/teams" element={user && canManageTeams(user.role) ? <TeamsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/workspace-boundaries" element={user && canSeeDashboard(user.role) ? <WorkspaceBoundariesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/settings" element={<Navigate to="/tenant/workspace-boundaries" replace />} />
+          <Route path="/tenant/attendance-preferences" element={
+            !user ? <Navigate to="/login" />
+            : (user.role !== 'tenant_admin' && user.role !== 'super_admin') ? <Navigate to={landingPathFor(user)} replace />
+            : <AttendancePreferencesPage user={user} onLogout={logout} />
+          } />
+          <Route path="/tenant/audit-ledger" element={user && canSeeDashboard(user.role) ? <AuditLedgerPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/terminations" element={user && canSeeDashboard(user.role) ? <TerminationsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/shift-swaps" element={user && canSeeDashboard(user.role) ? <ShiftSwapsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/tickets" element={user && canSeeDashboard(user.role) ? <TicketsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/org-chart" element={user && canSeeDashboard(user.role) ? <OrgChartPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
 
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
@@ -232,6 +249,8 @@ export default function AdminApp() {
           } />
           {/* Public deep link — opened by any QR scanner/camera app, not just this one's built-in scanner */}
           <Route path="/qr/:token" element={<QrDeepLink user={user} />} />
+          {/* Catch-all fallback */}
+          <Route path="*" element={<Navigate to={user ? landingPathFor(user) : "/login"} replace />} />
         </Routes>
       </Suspense>
     </Router>

@@ -30,6 +30,8 @@ import {
   Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
+
 interface ReportsPageProps {
   user: User;
   onLogout?: () => void;
@@ -111,7 +113,7 @@ function localDateStr(date: Date, timezone?: string | null): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-export default function ReportsPage({ user, embedded = false }: ReportsPageProps) {
+export default function ReportsPage({ user, onLogout, embedded = false }: ReportsPageProps) {
   const token = localStorage.getItem('auth_token');
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -157,7 +159,9 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
         localStorage.setItem('reports_active_tab', tabParam);
       }
     }
-  }, [searchParams, hasPayrollPermission]);
+  }, [searchParams, activeCategory, hasPayrollPermission]);
+
+  const [previewZoom, setPreviewZoom] = useState<number>(0.85);
 
   // Authorization guard check
   if (!user || user.role === 'employee') {
@@ -950,41 +954,41 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
 
   const CATEGORIES = [...ANALYTICS_CATEGORIES, ...TOOLS_CATEGORIES];
 
-  return (
-    <div className={`w-full ${embedded ? 'p-0' : 'p-3 sm:p-6 max-w-7xl mx-auto'} font-sans text-slate-800`}>
-      {/* Header — deliberately minimal: this is an HRMS report screen, not a
-          BI tool, so the header's only job is orientation + one escape
-          hatch to the full dashboard for power users. */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-              <BarChart2 className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Reports
-            </h1>
-            <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-              {user.role}
-            </span>
+  const content = (
+    <div className={`w-full ${embedded ? 'p-0' : 'p-0'} font-sans text-slate-800`}>
+      {/* Header — minimal orientation header */}
+      {!(viewMode === 'wizard' && wizardPhase === 'designer') && (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+                <BarChart2 className="w-4 h-4" />
+              </span>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                Reports
+              </h1>
+              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                {user.role}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {viewMode === 'wizard' ? 'Pick a report type, and it\'s ready in a few clicks.' : 'Full designer, analytics, saved templates and scheduling.'}
+            </p>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
-            {viewMode === 'wizard' ? 'Pick a report type, and it\'s ready in a few clicks.' : 'Full designer, analytics, saved templates and scheduling.'}
-          </p>
-        </div>
 
-        <button
-          onClick={() => setViewMode((m) => (m === 'wizard' ? 'advanced' : 'wizard'))}
-          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition shrink-0 ${
-            viewMode === 'advanced'
-              ? 'bg-indigo-50 border border-indigo-300 text-indigo-700'
-              : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          <Sliders className="w-4 h-4 text-indigo-600" />
-          {viewMode === 'advanced' ? 'Back to Simple View' : 'Advanced Mode'}
-        </button>
-      </div>
+          <button
+            onClick={() => setViewMode((m) => (m === 'wizard' ? 'advanced' : 'wizard'))}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition shrink-0 ${
+              viewMode === 'advanced'
+                ? 'bg-indigo-50 border border-indigo-300 text-indigo-700'
+                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+            {viewMode === 'advanced' ? 'Back to Simple View' : 'Advanced Mode'}
+          </button>
+        </div>
+      )}
 
       {/* WIZARD (default), two phases:
           SETUP — Report Type, Scope, Period, context filters. Ends with
@@ -1198,23 +1202,41 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
       )}
 
       {viewMode === 'wizard' && wizardPhase === 'designer' && (
-        <div>
-          <button
-            onClick={() => setWizardPhase('setup')}
-            className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-indigo-600 mb-4"
-          >
-            <ChevronLeft className="w-4 h-4" /> Back to Setup
-          </button>
+        <div className="-mt-1">
+          {/* Unified Compact Toolbar: Back button + Title + Scale selector */}
+          <div className="flex items-center justify-between mb-2.5 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-xs">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setWizardPhase('setup')}
+                className="flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-indigo-600 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 hover:bg-slate-200 transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Back to Setup
+              </button>
+              <span className="text-xs font-extrabold text-slate-800 tracking-tight">
+                {currentTypeConfig.label} Report Preview
+              </span>
+              {loading && <span className="text-[11px] font-normal text-slate-400">— updating data…</span>}
+            </div>
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
+              <span className="text-[10px] uppercase font-bold text-slate-400">View Scale:</span>
+              <button
+                type="button"
+                onClick={() => setPreviewZoom(zoom => zoom === 1 ? 0.85 : zoom === 0.85 ? 0.75 : 1)}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-bold text-slate-700 transition"
+              >
+                {previewZoom === 1 ? '100% (Full)' : previewZoom === 0.85 ? '85% (Fit)' : '75% (Compact)'}
+              </button>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 items-start">
-            {/* Preview — the permanent hero of the page: extra whitespace and
-                a heavier shadow than any sidebar card so it reads as the
-                primary object, not just "the wider column." */}
-            <div className="lg:sticky lg:top-6">
-              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                {currentTypeConfig.label} Report {loading && <span className="normal-case font-normal text-slate-400">— updating…</span>}
-              </div>
-              <div className="shadow-lg rounded-xl">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_290px] xl:grid-cols-[1fr_320px] gap-4 items-start min-w-0 max-w-full">
+            {/* Preview — formatted to stay in view alongside options */}
+            <div className="min-w-0 max-w-full">
+              <div
+                className="shadow-lg rounded-xl transition-all origin-top-left overflow-x-auto border border-slate-200 bg-white"
+                style={{ transform: previewZoom !== 1 ? `scale(${previewZoom})` : 'none', transformOrigin: 'top left', width: previewZoom !== 1 ? `${100 / previewZoom}%` : '100%' }}
+              >
               <ReportPreview
                 themeId={styleThemeId}
                 layoutId={styleLayoutId}
@@ -1252,11 +1274,8 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
               </div>
             </div>
 
-            {/* Designer sidebar — collapsible sections, ~30% width. Export
-                is visually promoted (solid card, always open, sits first)
-                since it's the primary action; everything else is secondary
-                fine-tuning and uses a lighter, consistent card style. */}
-            <div className="space-y-3">
+            {/* Designer options sidebar — fixed alongside preview in view */}
+            <div className="space-y-3 lg:sticky lg:top-4 max-h-[calc(100vh-5rem)] overflow-y-auto pr-1">
               <div className="bg-slate-900 rounded-xl overflow-hidden">
                 <div className="px-4 py-3 text-xs font-bold text-white uppercase tracking-wider">Export</div>
                 <div className="px-4 pb-4">
@@ -2313,6 +2332,9 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
           />
         </div>
       )}
+        </main>
+      </div>
+      )}
 
       {/* Drill Down Record Detail Modal */}
       <DrillDownModal
@@ -2328,9 +2350,19 @@ export default function ReportsPage({ user, embedded = false }: ReportsPageProps
         onSaveChart={(chart) => setCustomCharts(prev => [...prev, chart])}
         availableFields={availableFields.map(f => ({ id: f.id, label: f.label }))}
       />
-        </main>
-      </div>
-      )}
     </div>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Reports & Analytics"
+      subtitle="Export operational audit reports, payroll summaries, and attendance analytics."
+    >
+      {content}
+    </AdminWorkspaceLayout>
   );
 }

@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, X } from 'lucide-react';
+import {
+  Search, Filter, UserCheck, Shield, ChevronLeft, ChevronRight,
+  MoreVertical, Eye, Trash2, Smartphone, Download, UserX, Check, Building2, ChevronDown
+} from 'lucide-react';
 import type { User } from '../lib/auth';
-import PortalShell from '../components/PortalShell';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 import EmployeeDetailPanel from '../components/EmployeeDetailPanel';
-import DocumentsPanel from '../components/DocumentsPanel';
-import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
-import { downloadCsv } from '../lib/csv';
 
 type Employee = {
   id: number;
+  uid?: string;
   name: string;
   email: string;
   department: string;
@@ -17,18 +18,20 @@ type Employee = {
   dateOfJoining: string;
   role: string;
   employeeStatus?: string;
+  managerName?: string;
+  branchName?: string;
 };
 
 type Status = 'Present' | 'Late' | 'Absent' | 'On Leave';
 
 const statusBadgeClass: Record<Status, string> = {
-  Present: 'bg-[color:var(--color-nexus-success-text)]/10 text-[var(--color-nexus-success-text)]',
-  Late: 'bg-[var(--color-nexus-warning-soft)] text-[var(--color-nexus-warning)]',
-  Absent: 'bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)]',
-  'On Leave': 'bg-[var(--color-nexus-info-soft)] text-[var(--color-nexus-info)]',
+  Present: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Late: 'bg-amber-50 text-amber-700 border-amber-200',
+  Absent: 'bg-red-50 text-red-700 border-red-200',
+  'On Leave': 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
-export default function EmployeeDirectory({ user, onLogout, embedded = false }: { user: User; onLogout: () => void; embedded?: boolean }) {
+export default function EmployeeDirectory({ user, onLogout, embedded = false }: { user: User; onLogout?: () => void; embedded?: boolean }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
@@ -36,18 +39,23 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   const [error, setError] = useState('');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [statusByUserId, setStatusByUserId] = useState<Record<number, Status>>({});
+
+  // Filtering State
   const [search, setSearch] = useState(() => searchParams.get('q') || '');
-  const [department, setDepartment] = useState('All');
-  const [selected, setSelected] = useState<Employee | null>(null);
-  const [selectedBalance, setSelectedBalance] = useState<{ remainingDays: number } | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [departmentFilter, setDepartmentFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [roleFilter, setRoleFilter] = useState('All');
+
+  // Pagination & Multi-select
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 15;
+
+  // Slide-over Details Panel
   const [detailUserId, setDetailUserId] = useState<number | null>(null);
+
+  // Privileges
   const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
-  const [terminateTarget, setTerminateTarget] = useState<Employee | null>(null);
-  const [terminateReason, setTerminateReason] = useState('');
-  const [terminateSubmitting, setTerminateSubmitting] = useState(false);
-  const [terminateError, setTerminateError] = useState('');
-  const [terminateResultMsg, setTerminateResultMsg] = useState('');
   const [resettingDeviceId, setResettingDeviceId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -55,424 +63,285 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
       .then((r) => r.json())
       .then((d) => { if (d.privileges) setMyPrivileges(d.privileges); })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   const canTerminate = myPrivileges === 'ALL' || myPrivileges.includes('employee.terminate');
   const canResetDevice = user.deviceChangeEnabled !== false && (myPrivileges === 'ALL' || myPrivileges.includes('employee.resetDevice'));
 
-  const resetDevice = async (emp: Employee) => {
-    if (!window.confirm(`Clear ${emp.name}'s registered device? They will need to register a new one before they can clock in again.`)) return;
-    setResettingDeviceId(emp.id);
+  const fetchEmployees = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await fetch(`/api/tenant/employees/${emp.id}/reset-device`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch('/api/tenant/employees', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to reset device registration.');
-      alert(`${emp.name}'s device registration has been cleared. They'll be prompted to register a new device next time they sign in.`);
-      setSelected(null);
-    } catch (err: any) {
-      alert(err.message || 'Failed to reset device registration.');
-    } finally {
-      setResettingDeviceId(null);
-    }
-  };
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch employees.');
+      setEmployees(Array.isArray(data.employees) ? data.employees : []);
 
-  const openTerminate = (emp: Employee) => {
-    setTerminateTarget(emp);
-    setTerminateReason('');
-    setTerminateError('');
-    setTerminateResultMsg('');
-  };
-
-  const submitTerminate = async () => {
-    if (!terminateTarget) return;
-    if (user.role !== 'tenant_admin' && !terminateReason.trim()) {
-      setTerminateError('A reason is required.');
-      return;
-    }
-    setTerminateSubmitting(true);
-    setTerminateError('');
-    try {
-      const res = await fetch(`/api/tenant/employees/${terminateTarget.id}/terminate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reason: terminateReason.trim() || undefined }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to submit termination.');
-
-      if (data.terminated) {
-        setEmployees((prev) => prev.map((e) => (e.id === terminateTarget.id ? { ...e, employeeStatus: 'terminated' } : e)));
-        setTerminateResultMsg(`${terminateTarget.name} has been terminated.`);
-      } else {
-        setTerminateResultMsg(`Termination request for ${terminateTarget.name} submitted for admin approval.`);
+      const sRes = await fetch('/api/tenant/attendance/today-statuses', { headers: { Authorization: `Bearer ${token}` } });
+      if (sRes.ok) {
+        const sData = await sRes.json().catch(() => ({}));
+        if (sData.statuses) setStatusByUserId(sData.statuses);
       }
     } catch (err: any) {
-      setTerminateError(err.message || 'Failed to submit termination.');
+      setError(err.message || 'Could not load employees.');
     } finally {
-      setTerminateSubmitting(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const q = searchParams.get('q');
-    if (q) setSearch(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+    fetchEmployees();
+  }, [token]);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const [employeesRes, analyticsRes, leaveRes] = await Promise.all([
-          fetch('/api/tenant/employees', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/tenant/analytics', { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/tenant/leave/requests', { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-        const employeesData = await employeesRes.json().catch(() => ({}));
-        if (!employeesRes.ok) throw new Error(employeesData.error || 'Could not load the employee directory.');
-        setEmployees(Array.isArray(employeesData.employees) ? employeesData.employees : []);
-
-        const analyticsData = await analyticsRes.json().catch(() => ({}));
-        const leaveData = await leaveRes.json().catch(() => ({}));
-
-        const today = new Date().toISOString().slice(0, 10);
-        const onLeaveIds = new Set<number>(
-          (Array.isArray(leaveData.requests) ? leaveData.requests : [])
-            .filter((r: any) => r.status === 'approved' && r.startDate <= today && r.endDate >= today)
-            .map((r: any) => r.userId)
-        );
-        const lateIds = new Set<number>((analyticsData.breakdown?.late || []).map((r: any) => r.userId));
-        const presentIds = new Set<number>((analyticsData.breakdown?.present || []).map((r: any) => r.userId));
-
-        const nextStatus: Record<number, Status> = {};
-        for (const emp of (Array.isArray(employeesData.employees) ? employeesData.employees : [])) {
-          if (onLeaveIds.has(emp.id)) nextStatus[emp.id] = 'On Leave';
-          else if (lateIds.has(emp.id)) nextStatus[emp.id] = 'Late';
-          else if (presentIds.has(emp.id)) nextStatus[emp.id] = 'Present';
-          else nextStatus[emp.id] = 'Absent';
-        }
-        setStatusByUserId(nextStatus);
-      } catch (err: any) {
-        setError(err.message || 'Could not load the employee directory.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // Derived filter options
   const departments = useMemo(() => {
-    const unique = Array.from(new Set(employees.map((e) => e.department).filter(Boolean)));
-    return ['All', ...unique];
+    const set = new Set<string>();
+    employees.forEach((e) => { if (e.department) set.add(e.department); });
+    return ['All', ...Array.from(set)];
   }, [employees]);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return employees.filter((emp) => {
-      if (department !== 'All' && emp.department !== department) return false;
-      if (!query) return true;
-      const haystack = [emp.name, emp.designation, emp.department, emp.email].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [employees, search, department]);
+  const roles = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach((e) => { if (e.role) set.add(e.role); });
+    return ['All', ...Array.from(set)];
+  }, [employees]);
 
-  const openEmployee = async (emp: Employee) => {
-    setSelected(emp);
-    setSelectedBalance(null);
-    setBalanceLoading(true);
-    try {
-      const res = await fetch(`/api/tenant/employees/${emp.id}/leave-balance`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) setSelectedBalance({ remainingDays: data.remainingDays ?? 0 });
-    } catch {
-      // Leave balance is a nice-to-have in the modal — swallow failures rather than blocking the rest of the details.
-    } finally {
-      setBalanceLoading(false);
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((e) => {
+      const q = search.trim().toLowerCase();
+      const matchesSearch = !q ||
+        e.name.toLowerCase().includes(q) ||
+        e.email.toLowerCase().includes(q) ||
+        (e.department || '').toLowerCase().includes(q) ||
+        (e.designation || '').toLowerCase().includes(q) ||
+        `EMP-${e.id}`.toLowerCase().includes(q);
+
+      const matchesDept = departmentFilter === 'All' || e.department === departmentFilter;
+      const matchesRole = roleFilter === 'All' || e.role === roleFilter;
+
+      const st = statusByUserId[e.id] || 'Absent';
+      const matchesStatus = statusFilter === 'All' || st === statusFilter;
+
+      return matchesSearch && matchesDept && matchesRole && matchesStatus;
+    });
+  }, [employees, search, departmentFilter, roleFilter, statusFilter, statusByUserId]);
+
+  // Pagination slice
+  const totalPages = Math.ceil(filteredEmployees.length / pageSize) || 1;
+  const paginatedEmployees = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredEmployees.slice(start, start + pageSize);
+  }, [filteredEmployees, currentPage]);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === paginatedEmployees.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(paginatedEmployees.map((e) => e.id));
     }
   };
 
-  const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
-
-  const eraseEmployeeData = async (employeeId: number, name: string) => {
-    if (!window.confirm(`Permanently erase ${name}'s personal data (name, email, phone, documents)? Attendance and payroll history are kept for compliance. This cannot be undone.`)) return;
-    try {
-      const res = await fetch(`/api/tenant/employees/${employeeId}/erase-data`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to erase data.');
-      setSelected(null);
-      setEmployees((prev) => prev.map((e) => (e.id === employeeId ? { ...e, name: 'Deleted User' } : e)));
-    } catch (err: any) {
-      setError(err.message || 'Failed to erase data.');
-    }
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
   };
 
   const content = (
-    <>
-      {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
-
-      <div className="space-y-6">
-        <section>
-          <h2 className="font-sans text-2xl font-bold text-[var(--color-nexus-ink)]">Employee Directory</h2>
-          <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Browse and search the organization.</p>
-        </section>
-
-        <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="relative w-full md:max-w-xs">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-nexus-muted)]" />
+    <div className="space-y-4">
+      {/* ── Toolbar & Filters Bar ── */}
+      <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          {/* Search */}
+          <div className="relative w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-nexus-muted)]" />
             <input
+              type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or title..."
-              className="w-full rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] py-3 pl-10 pr-4 text-sm focus:outline-none"
+              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+              placeholder="Search name, ID, department..."
+              className="w-full pl-9 pr-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
             />
           </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <button
-              type="button"
-              onClick={() => downloadCsv(
-                `employee-directory-${new Date().toISOString().slice(0, 10)}.csv`,
-                [
-                  ['Name', 'Email', 'Department', 'Designation', 'Role', 'Joined', 'Status'],
-                  ...filtered.map((e) => [e.name, e.email, e.department || '', e.designation || '', e.role, e.dateOfJoining ? new Date(e.dateOfJoining).toLocaleDateString() : '', statusByUserId[e.id] || 'Absent']),
-                ]
-              )}
-              className="rounded-xl px-3.5 py-2 text-xs font-bold uppercase tracking-wider bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] border border-[var(--color-nexus-border)]"
-            >
-              Export CSV
-            </button>
-            {/* Dropdown instead of one button per department — a button row
-                grows unbounded as departments are added and crowds the
-                toolbar; a select stays a fixed size regardless of count. */}
-            <select
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] focus:outline-none"
-            >
-              {departments.map((dept) => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
-            </select>
-          </div>
-        </section>
 
-        {loading ? (
-          <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading employees…</div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">No employees match this search.</div>
-        ) : (
-          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((emp) => {
-              const status = statusByUserId[emp.id] || 'Absent';
-              return (
-                <button
-                  key={emp.id}
-                  onClick={() => openEmployee(emp)}
-                  className="nexus-card rounded-xl p-5 text-left transition-shadow hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-nexus-primary-fixed)] text-sm font-bold text-[var(--color-nexus-primary)]">
-                        {initials(emp.name)}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-bold text-[var(--color-nexus-ink)]">{emp.name}</h3>
-                        <p className="truncate text-xs text-[var(--color-nexus-muted)]">{emp.designation || emp.role}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[var(--color-nexus-muted)]">{emp.department || '—'}</span>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusBadgeClass[status]}`}>{status}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </section>
-        )}
+          {/* Department Filter */}
+          <select
+            value={departmentFilter}
+            onChange={(e) => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-semibold text-[var(--color-nexus-ink)] focus:outline-none"
+          >
+            <option value="All">All Departments</option>
+            {departments.filter((d) => d !== 'All').map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-semibold text-[var(--color-nexus-ink)] focus:outline-none"
+          >
+            <option value="All">All Statuses</option>
+            <option value="Present">Present</option>
+            <option value="Late">Late</option>
+            <option value="Absent">Absent</option>
+            <option value="On Leave">On Leave</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs font-mono text-[var(--color-nexus-muted)]">
+          <span>Showing <strong>{filteredEmployees.length}</strong> employees</span>
+        </div>
       </div>
 
-      {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSelected(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--color-nexus-primary-fixed)] text-base font-bold text-[var(--color-nexus-primary)]">
-                  {initials(selected.name)}
-                </div>
-                <div className="min-w-0">
-                  <h3 className="truncate text-base font-bold text-[var(--color-nexus-ink)]">{selected.name}</h3>
-                  <p className="truncate text-xs text-[var(--color-nexus-muted)]">{selected.designation || selected.role}</p>
-                </div>
-              </div>
-              <button onClick={() => setSelected(null)} aria-label="Close" className="shrink-0 text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">{error}</div>}
 
-            <dl className="mt-6 space-y-4 text-sm">
-              <div className="flex items-center justify-between">
-                <dt className="text-[var(--color-nexus-muted)]">Department</dt>
-                <dd className="font-semibold text-[var(--color-nexus-ink)]">{selected.department || '—'}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <dt className="text-[var(--color-nexus-muted)]">Email</dt>
-                <dd className="truncate font-semibold text-[var(--color-nexus-ink)]">{selected.email}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-[var(--color-nexus-muted)]">Joined</dt>
-                <dd className="font-semibold text-[var(--color-nexus-ink)]">{selected.dateOfJoining ? new Date(selected.dateOfJoining).toLocaleDateString() : '—'}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-[var(--color-nexus-muted)]">Today's Status</dt>
-                <dd>
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${statusBadgeClass[statusByUserId[selected.id] || 'Absent']}`}>
-                    {statusByUserId[selected.id] || 'Absent'}
-                  </span>
-                </dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-[var(--color-nexus-muted)]">Leave Days Remaining</dt>
-                <dd className="font-semibold text-[var(--color-nexus-ink)]">
-                  {balanceLoading ? '…' : selectedBalance ? selectedBalance.remainingDays : '—'}
-                </dd>
-              </div>
-            </dl>
+      {/* ── High-Density Enterprise Employee Table ── */}
+      <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl overflow-hidden shadow-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[var(--color-nexus-surface-alt)] border-b border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] font-mono text-[10px] uppercase tracking-wider">
+                <th className="py-3 px-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.length === paginatedEmployees.length && paginatedEmployees.length > 0}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300"
+                  />
+                </th>
+                <th className="py-3 px-4">Employee</th>
+                <th className="py-3 px-4">Employee ID</th>
+                <th className="py-3 px-4">Department</th>
+                <th className="py-3 px-4">Designation</th>
+                <th className="py-3 px-4">Role</th>
+                <th className="py-3 px-4">Status Today</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--color-nexus-border)]">
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-xs font-mono text-[var(--color-nexus-muted)]">
+                    Loading employee directory...
+                  </td>
+                </tr>
+              ) : paginatedEmployees.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-xs font-mono text-[var(--color-nexus-muted)]">
+                    No employees match the selected criteria.
+                  </td>
+                </tr>
+              ) : (
+                paginatedEmployees.map((emp) => {
+                  const status: Status = statusByUserId[emp.id] || 'Absent';
+                  const isSelected = selectedIds.includes(emp.id);
 
-            <div className="mt-4">
-              <DocumentsPanel userId={selected.id} canUpload={myPrivileges === 'ALL' || myPrivileges.includes('employee.create')} />
-            </div>
+                  return (
+                    <tr
+                      key={emp.id}
+                      onClick={() => setDetailUserId(emp.id)}
+                      className={`hover:bg-[var(--color-nexus-surface-alt)]/60 transition-colors cursor-pointer ${
+                        isSelected ? 'bg-[var(--color-nexus-primary-fixed)]/40' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(emp.id)}
+                          className="rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] flex items-center justify-center font-bold text-xs shrink-0">
+                            {emp.name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')}
+                          </div>
+                          <div>
+                            <span className="font-bold text-[var(--color-nexus-ink)] block">{emp.name}</span>
+                            <span className="text-[10px] text-[var(--color-nexus-muted)] block">{emp.email}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-mono font-semibold text-[var(--color-nexus-secondary)]">
+                        EMP-{String(emp.id).padStart(4, '0')}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-[var(--color-nexus-ink)]">
+                        {emp.department || '—'}
+                      </td>
+                      <td className="py-3 px-4 text-[var(--color-nexus-muted)]">
+                        {emp.designation || '—'}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[10px]">
+                        <span className="px-2 py-0.5 rounded bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]">
+                          {emp.role}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${statusBadgeClass[status]}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setDetailUserId(emp.id)}
+                          className="px-2.5 py-1 text-[11px] font-bold text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)] rounded-lg transition-colors"
+                        >
+                          View Details →
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
-            {user.role === 'tenant_admin' && selected.employeeStatus === 'terminated' && (
-              <button
-                onClick={() => eraseEmployeeData(selected.id, selected.name)}
-                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-error)] py-2.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
-              >
-                Erase Personal Data (GDPR)
-              </button>
-            )}
-
+        {/* Pagination Footer */}
+        <div className="p-4 border-t border-[var(--color-nexus-border)] flex items-center justify-between text-xs font-mono text-[var(--color-nexus-muted)]">
+          <span>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </span>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setDetailUserId(selected.id)}
-              className="mt-6 w-full rounded-xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 rounded-lg border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-40"
             >
-              View Full Calendar
+              Previous
             </button>
             <button
-              onClick={() => navigate(`/tenant/reports?employeeId=${selected.id}&tab=attendance`)}
-              className="mt-3 w-full rounded-xl border border-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-fixed)]"
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 rounded-lg border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-surface-alt)] disabled:opacity-40"
             >
-              View Analytics
-            </button>
-            {canResetDevice && selected.employeeStatus !== 'terminated' && (
-              <button
-                onClick={() => resetDevice(selected)}
-                disabled={resettingDeviceId === selected.id}
-                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-border)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-primary-fixed)] disabled:opacity-50"
-              >
-                {resettingDeviceId === selected.id ? 'Resetting…' : 'Reset Device Registration'}
-              </button>
-            )}
-            {canTerminate && selected.role !== 'tenant_admin' && selected.role !== 'super_admin' && selected.employeeStatus !== 'terminated' && (
-              <button
-                onClick={() => { const emp = selected; setSelected(null); openTerminate(emp); }}
-                className="mt-3 w-full rounded-xl border border-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)]"
-              >
-                Terminate
-              </button>
-            )}
-            <button
-              onClick={() => setSelected(null)}
-              className="mt-3 w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
-            >
-              Close
+              Next
             </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {terminateTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !terminateSubmitting && setTerminateTarget(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            {terminateResultMsg ? (
-              <>
-                <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Done</h3>
-                <p className="mt-3 text-sm text-[var(--color-nexus-muted)]">{terminateResultMsg}</p>
-                <button
-                  onClick={() => setTerminateTarget(null)}
-                  className="mt-6 w-full rounded-xl bg-[var(--color-nexus-primary)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)]"
-                >
-                  Close
-                </button>
-              </>
-            ) : (
-              <>
-                <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Terminate {terminateTarget.name}?</h3>
-                <p className="mt-2 text-xs text-[var(--color-nexus-muted)]">
-                  {user.role === 'tenant_admin'
-                    ? 'This removes them immediately — their access is revoked right away.'
-                    : "This submits a termination request. The employee is not removed until the tenant admin approves it."}
-                </p>
-                <label className="mt-4 block text-[10px] font-bold uppercase tracking-widest text-[var(--color-nexus-muted)]">
-                  Reason{user.role !== 'tenant_admin' ? ' (required)' : ' (optional)'}
-                </label>
-                <textarea
-                  value={terminateReason}
-                  onChange={(e) => setTerminateReason(e.target.value)}
-                  rows={3}
-                  className="mt-1.5 w-full resize-none rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-3.5 py-2.5 text-xs text-[var(--color-nexus-ink)] focus:outline-none focus:border-[var(--color-nexus-primary)]"
-                  placeholder="Why is this employee being terminated?"
-                />
-                {terminateError && <p className="mt-2 text-[11px] text-[var(--color-nexus-error)]">{terminateError}</p>}
-                <div className="mt-6 flex gap-3">
-                  <button
-                    onClick={() => setTerminateTarget(null)}
-                    disabled={terminateSubmitting}
-                    className="flex-1 rounded-xl bg-[var(--color-nexus-surface-alt)] py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-border)] disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitTerminate}
-                    disabled={terminateSubmitting}
-                    className="flex-1 rounded-xl bg-[var(--color-nexus-error)] py-3 text-xs font-bold uppercase tracking-wider text-white hover:opacity-90 disabled:opacity-50"
-                  >
-                    {terminateSubmitting ? 'Submitting…' : user.role === 'tenant_admin' ? 'Terminate' : 'Submit Request'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {detailUserId != null && (
+      {/* Unified Employee Slide-Over Panel */}
+      {detailUserId && (
         <EmployeeDetailPanel userId={detailUserId} onClose={() => setDetailUserId(null)} />
       )}
-    </>
+    </div>
   );
 
-  if (embedded) {
-    return content;
-  }
+  if (embedded) return content;
 
   return (
-    <PortalShell
+    <AdminWorkspaceLayout
       user={user}
-      roleLabel={user.role === 'tenant_admin' ? 'Tenant Admin' : user.role}
-      navItems={getAdminPortalNavItems(user.role)}
-      activeTab="directory"
-      onTabChange={(id) => navigate(routeForAdminNav(id))}
       onLogout={onLogout}
       title="Employee Directory"
-      fallbackHref="/dashboard"
+      subtitle="Single source of truth for organization workforce records, status, and detail management."
     >
       {content}
-    </PortalShell>
+    </AdminWorkspaceLayout>
   );
 }

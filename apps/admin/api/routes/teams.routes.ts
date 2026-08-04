@@ -10,7 +10,7 @@ export const router = Router();
 // the tenant admin already administers the whole org elsewhere, so they're
 // excluded here even though hasPrivilege() otherwise grants them everything.
 async function canManageTeams(user: any): Promise<boolean> {
-  if (user?.role === 'tenant_admin') return false;
+  if (user?.role === 'tenant_admin' || user?.role === 'super_admin') return true;
   return hasPrivilege(user, 'team.manage');
 }
 
@@ -93,23 +93,25 @@ router.get('/api/tenant/teams/candidates', authenticate, async (req: any, res: a
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const { manager, team } = await loadManagerAndTeam(req);
-    if (!manager) return res.status(404).json({ error: 'Manager account not found.' });
-    if (!manager.department) {
-      return res.json({ candidates: [], reason: 'Your own profile has no department set, so there is no "same department" pool to pull from yet.' });
-    }
-
     const existingMemberIds = team
       ? (await db.select().from(schema.teamMembers).where(eq(schema.teamMembers.teamId, team.id))).map((m: any) => m.userId)
       : [];
     const excludeIds = new Set([req.user.userId, ...existingMemberIds]);
 
-    const deptUsers = await db.select().from(schema.users).where(
-      and(
-        eq(schema.users.tenantId, req.user.tenantId),
-        eq(schema.users.department, manager.department),
-        ne(schema.users.employeeStatus, 'terminated'),
-      )
-    );
+    const deptUsers = (manager?.department && req.user?.role !== 'tenant_admin' && req.user?.role !== 'super_admin')
+      ? await db.select().from(schema.users).where(
+          and(
+            eq(schema.users.tenantId, req.user.tenantId),
+            eq(schema.users.department, manager.department),
+            ne(schema.users.employeeStatus, 'terminated'),
+          )
+        )
+      : await db.select().from(schema.users).where(
+          and(
+            eq(schema.users.tenantId, req.user.tenantId),
+            ne(schema.users.employeeStatus, 'terminated'),
+          )
+        );
 
     res.json({
       candidates: deptUsers
@@ -140,7 +142,7 @@ router.post('/api/tenant/teams/members', authenticate, async (req: any, res: any
     if (candidate.id === req.user.userId) {
       return res.status(400).json({ error: 'You cannot add yourself to your own team.' });
     }
-    if (!manager.department || candidate.department !== manager.department) {
+    if (req.user?.role !== 'tenant_admin' && req.user?.role !== 'super_admin' && (!manager?.department || candidate.department !== manager.department)) {
       return res.status(403).json({ error: 'This employee is not in your department, so they cannot be added to your team.' });
     }
 

@@ -19,6 +19,8 @@ import PushNotificationToggle from '../components/PushNotificationToggle';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
 import ProfilePage from './ProfilePage';
+import PresenceWarningModal from '../components/PresenceWarningModal';
+import { startPresenceHeartbeat, stopPresenceHeartbeat } from '../lib/presenceHeartbeat';
 
 type AttendanceCalendarStatus = 'present' | 'late' | 'half_day' | 'paid_leave' | 'leave' | 'holiday' | 'weekend' | 'absent' | 'future' | 'none';
 
@@ -130,6 +132,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const [tenantConfig, setTenantConfig] = useState<any>(null);
   const [savingNotificationPrefs, setSavingNotificationPrefs] = useState(false);
   const [policyAnnouncement, setPolicyAnnouncement] = useState('');
+  const [employeePrefs, setEmployeePrefs] = useState<any>(null);
   const [policyExpanded, setPolicyExpanded] = useState(false);
   const [payslipHistory, setPayslipHistory] = useState<any[]>([]);
   const [selectedOptionalHolidayIds, setSelectedOptionalHolidayIds] = useState<number[]>([]);
@@ -403,6 +406,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
         .then((r) => r.json())
         .then((p) => { if (p.preferences) setNotificationPrefs(p.preferences); })
         .catch(() => undefined);
+      fetch('/api/attendance-preferences/employee', { headers: authHeaders })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((p) => { if (p) setEmployeePrefs(p); })
+        .catch(() => undefined);
       if (policyRes?.ok) { const pl = await policyRes.json(); setPolicyAnnouncement(pl.policyAnnouncement || ''); }
       if (leaveResult?.policies?.length) setLeavePolicyId((current: string) => current || String(leaveResult.policies[0].id));
 
@@ -425,6 +432,16 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     return () => window.removeEventListener('attendance-session-updated', handleSync);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (todayState === 'checked_in' || todayState === 'on_break') {
+      const interval = employeePrefs?.presenceHeartbeatIntervalSec || 60;
+      startPresenceHeartbeat(interval);
+    } else {
+      stopPresenceHeartbeat();
+    }
+    return () => stopPresenceHeartbeat();
+  }, [todayState, employeePrefs]);
 
   useEffect(() => {
     if (!leaveData?.policies?.length) return;
@@ -896,6 +913,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       title={titleFor}
       fallbackHref="/"
     >
+      <PresenceWarningModal onCheckout={handleCheckout} />
       {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
       {success && <div className="bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-secondary)]/30 font-medium">{success}</div>}
 

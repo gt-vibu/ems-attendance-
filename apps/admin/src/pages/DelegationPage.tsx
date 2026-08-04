@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, UserCog, Plus, X, Check } from 'lucide-react';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 import { fetchFeatureCatalog, type FeatureCatalogCategory } from '../lib/featureCatalog';
 
 interface Delegation {
@@ -28,7 +28,7 @@ interface EmployeeOption {
 // a bounded date range, auto-expiring with no manual cleanup. Tenant admins
 // always bypass every delegation (existing hasPrivilege() behavior), which
 // is the "emergency override" guarantee.
-export default function DelegationPage({ user }: { user: User }) {
+export default function DelegationPage({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
 
@@ -65,7 +65,7 @@ export default function DelegationPage({ user }: { user: User }) {
     }
   };
 
-  useEffect(() => { fetchAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAll(); }, []);
 
   const toggleKey = (key: string) => {
     setSelectedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -83,7 +83,13 @@ export default function DelegationPage({ user }: { user: User }) {
       const res = await fetch('/api/tenant/delegations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ delegatedToUserId: Number(delegatedToUserId), privilegeKeys: selectedKeys, startDate, endDate, reason: reason.trim() || undefined }),
+        body: JSON.stringify({
+          delegatedToUserId: parseInt(delegatedToUserId, 10),
+          privilegeKeys: selectedKeys,
+          startDate,
+          endDate,
+          reason: reason.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create delegation');
@@ -100,6 +106,7 @@ export default function DelegationPage({ user }: { user: User }) {
   };
 
   const handleRevoke = async (id: number) => {
+    if (!window.confirm('Revoke this delegation now?')) return;
     setError(''); setSuccess('');
     try {
       const res = await fetch(`/api/tenant/delegations/${id}/revoke`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
@@ -123,13 +130,13 @@ export default function DelegationPage({ user }: { user: User }) {
   const received = delegations.filter(d => d.delegatedToUserId === user.id);
 
   return (
-    <div className="min-h-screen premium-mesh-bg font-sans p-6">
-      <PageChrome fallbackHref="/dashboard" />
-      <div className="max-w-4xl mx-auto">
-        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] mb-6 transition-colors">
-          <ArrowLeft size={14} /> Back to Dashboard
-        </button>
-
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Privilege Delegation"
+      subtitle="Fine-grained, time-bounded privilege handoffs to backup staff."
+    >
+      <div className="space-y-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center">
@@ -268,6 +275,6 @@ export default function DelegationPage({ user }: { user: User }) {
           </div>
         )}
       </div>
-    </div>
+    </AdminWorkspaceLayout>
   );
 }

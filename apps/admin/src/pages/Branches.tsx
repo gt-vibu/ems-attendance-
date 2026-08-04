@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Users, ArrowLeft, Plus, MapPin, Wifi, QrCode, ChevronRight } from 'lucide-react';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
 import BranchFormModal from '../components/BranchFormModal';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 
-export default function Branches({ user }: { user: User }) {
+export default function Branches({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
   const [branches, setBranches] = useState<any[]>([]);
@@ -16,8 +16,6 @@ export default function Branches({ user }: { user: User }) {
 
   const fetchBranches = useCallback(async () => {
     try {
-      // Scoped to what this caller can actually manage — a multi-branch GM
-      // only ever sees their own set here, not every branch in the tenant.
       const res = await fetch('/api/tenant/my-branches', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load branches');
@@ -39,32 +37,27 @@ export default function Branches({ user }: { user: User }) {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   useEffect(() => { fetchBranches(); }, [fetchBranches]);
 
   return (
-    <div className="min-h-screen premium-mesh-bg font-sans p-6">
-      <PageChrome fallbackHref="/dashboard" />
-      <div className="max-w-6xl mx-auto">
-        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] mb-6 transition-colors">
-          <ArrowLeft size={14} /> Back to Dashboard
-        </button>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-8">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center">
-              <Building2 size={16} className="text-[var(--color-nexus-primary)]" />
-            </div>
-            <div>
-              <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Branches</h1>
-              <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Outlets, headcount, and attendance at a glance.</p>
-            </div>
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Registered Branches"
+      subtitle="Outlets, headcount, and branch operational controls."
+    >
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-[var(--color-nexus-ink)]">Organization Branches ({branches.length})</h2>
+            <p className="text-xs text-[var(--color-nexus-muted)]">Configure physical office locations and geofence radii.</p>
           </div>
           <button
+            type="button"
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider bg-[var(--color-nexus-primary)] text-white hover:bg-[var(--color-nexus-primary-hover)] transition-colors"
+            className="px-4 py-2 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-xl hover:opacity-90 flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Plus size={14} /> Add Branch
           </button>
@@ -170,6 +163,6 @@ export default function Branches({ user }: { user: User }) {
           onSaved={() => { setShowAddModal(false); fetchBranches(); }}
         />
       )}
-    </div>
+    </AdminWorkspaceLayout>
   );
 }

@@ -40,6 +40,7 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
   const [success, setSuccess] = useState('');
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [wifiCheckEnabled, setWifiCheckEnabled] = useState(false);
+  const [attendancePrefs, setAttendancePrefs] = useState<any>(null);
   const [identityVerified, setIdentityVerified] = useState(false);
   const [identityBusy, setIdentityBusy] = useState(false);
   // Surfaced once a verify attempt fails — WebAuthn credentials are scoped to
@@ -128,6 +129,10 @@ export default function EmployeeAttendance({ user, onLogout, updateSession }: { 
     fetch('/api/auth/session', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.user) updateSession({ ...user, ...d.user }); })
+      .catch(() => {});
+    fetch('/api/attendance-preferences/employee', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setAttendancePrefs(d); })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

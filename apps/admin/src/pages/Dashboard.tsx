@@ -570,7 +570,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     if (!hasInitializedTab.current) {
       hasInitializedTab.current = true;
       const requestedTab = searchParams.get('tab');
-      setActiveTab(requestedTab || 'home');
+      if (requestedTab === 'administration') {
+        navigate('/tenant/admin', { replace: true });
+      } else {
+        setActiveTab(requestedTab || 'home');
+      }
     }
     if (user.role === 'super_admin') {
       fetchSuperAdminData();
@@ -700,7 +704,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     // team.manage — the tenant admin already administers the whole org via
     // Administration, so it's deliberately excluded here even though
     // hasAnyPrivilege('team.manage') is always true for them.
-    { id: 'teams', label: 'Teams', icon: Users2, description: 'Build your own team from your department and track their stats.', visible: user.role !== 'tenant_admin' && hasAnyPrivilege('team.manage') },
+    { id: 'teams', label: 'Teams', icon: Users2, description: 'Build your own team from your department and track their stats.', visible: hasAnyPrivilege('team.manage') },
     // Administration bundles several sub-screens (branches, roles, settings,
     // devices, audit ledger) — visible if the user holds any
     // one of the privileges those sub-screens actually check.
@@ -735,6 +739,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // When the user clicks a nav item that is a section group (e.g. 'administration'),
   // reset sub-state so the section renders its default landing view.
   const handleTabChange = (id: string) => {
+    if (id === 'administration') {
+      navigate('/tenant/admin');
+      return;
+    }
     // Leave Management, Payroll, and Directory all render inline via their
     // own `embedded` mode (see their tab render below) — no route change,
     // no sidebar/header remount, no Suspense flash.
@@ -747,9 +755,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       setAttendanceSubTab('status');
       setShowOtherOptions(false);
       setOtherOptionsTab(null);
-    }
-    if (id === 'administration') {
-      setAdminSubTab(null);
     }
   };
 
@@ -2448,31 +2453,32 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Live snapshot ("Attendance Status") — cards drill down to the
                 actual people when the viewer has reporting/directory access
                 (tenantAnalytics.breakdown). */}
-            {activeTab === 'attendance' && tenantAnalytics && (() => {
-              const bd = tenantAnalytics.breakdown;
+            {activeTab === 'attendance' && (() => {
+              const analytics = tenantAnalytics || { totalStaff: 0, presentToday: 0, absentToday: 0, lateToday: 0, rejectedToday: 0, breakdown: null };
+              const bd = analytics.breakdown;
               const clickable = !!bd;
               const cardClass = (extra: string) => `text-left nexus-card  rounded-xl p-4 ${clickable ? 'cursor-pointer' : 'cursor-default'} ${extra}`;
               return (
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('All Staff', bd.total, simplePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
                   <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Total Staff</span>
-                  <span className="text-xl font-black text-[var(--color-nexus-ink)] block mt-1">{tenantAnalytics.totalStaff}</span>
+                  <span className="text-xl font-black text-[var(--color-nexus-ink)] block mt-1">{tenantAnalytics ? analytics.totalStaff : 0}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Present Today', bd.present, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
                   <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Present Today</span>
-                  <span className="text-xl font-black text-[var(--color-nexus-success-text)] block mt-1">{tenantAnalytics.presentToday}</span>
+                  <span className="text-xl font-black text-[var(--color-nexus-success-text)] block mt-1">{tenantAnalytics ? analytics.presentToday : 0}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Absent Today', bd.absent, simplePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
                   <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Absent Today</span>
-                  <span className="text-xl font-black text-[var(--color-nexus-ink)] block mt-1">{tenantAnalytics.absentToday}</span>
+                  <span className="text-xl font-black text-[var(--color-nexus-ink)] block mt-1">{tenantAnalytics ? analytics.absentToday : 0}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Late Today', bd.late, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
                   <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Late Today</span>
-                  <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{tenantAnalytics.lateToday}</span>
+                  <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{tenantAnalytics ? analytics.lateToday : 0}</span>
                 </button>
                 <button type="button" disabled={!clickable} onClick={() => bd && openDrillDown('Rejected Today', bd.rejected, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={cardClass('')}>
                   <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Rejected Today</span>
-                  <span className="text-xl font-black text-[var(--color-nexus-error)] block mt-1">{tenantAnalytics.rejectedToday}</span>
+                  <span className="text-xl font-black text-[var(--color-nexus-error)] block mt-1">{tenantAnalytics ? analytics.rejectedToday : 0}</span>
                 </button>
               </div>
               );
@@ -2481,11 +2487,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Today's status donut + 30-day trend — visual complement to
                 the stat-card row above, both derived from the same real
                 data (tenantAnalytics.breakdown counts, tenantTrends). */}
-            {activeTab === 'attendance' && tenantAnalytics && (
+            {activeTab === 'attendance' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <div className="nexus-card rounded-xl p-5">
                   <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">Today's Status Breakdown</h3>
-                  {(tenantAnalytics.presentToday + tenantAnalytics.absentToday + tenantAnalytics.lateToday) === 0 ? (
+                  {!tenantAnalytics || (tenantAnalytics.presentToday + tenantAnalytics.absentToday + tenantAnalytics.lateToday) === 0 ? (
                     <div className="h-52 flex items-center justify-center text-xs text-[var(--color-nexus-muted)]">No attendance data for today yet.</div>
                   ) : (
                     <ResponsiveContainer width="100%" height={220}>
@@ -2539,7 +2545,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
             {/* Work From Home snapshot ("wfh") — mirrors the office
                 snapshot above; only appears for users with 'reports.view'
                 (the same privilege already gating the audit ledger). */}
-            {activeTab === 'attendance' && wfhStats && (() => {
+            {activeTab === 'attendance' && (() => {
+              const stats = wfhStats || { todayWfhCount: 0, monthlyWfhCount: 0, pendingWfhApprovals: 0, pendingLocationChangeRequests: 0, officeVsWfh30d: { office: 0, wfh: 0 } };
               const now = new Date();
               const todayStr = tenantDayKey(now, timezone);
               const monthStartStr = tenantMonthStart(now, timezone);
@@ -2564,27 +2571,27 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <button type="button" onClick={() => openDrillDown('WFH Today', wfhTodayRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
                     <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">WFH Today</span>
-                    <span className="text-xl font-black text-[var(--color-nexus-primary)] block mt-1">{wfhStats.todayWfhCount}</span>
+                    <span className="text-xl font-black text-[var(--color-nexus-primary)] block mt-1">{wfhStats ? stats.todayWfhCount : 0}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('WFH This Month', wfhMonthRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
                     <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">WFH This Month</span>
-                    <span className="text-xl font-black text-[var(--color-nexus-primary)] block mt-1">{wfhStats.monthlyWfhCount}</span>
+                    <span className="text-xl font-black text-[var(--color-nexus-primary)] block mt-1">{wfhStats ? stats.monthlyWfhCount : 0}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('Pending WFH Approvals', pendingWfhRows, attendancePersonColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
                     <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Pending WFH Approvals</span>
-                    <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{wfhStats.pendingWfhApprovals}</span>
+                    <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{wfhStats ? stats.pendingWfhApprovals : 0}</span>
                   </button>
                   <button type="button" onClick={() => openDrillDown('Pending Location Requests', locationRows, locationRequestColumns, { searchIds: ['name'], roleFilter: true })} className={wfhCard}>
                     <span className="text-[9px] text-[var(--color-nexus-muted)] uppercase font-bold tracking-wider block">Pending Location Requests</span>
-                    <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{wfhStats.pendingLocationChangeRequests}</span>
+                    <span className="text-xl font-black text-[var(--color-nexus-secondary)] block mt-1">{wfhStats ? stats.pendingLocationChangeRequests : 0}</span>
                   </button>
                 </div>
 
-                {(wfhStats.officeVsWfh30d.office > 0 || wfhStats.officeVsWfh30d.wfh > 0) && (
+                {(stats.officeVsWfh30d.office > 0 || stats.officeVsWfh30d.wfh > 0) && (
                   <div className="nexus-card rounded-xl p-5 mt-3">
                     <h3 className="text-xs font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider mb-3">Office vs. Work From Home (Last 30 Days)</h3>
                     <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={[{ name: 'Check-ins', Office: wfhStats.officeVsWfh30d.office, WFH: wfhStats.officeVsWfh30d.wfh }]} layout="vertical">
+                      <BarChart data={[{ name: 'Check-ins', Office: stats.officeVsWfh30d.office, WFH: stats.officeVsWfh30d.wfh }]} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E9E4FB" />
                         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
                         <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 11, fill: '#6E6A85' }} axisLine={false} tickLine={false} />
@@ -2971,6 +2978,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
                     { id: 'settings', label: 'Workspace Boundaries', icon: ShieldCheck, visible: hasAnyPrivilege('tenant.config.manage') },
+                    { id: 'attendance-prefs', label: 'Attendance Preferences', icon: Clock, navigateTo: '/tenant/attendance-preferences', visible: user.role === 'tenant_admin' || user.role === 'super_admin' },
                     { id: 'branches', label: 'Branches', icon: Building2, navigateTo: '/tenant/branches', visible: hasAnyPrivilege('branch.manage') },
                     { id: 'roles', label: 'Roles & Permissions', icon: Users, navigateTo: '/tenant/roles', visible: hasAnyPrivilege('roles.manage') },
                     // No privilege gate — everyone can delegate whatever

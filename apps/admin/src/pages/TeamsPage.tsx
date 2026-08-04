@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users2, Plus, X, ChevronRight } from 'lucide-react';
+import { Users2, Plus, X, ChevronRight, Building2, UserCheck, Shield, ChevronDown } from 'lucide-react';
 import type { User } from '../lib/auth';
-import PortalShell from '../components/PortalShell';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 import EmployeeDetailPanel from '../components/EmployeeDetailPanel';
-import { getAdminPortalNavItems, routeForAdminNav } from '../lib/adminPortalNav';
 
 type TeamMember = {
   id: number;
@@ -13,43 +12,66 @@ type TeamMember = {
   role: string;
   department: string;
   designation: string;
+  managerName?: string;
+  branchName?: string;
 };
 
-export default function TeamsPage({ user, onLogout, embedded = false }: { user: User; onLogout: () => void; embedded?: boolean }) {
+type Team = {
+  id: number;
+  name: string;
+  department?: string;
+  branchName?: string;
+  managerName?: string;
+  memberCount?: number;
+};
+
+export default function TeamsPage({ user, onLogout, embedded = false }: { user: User; onLogout?: () => void; embedded?: boolean }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [team, setTeam] = useState<{ id: number; name: string } | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [activeTeam, setActiveTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
+
+  // Create Team modal state
   const [newTeamName, setNewTeamName] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Add candidate state
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [candidates, setCandidates] = useState<TeamMember[]>([]);
-  const [candidatesReason, setCandidatesReason] = useState('');
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [addingId, setAddingId] = useState<number | null>(null);
-  const [removingId, setRemovingId] = useState<number | null>(null);
+
+  // Detail panel state
   const [detailUserId, setDetailUserId] = useState<number | null>(null);
 
-  const refresh = async () => {
+  const refreshTeams = async () => {
     setLoading(true);
     setError('');
     try {
       const res = await fetch('/api/tenant/teams/mine', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Could not load your team.');
-      setTeam(data.team);
-      setMembers(Array.isArray(data.members) ? data.members : []);
+      if (!res.ok) throw new Error(data.error || 'Could not load teams.');
+
+      if (data.team) {
+        setTeams([data.team]);
+        setActiveTeam(data.team);
+        setMembers(Array.isArray(data.members) ? data.members : []);
+      } else {
+        setTeams([]);
+      }
     } catch (err: any) {
-      setError(err.message || 'Could not load your team.');
+      setError(err.message || 'Could not load teams.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    refreshTeams();
+  }, [token]);
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +87,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to create team.');
       setNewTeamName('');
-      await refresh();
+      await refreshTeams();
     } catch (err: any) {
       setError(err.message || 'Failed to create team.');
     } finally {
@@ -75,23 +97,16 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
   const loadCandidates = async () => {
     setCandidatesLoading(true);
-    setCandidatesReason('');
     try {
       const res = await fetch('/api/tenant/teams/candidates', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not load candidates.');
       setCandidates(Array.isArray(data.candidates) ? data.candidates : []);
-      if (data.reason) setCandidatesReason(data.reason);
     } catch (err: any) {
       setError(err.message || 'Could not load candidates.');
     } finally {
       setCandidatesLoading(false);
     }
-  };
-
-  const openAddPanel = () => {
-    setShowAddPanel(true);
-    loadCandidates();
   };
 
   const handleAddMember = async (candidateId: number) => {
@@ -105,8 +120,8 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to add member.');
-      setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
-      await refresh();
+      setShowAddPanel(false);
+      await refreshTeams();
     } catch (err: any) {
       setError(err.message || 'Failed to add member.');
     } finally {
@@ -115,8 +130,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
   };
 
   const handleRemoveMember = async (memberId: number) => {
-    setRemovingId(memberId);
-    setError('');
+    if (!window.confirm('Remove this member from the team?')) return;
     try {
       const res = await fetch(`/api/tenant/teams/members/${memberId}`, {
         method: 'DELETE',
@@ -124,140 +138,176 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to remove member.');
-      await refresh();
+      await refreshTeams();
     } catch (err: any) {
-      setError(err.message || 'Failed to remove member.');
-    } finally {
-      setRemovingId(null);
+      setError(err.message);
     }
   };
 
-  const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
-
   const content = (
-    <>
-      {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
+    <div className="space-y-6">
+      {/* Create Team Bar */}
+      <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs">
+        <div>
+          <h2 className="text-base font-bold text-[var(--color-nexus-ink)]">Organization Teams</h2>
+          <p className="text-xs text-[var(--color-nexus-muted)]">Configure team structures, leads, and operational groupings.</p>
+        </div>
 
-      <div className="space-y-6">
-        <section>
-          <h2 className="font-sans text-2xl font-bold text-[var(--color-nexus-ink)]">Teams</h2>
-          <p className="mt-1 text-sm text-[var(--color-nexus-muted)]">Build your own team from colleagues in your department, and check in on their attendance, leave, and payroll where you're permitted to.</p>
-        </section>
-
-        {loading ? (
-          <div className="py-16 text-center text-sm text-[var(--color-nexus-muted)]">Loading your team…</div>
-        ) : !team ? (
-          <section className="nexus-card rounded-xl p-6 max-w-md">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]">
-                <Users2 size={20} />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">You don't have a team yet</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)]">Give it a name to get started.</p>
-              </div>
-            </div>
-            <form onSubmit={handleCreateTeam} className="flex gap-2">
-              <input
-                value={newTeamName}
-                onChange={(e) => setNewTeamName(e.target.value)}
-                placeholder="e.g. Frontend Squad"
-                className="flex-1 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] px-4 py-2.5 text-sm focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={creating || !newTeamName.trim()}
-                className="rounded-xl bg-[var(--color-nexus-primary)] px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
-              >
-                {creating ? 'Creating…' : 'Create Team'}
-              </button>
-            </form>
-          </section>
-        ) : (
-          <>
-            <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-[var(--color-nexus-ink)]">{team.name}</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)]">{members.length} member{members.length === 1 ? '' : 's'}</p>
-              </div>
-              <button
-                onClick={openAddPanel}
-                className="flex items-center gap-1.5 rounded-xl bg-[var(--color-nexus-primary)] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] self-start md:self-auto"
-              >
-                <Plus size={14} /> Add Member
-              </button>
-            </section>
-
-            {members.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-12 text-center text-sm text-[var(--color-nexus-muted)]">
-                No members yet — add colleagues from your department to get started.
-              </div>
-            ) : (
-              <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {members.map((m) => (
-                  <div key={m.id} className=" nexus-card rounded-xl p-5">
-                    <button onClick={() => setDetailUserId(m.id)} className="w-full text-left">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-nexus-primary-fixed)] text-sm font-bold text-[var(--color-nexus-primary)]">
-                          {initials(m.name)}
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="truncate text-sm font-bold text-[var(--color-nexus-ink)]">{m.name}</h4>
-                          <p className="truncate text-xs text-[var(--color-nexus-muted)]">{m.designation || m.role}</p>
-                        </div>
-                      </div>
-                      <div className="mt-4 flex items-center justify-between text-[11px] font-semibold text-[var(--color-nexus-muted)]">
-                        <span>{m.department || '—'}</span>
-                        <span className="flex items-center gap-0.5 text-[var(--color-nexus-primary)]">
-                          View details <ChevronRight size={12} />
-                        </span>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => handleRemoveMember(m.id)}
-                      disabled={removingId === m.id}
-                      className="mt-3 w-full rounded-xl border border-[var(--color-nexus-border)] py-2 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] disabled:opacity-50"
-                    >
-                      {removingId === m.id ? 'Removing…' : 'Remove from Team'}
-                    </button>
-                  </div>
-                ))}
-              </section>
-            )}
-          </>
-        )}
+        <form onSubmit={handleCreateTeam} className="flex gap-2 w-full sm:w-auto">
+          <input
+            type="text"
+            value={newTeamName}
+            onChange={(e) => setNewTeamName(e.target.value)}
+            placeholder="New team name (e.g. Engineering Alpha)..."
+            className="px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs text-[var(--color-nexus-ink)] focus:outline-none w-64"
+          />
+          <button
+            type="submit"
+            disabled={creating || !newTeamName.trim()}
+            className="px-4 py-2 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-xl hover:opacity-90 disabled:opacity-40 flex items-center gap-1 cursor-pointer shrink-0"
+          >
+            <Plus size={14} /> Create Team
+          </button>
+        </form>
       </div>
 
+      {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">{error}</div>}
+
+      {/* Active Team Overview Header */}
+      {activeTeam ? (
+        <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-nexus-border)] pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-extrabold text-[var(--color-nexus-ink)]">{activeTeam.name}</h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] text-[10px] font-mono font-bold uppercase">
+                  {members.length} Members
+                </span>
+              </div>
+              <p className="text-xs text-[var(--color-nexus-muted)] mt-1">
+                Department: <strong>{activeTeam.department || 'Engineering'}</strong> | Branch: <strong>{activeTeam.branchName || 'Bangalore HQ'}</strong>
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { setShowAddPanel(true); loadCandidates(); }}
+              className="px-4 py-2 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-xl hover:opacity-90 flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Plus size={14} /> Add Member
+            </button>
+          </div>
+
+          {/* Employee Relationship Path Preview */}
+          <div className="p-4 rounded-xl bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] space-y-2">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Organization Relationship Hierarchy:</span>
+            <div className="flex items-center gap-2 text-xs font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-semibold">
+                Team Lead: {user.name}
+              </span>
+              <ChevronRight size={14} className="text-[var(--color-nexus-muted)]" />
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] font-semibold">
+                Team: {activeTeam.name}
+              </span>
+              <ChevronRight size={14} className="text-[var(--color-nexus-muted)]" />
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-semibold">
+                Dept: Engineering
+              </span>
+            </div>
+          </div>
+
+          {/* Members Table */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Roster</h4>
+            <div className="border border-[var(--color-nexus-border)] rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[var(--color-nexus-surface-alt)] border-b border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] font-mono text-[10px] uppercase">
+                    <th className="py-2.5 px-4">Member</th>
+                    <th className="py-2.5 px-4">Role</th>
+                    <th className="py-2.5 px-4">Department</th>
+                    <th className="py-2.5 px-4">Designation</th>
+                    <th className="py-2.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-nexus-border)]">
+                  {members.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-xs font-mono text-[var(--color-nexus-muted)]">
+                        No members assigned to this team yet. Click "Add Member" above.
+                      </td>
+                    </tr>
+                  ) : (
+                    members.map((m) => (
+                      <tr key={m.id} className="hover:bg-[var(--color-nexus-surface-alt)]/50 transition-colors">
+                        <td className="py-3 px-4 font-bold text-[var(--color-nexus-ink)]">
+                          <button
+                            type="button"
+                            onClick={() => setDetailUserId(m.id)}
+                            className="hover:underline text-[var(--color-nexus-primary)] text-left cursor-pointer"
+                          >
+                            {m.name}
+                          </button>
+                          <span className="block text-[10px] text-[var(--color-nexus-muted)] font-normal">{m.email}</span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px]">{m.role}</td>
+                        <td className="py-3 px-4">{m.department || '—'}</td>
+                        <td className="py-3 px-4 text-[var(--color-nexus-muted)]">{m.designation || '—'}</td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMember(m.id)}
+                            className="text-xs text-red-600 font-bold hover:underline cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="p-8 text-center bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-2">
+          <Users2 size={32} className="mx-auto text-[var(--color-nexus-muted)]" />
+          <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">No Team Provisioned Yet</h3>
+          <p className="text-xs text-[var(--color-nexus-muted)]">Use the input above to create your first organization team.</p>
+        </div>
+      )}
+
+      {/* Candidate Add Slide-Over Modal */}
       {showAddPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowAddPanel(false)}>
-          <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-xl bg-[var(--color-nexus-surface)] p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Add from your department</h3>
-              <button onClick={() => setShowAddPanel(false)} aria-label="Close" className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Add Team Member</h3>
+              <button onClick={() => setShowAddPanel(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
                 <X size={18} />
               </button>
             </div>
 
             {candidatesLoading ? (
-              <div className="py-10 text-center text-sm text-[var(--color-nexus-muted)]">Loading…</div>
+              <p className="text-xs font-mono text-[var(--color-nexus-muted)] py-4 text-center">Loading candidates...</p>
             ) : candidates.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--color-nexus-border)] p-6 text-center text-xs text-[var(--color-nexus-muted)]">
-                {candidatesReason || 'No one else in your department is available to add right now.'}
-              </div>
+              <p className="text-xs font-mono text-[var(--color-nexus-muted)] py-4 text-center">No available unassigned candidates found.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y divide-[var(--color-nexus-border)] max-h-80 overflow-y-auto">
                 {candidates.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-nexus-border)] px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-[var(--color-nexus-ink)]">{c.name}</p>
-                      <p className="truncate text-xs text-[var(--color-nexus-muted)]">{c.designation || c.role}</p>
+                  <div key={c.id} className="py-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-[var(--color-nexus-ink)] block">{c.name}</span>
+                      <span className="text-[10px] text-[var(--color-nexus-muted)] block">{c.department || c.role}</span>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleAddMember(c.id)}
                       disabled={addingId === c.id}
-                      className="shrink-0 rounded-xl bg-[var(--color-nexus-primary)] px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider text-white hover:bg-[var(--color-nexus-primary-hover)] disabled:opacity-50"
+                      className="px-3 py-1.5 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-lg hover:opacity-90 disabled:opacity-40"
                     >
-                      {addingId === c.id ? 'Adding…' : 'Add'}
+                      {addingId === c.id ? 'Adding...' : 'Add to Team'}
                     </button>
                   </div>
                 ))}
@@ -267,28 +317,23 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
         </div>
       )}
 
-      {detailUserId != null && (
+      {/* Universal Employee Detail Panel */}
+      {detailUserId && (
         <EmployeeDetailPanel userId={detailUserId} onClose={() => setDetailUserId(null)} />
       )}
-    </>
+    </div>
   );
 
-  if (embedded) {
-    return content;
-  }
+  if (embedded) return content;
 
   return (
-    <PortalShell
+    <AdminWorkspaceLayout
       user={user}
-      roleLabel={user.role === 'tenant_admin' ? 'Tenant Admin' : user.role}
-      navItems={getAdminPortalNavItems(user.role)}
-      activeTab="teams"
-      onTabChange={(id) => navigate(routeForAdminNav(id))}
       onLogout={onLogout}
-      title="Teams"
-      fallbackHref="/dashboard"
+      title="Teams & Reporting Structure"
+      subtitle="Manage organization teams, managers, members, and organizational reporting paths."
     >
       {content}
-    </PortalShell>
+    </AdminWorkspaceLayout>
   );
 }

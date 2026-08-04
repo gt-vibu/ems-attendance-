@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 
 // Admin UI for the approval-routing engine built earlier this session
 // (services/approvalRouting.ts, api/routes/approvalRouting.routes.ts) — a
@@ -27,7 +27,7 @@ const APPROVER_TYPES = [
   { value: 'specific_user', label: 'Specific Person (email)' },
 ];
 
-export default function ApprovalRoutingPage({ user }: { user: User }) {
+export default function ApprovalRoutingPage({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const token = localStorage.getItem('auth_token');
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -106,15 +106,13 @@ export default function ApprovalRoutingPage({ user }: { user: User }) {
   const labelFor = (list: typeof CATEGORIES, value: string) => list.find((o) => o.value === value)?.label || value;
 
   return (
-    <div className="min-h-screen premium-mesh-bg p-6 sm:p-8 font-sans text-[var(--color-nexus-ink)]">
-      <PageChrome fallbackHref="/dashboard" />
-      <div className="max-w-4xl mx-auto pt-16 sm:pt-8">
-        <h1 className="text-xl font-bold mb-1">Approval Routing</h1>
-        <p className="text-sm text-[var(--color-nexus-muted)] mb-6">
-          Configure who gets notified for each approval category, by department, branch, or team — instead of every
-          request going to everyone who holds the approval privilege tenant-wide. A category with no rules below
-          keeps today's default behavior unchanged.
-        </p>
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Approval Routing & Workflows"
+      subtitle="Configure multi-tiered approver routing rules per category and scope."
+    >
+      <div className="space-y-6">
 
         {!accessible ? (
           <div className="nexus-card rounded-xl p-6 text-center text-sm text-[var(--color-nexus-muted)]">
@@ -197,6 +195,6 @@ export default function ApprovalRoutingPage({ user }: { user: User }) {
           </>
         )}
       </div>
-    </div>
+    </AdminWorkspaceLayout>
   );
 }

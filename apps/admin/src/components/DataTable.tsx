@@ -147,45 +147,18 @@ export default function DataTable<T>({
           </select>
         )}
         {/* Mobile View Toggle (Cards vs Full Table) */}
-        {!hideMobileTableToggle && (
-          <div className="md:hidden flex items-center justify-end gap-1 ml-auto">
-            <button
-              type="button"
-              onClick={() => setMobileDisplayMode('cards')}
-              className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
-                mobileDisplayMode === 'cards'
-                  ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
-                  : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
-              }`}
-            >
-              Cards
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileDisplayMode('table')}
-              className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded border ${
-                mobileDisplayMode === 'table'
-                  ? 'bg-[var(--color-nexus-primary)] text-white border-[var(--color-nexus-primary)]'
-                  : 'bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)] border-[var(--color-nexus-border)]'
-              }`}
-            >
-              Table
-            </button>
-          </div>
-        )}
-
         {onAddNew && (
           <button
             onClick={onAddNew}
-            className="flex items-center gap-1.5 bg-[var(--color-nexus-primary)] hover:opacity-90 text-white text-[11px] md:text-[12px] font-semibold uppercase tracking-wider px-3 md:px-4 py-2 rounded-[var(--radius-nexus-control)] transition-opacity shrink-0"
+            className="flex items-center gap-1.5 bg-[var(--color-nexus-primary)] hover:opacity-90 text-white text-[11px] md:text-[12px] font-semibold uppercase tracking-wider px-3 md:px-4 py-2 rounded-[var(--radius-nexus-control)] transition-opacity shrink-0 ml-auto sm:ml-0"
           >
             <Plus size={14} /> {addNewLabel}
           </button>
         )}
       </div>
 
-      {/* ========== DESKTOP / FULL TABLE VIEW ========== */}
-      <div className={`overflow-x-auto nexus-card !shadow-none ${mobileDisplayMode === 'table' ? 'block' : 'hidden md:block'}`}>
+      {/* ========== DESKTOP / FULL TABLE VIEW (hidden on mobile view) ========== */}
+      <div className="hidden md:block overflow-x-auto nexus-card !shadow-none">
         <table className="w-full text-left border-collapse">
           <thead>
             {table.getHeaderGroups().map(headerGroup => (
@@ -270,8 +243,8 @@ export default function DataTable<T>({
         </table>
       </div>
 
-      {/* ========== MOBILE CARD VIEW (hidden on desktop or when Table mode active) ========== */}
-      <div className={`space-y-2 ${mobileDisplayMode === 'cards' ? 'block md:hidden' : 'hidden'}`}>
+      {/* ========== MOBILE CARD VIEW (Strictly active on mobile view) ========== */}
+      <div className="space-y-2 block md:hidden">
         {rows.length === 0 ? (
           <div className="py-8 text-center text-[13px] text-[var(--color-nexus-muted)]">{emptyMessage}</div>
         ) : rows.map(row => {
@@ -279,50 +252,24 @@ export default function DataTable<T>({
           const titleCell = cells.find(c => c.column.id === titleColId) || cells[0];
           const statusCell = statusColId ? cells.find(c => c.column.id === statusColId) : null;
 
-          // Separate the remaining fields (excluding title & status which are shown in the card header)
-          const otherCells = cells.filter(c => c !== titleCell && c !== statusCell);
-          const isMobileExpanded = mobileExpandedRowId === row.id;
-          const visibleCells = mobileVisibleFields > 0 ? otherCells.slice(0, mobileVisibleFields) : otherCells;
-          const hiddenCells = mobileVisibleFields > 0 ? otherCells.slice(mobileVisibleFields) : [];
-          const detail = renderRowDetail ? renderRowDetail(row.original) : null;
-
           return (
             <div
               key={row.id}
               onClick={() => setSelectedMobileRow(row)}
-              className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl p-3.5 transition-all active:scale-[0.99] cursor-pointer hover:border-[var(--color-nexus-primary)]/50 shadow-xs"
+              className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl px-3 py-2.5 flex items-center justify-between gap-2.5 transition-all active:scale-[0.99] cursor-pointer hover:border-[var(--color-nexus-primary)]/50 shadow-2xs"
             >
-              {/* Card header: title + status */}
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="text-[13px] font-bold text-[var(--color-nexus-ink)] min-w-0 truncate">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="text-xs font-bold text-[var(--color-nexus-ink)] truncate">
                   {titleCell && flexRender(titleCell.column.columnDef.cell, titleCell.getContext())}
                 </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 {statusCell && (
-                  <div className="shrink-0">
+                  <div className="shrink-0 text-xs">
                     {flexRender(statusCell.column.columnDef.cell, statusCell.getContext())}
                   </div>
                 )}
-              </div>
-
-              {/* Visible summary fields */}
-              <div className="space-y-1">
-                {visibleCells.map(cell => {
-                  const header = cell.column.columnDef.header;
-                  const headerLabel = typeof header === 'string' ? header : cell.column.id.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
-                  return (
-                    <div key={cell.id} className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="text-[var(--color-nexus-muted)] shrink-0">{headerLabel}</span>
-                      <span className="text-[var(--color-nexus-ink)] font-medium text-right min-w-0 truncate">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-2.5 pt-2 border-t border-[var(--color-nexus-border)]/50 flex items-center justify-between text-[11px] font-semibold text-[var(--color-nexus-primary)]">
-                <span>Tap to view full details</span>
-                <ChevronRight size={14} />
+                <ChevronRight size={14} className="text-[var(--color-nexus-muted)] shrink-0" />
               </div>
             </div>
           );

@@ -14,7 +14,7 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   Users, Clock, Coffee, ScrollText, Smartphone, Building2, QrCode, Home, AlertTriangle, CalendarDays, Banknote, Users2, Megaphone, ShieldCheck, Ticket,
 };
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 import FeatureCatalogGrid from '../components/FeatureCatalogGrid';
 import { fetchFeatureCatalog, fetchFeatureDependencies, type FeatureCatalogCategory, type FeatureDependencies } from '../lib/featureCatalog';
 
@@ -24,8 +24,7 @@ interface RoleRow {
   privileges: string[];
 }
 
-export default function RolePermissions({ user }: { user: User }) {
-  const navigate = useNavigate();
+export default function RolePermissions({ user, onLogout, embedded = false }: { user: User; onLogout?: () => void; embedded?: boolean }) {
   const [searchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
 
@@ -60,10 +59,6 @@ export default function RolePermissions({ user }: { user: User }) {
       setRoles(roleList);
       setMyPrivileges(privRes.privileges ?? []);
       if (roleList.length > 0) {
-        // Deep-link support: a "set up this new role" prompt (e.g. right
-        // after hiring the first person into a brand-new role) links here
-        // with ?role=<name> so the admin lands directly on that role
-        // instead of whichever one happens to be first in the list.
         const requestedRoleName = searchParams.get('role');
         const requestedRole = requestedRoleName ? roleList.find(r => r.roleName === requestedRoleName) : null;
         setSelectedRoleId(prev => {
@@ -78,38 +73,54 @@ export default function RolePermissions({ user }: { user: User }) {
     }
   };
 
-  useEffect(() => { fetchAll(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAll(); }, []);
 
   useEffect(() => {
-    const role = roles.find(r => r.id === selectedRoleId);
-    setDraftPrivileges(role ? role.privileges : []);
-  }, [selectedRoleId, roles]);
-
-  const selectedRole = roles.find(r => r.id === selectedRoleId) || null;
-
-  const saveRole = async (privileges: string[]) => {
     if (!selectedRoleId) return;
-    setSaveState('saving');
-    try {
-      const res = await fetch(`/api/tenant/roles/${selectedRoleId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ privileges }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save');
-      setRoles(prev => prev.map(r => r.id === selectedRoleId ? { ...r, privileges: data.role.privileges } : r));
-      setSaveState('saved');
-      setTimeout(() => setSaveState('idle'), 1500);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save role');
+    const found = roles.find(r => r.id === selectedRoleId);
+    if (found) {
+      setDraftPrivileges(found.privileges);
       setSaveState('idle');
     }
+  }, [selectedRoleId, roles]);
+
+  const selectedRole = roles.find(r => r.id === selectedRoleId);
+
+  const handleTogglePrivilege = (key: string) => {
+    setDraftPrivileges(prev => {
+      const active = prev.includes(key);
+      let next: string[];
+      if (active) {
+        next = prev.filter(k => k !== key);
+      } else {
+        const deps = dependencies[key] ?? [];
+        const missing = deps.filter(d => !prev.includes(d));
+        next = Array.from(new Set([...prev, key, ...missing]));
+      }
+      return next;
+    });
+    setSaveState('idle');
   };
 
-  const handleToggleChange = (next: string[]) => {
-    setDraftPrivileges(next);
-    saveRole(next);
+  const handleSave = async () => {
+    if (!selectedRoleId) return;
+    setSaveState('saving');
+    setError('');
+    try {
+      const res = await fetch(`/api/tenant/roles/${selectedRoleId}/privileges`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ privileges: draftPrivileges }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setRoles(prev => prev.map(r => r.id === selectedRoleId ? { ...r, privileges: draftPrivileges } : r));
+      setSaveState('saved');
+      setTimeout(() => setSaveState('idle'), 2500);
+    } catch (err: any) {
+      setError(err.message || 'Save failed');
+      setSaveState('idle');
+    }
   };
 
   const handleCreateRole = async (e: React.FormEvent) => {
@@ -121,50 +132,38 @@ export default function RolePermissions({ user }: { user: User }) {
       const res = await fetch('/api/tenant/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ roleName: newRoleName.trim(), privileges: [] }),
+        body: JSON.stringify({ roleName: newRoleName.trim() }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create role');
-      setRoles(prev => [...prev, { id: data.role.id, roleName: data.role.roleName, privileges: data.role.privileges }]);
-      setSelectedRoleId(data.role.id);
+      if (!res.ok) throw new Error(data.error || 'Create failed');
+      const newRole: RoleRow = { id: data.role.id, roleName: data.role.roleName, privileges: [] };
+      setRoles(prev => [...prev, newRole]);
+      setSelectedRoleId(newRole.id);
       setNewRoleName('');
       setShowNewRole(false);
     } catch (err: any) {
-      setError(err.message || 'Failed to create role');
+      setError(err.message || 'Create failed');
     } finally {
       setCreating(false);
     }
   };
 
-  return (
-    <div className="min-h-screen premium-mesh-bg font-sans p-6">
-      <PageChrome fallbackHref="/dashboard" />
-      <div className="max-w-6xl mx-auto">
-        <button onClick={() => navigate('/dashboard')} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] mb-6 transition-colors">
-          <ArrowLeft size={14} /> Back to Dashboard
-        </button>
+  const hasChanges = selectedRole
+    ? JSON.stringify([...draftPrivileges].sort()) !== JSON.stringify([...selectedRole.privileges].sort())
+    : false;
 
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
-            <ShieldCheck size={16} className="text-[var(--color-nexus-primary)]" />
-          </div>
-          <div>
-            <h1 className="font-sans text-[18px] font-bold text-[var(--color-nexus-ink)]">Roles &amp; Permissions</h1>
-            <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Pick a role, toggle what it gets — changes apply instantly to everyone already in that role.</p>
-          </div>
+  const content = (
+    <div className="space-y-6">
+      {error && <div className="bg-red-50 text-red-700 text-xs p-3 rounded-xl border border-red-200 font-semibold">{error}</div>}
+
+      {loading ? (
+        <div className="text-xs text-[var(--color-nexus-muted)] font-semibold py-8 text-center">Loading permissions...</div>
+      ) : myPrivileges !== 'ALL' && !myPrivileges.includes('roles.manage') ? (
+        <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
+          You don't have access to manage roles &amp; permissions. Ask your tenant admin to grant it.
         </div>
-
-        {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-3 rounded-lg mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
-
-        {loading ? (
-          <div className="text-xs text-[var(--color-nexus-muted)] font-semibold">Loading…</div>
-        ) : myPrivileges !== 'ALL' && !myPrivileges.includes('roles.manage') ? (
-          <div className="nexus-card rounded-xl p-10 text-center text-sm text-[var(--color-nexus-muted)]">
-            You don't have access to manage roles &amp; permissions. Ask your tenant admin to grant it.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
-            {/* Role list */}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6">
             <div className="nexus-card rounded-xl p-3 h-fit">
               <div className="space-y-1">
                 {roles.map((r) => (
@@ -235,7 +234,10 @@ export default function RolePermissions({ user }: { user: User }) {
                   <FeatureCatalogGrid
                     catalog={catalog}
                     selected={draftPrivileges}
-                    onChange={handleToggleChange}
+                    onChange={(next) => {
+                      setDraftPrivileges(next);
+                      setSaveState('idle');
+                    }}
                     allowedKeys={myPrivileges}
                     dependencies={dependencies}
                   />
@@ -258,7 +260,19 @@ export default function RolePermissions({ user }: { user: User }) {
           />
         )}
       </div>
-    </div>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title="Roles & Permissions"
+      subtitle="Manage role-based access control and privilege assignments."
+    >
+      {content}
+    </AdminWorkspaceLayout>
   );
 }
 

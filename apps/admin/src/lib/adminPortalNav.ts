@@ -40,9 +40,7 @@ const allAdminPortalNavItems: AdminPortalNavItem[] = [
 // org via Administration, so it's excluded for that role specifically (see
 // Dashboard.tsx's own nav list, which applies the same rule).
 export function getAdminPortalNavItems(role?: string): AdminPortalNavItem[] {
-  return role === 'tenant_admin'
-    ? allAdminPortalNavItems.filter((item) => item.id !== 'teams')
-    : allAdminPortalNavItems;
+  return allAdminPortalNavItems;
 }
 
 export function routeForAdminNav(id: string): string {
@@ -52,6 +50,6 @@ export function routeForAdminNav(id: string): string {
   if (id === 'payroll') return '/tenant/payroll';
   if (id === 'directory') return '/tenant/directory';
   if (id === 'teams') return '/tenant/teams';
-  if (id === 'administration') return '/dashboard?tab=administration';
+  if (id === 'administration') return '/tenant/admin';
   return `/dashboard?tab=${encodeURIComponent(id)}`;
 }

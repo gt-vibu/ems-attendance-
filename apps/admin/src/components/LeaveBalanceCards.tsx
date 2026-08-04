@@ -46,7 +46,7 @@ export default function LeaveBalanceCards({
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 max-w-full min-w-0">
       {balances.map((balance, i) => {
         const Icon = ICONS[i % ICONS.length];
         const palette = PALETTES[i % PALETTES.length];
@@ -60,23 +60,25 @@ export default function LeaveBalanceCards({
             key={balance.id ?? balance.code ?? balance.name}
             type={onSelect ? 'button' : undefined}
             onClick={onSelect ? () => onSelect(balance) : undefined}
-            className={`shrink-0 w-56 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] p-4 text-left ${onSelect ? 'hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer' : ''}`}
+            className={`w-full min-w-0 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] p-3.5 text-left ${onSelect ? 'hover:border-[var(--color-nexus-primary)] hover:shadow-md transition-all cursor-pointer active:scale-[0.99]' : ''}`}
           >
-            <div className={`w-10 h-10 rounded-xl ${palette.bg} ${palette.fg} flex items-center justify-center mb-3`}>
-              <Icon size={18} />
-            </div>
-            <h4 className="text-sm font-bold text-[var(--color-nexus-ink)] truncate" title={balance.name}>{balance.name}</h4>
-            <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="text-[var(--color-nexus-muted)]">Available: <strong className="text-[var(--color-nexus-success-text)]">{available}</strong></span>
-            </div>
-            <div className="mt-1 flex items-center gap-1.5 text-xs">
-              <span className="text-[var(--color-nexus-muted)]">Booked: <strong className="text-[var(--color-nexus-ink)]">{used}</strong></span>
-              <Info size={11} className="text-[var(--color-nexus-muted)] shrink-0" aria-label={`${maxDays} day(s) per year policy`} >
-                <title>{`${maxDays} day(s)/year policy${adjustment ? ` · ${adjustment > 0 ? '+' : ''}${adjustment} adjustment` : ''}`}</title>
-              </Info>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg ${palette.bg} ${palette.fg} flex items-center justify-center shrink-0`}>
+                <Icon size={17} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h4 className="text-xs font-bold text-[var(--color-nexus-ink)] truncate" title={balance.name}>{balance.name}</h4>
+                <div className="flex items-center justify-between text-[11px] mt-0.5">
+                  <span className="text-[var(--color-nexus-muted)]">Available: <strong className="text-[var(--color-nexus-success-text)] font-extrabold">{available}</strong></span>
+                  <span className="text-[var(--color-nexus-muted)]">Booked: <strong className="text-[var(--color-nexus-ink)]">{used}</strong></span>
+                </div>
+              </div>
             </div>
             {onSelect && (
-              <span className="block mt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-primary)]">Apply this leave →</span>
+              <div className="mt-2.5 pt-2 border-t border-[var(--color-nexus-border)]/50 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-primary)]">
+                <span>Apply this leave</span>
+                <span>→</span>
+              </div>
             )}
           </CardTag>
         );

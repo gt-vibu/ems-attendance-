@@ -508,14 +508,14 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
         ) : layoutId === 'executive' && attendanceExec ? (
           <div className="p-4 sm:p-6 space-y-6 bg-slate-50/40">
             {/* 1. Top Metric / KPI Cards (5 Cards in 1 Row) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
               {[
                 {
                   key: 'employeeName',
                   label: 'TOTAL EMPLOYEES',
                   value: attendanceExec.empList.length,
                   subtext: 'Active Employees',
-                  icon: <Users className="w-5 h-5 text-indigo-600" />,
+                  icon: <Users className="w-4 h-4 text-indigo-600" />,
                   bg: 'bg-indigo-50',
                   accent: '#4F46E5',
                   show: columns.some((c) => ['employeeName', 'employeeId', 'department'].includes(c.key)),
@@ -525,7 +525,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
                   label: 'PRESENT',
                   value: attendanceExec.grand.present,
                   subtext: `${attendanceExec.grandPct}% of total`,
-                  icon: <CheckCircle2 className="w-5 h-5 text-purple-600" />,
+                  icon: <CheckCircle2 className="w-4 h-4 text-purple-600" />,
                   bg: 'bg-purple-50',
                   accent: '#7C3AED',
                   show: columns.some((c) => ['status', 'present', 'presentDays', 'date'].includes(c.key)),
@@ -535,7 +535,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
                   label: 'ABSENT',
                   value: attendanceExec.grand.absent,
                   subtext: `${100 - attendanceExec.grandPct}% of total`,
-                  icon: <XCircle className="w-5 h-5 text-purple-600" />,
+                  icon: <XCircle className="w-4 h-4 text-purple-600" />,
                   bg: 'bg-purple-50',
                   accent: '#7C3AED',
                   show: columns.some((c) => ['status', 'absent', 'absentDays', 'date'].includes(c.key)),
@@ -545,7 +545,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
                   label: 'WORKING HOURS',
                   value: `${Math.round(attendanceExec.grand.workingHours * 10) / 10}h`,
                   subtext: 'Total Logged Hours',
-                  icon: <Clock className="w-5 h-5 text-blue-600" />,
+                  icon: <Clock className="w-4 h-4 text-blue-600" />,
                   bg: 'bg-blue-50',
                   accent: '#2563EB',
                   show: columns.some((c) => c.key === 'workingHours'),
@@ -555,7 +555,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
                   label: 'ATTENDANCE SCORE',
                   value: `${attendanceExec.grandPct}%`,
                   subtext: 'Overall Score',
-                  icon: <Star className="w-5 h-5 text-indigo-600" />,
+                  icon: <Star className="w-4 h-4 text-indigo-600" />,
                   bg: 'bg-indigo-50',
                   accent: '#4F46E5',
                   show: columns.some((c) => ['status', 'attendancePct'].includes(c.key)),
@@ -563,16 +563,16 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
               ]
                 .filter((k) => k.show)
                 .map((k) => (
-                  <div key={k.label} className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${k.bg}`}>
+                  <div key={k.label} className="bg-white rounded-xl p-2.5 border border-slate-200 shadow-xs flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${k.bg}`}>
                       {k.icon}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{k.label}</div>
-                      <div className="text-xl font-black text-slate-900 mt-0.5" style={{ color: k.accent }}>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate">{k.label}</div>
+                      <div className="text-lg font-black text-slate-900 mt-0.5" style={{ color: k.accent }}>
                         {k.value}
                       </div>
-                      <div className="text-[10px] font-medium text-slate-500 truncate mt-0.5">{k.subtext}</div>
+                      <div className="text-[9px] font-medium text-slate-500 truncate mt-0.5">{k.subtext}</div>
                     </div>
                   </div>
                 ))}
@@ -581,7 +581,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
             {/* 2. Key Insights & Department Analytics */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               {/* Key Insights (~5 cols) */}
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4.5 shadow-xs flex flex-col justify-between">
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
                     Key Insights
@@ -601,7 +601,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
               </div>
 
               {/* Attendance by Department (~7 cols) */}
-              <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-4.5 shadow-xs flex flex-col justify-between">
+              <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
                 <div>
                   <div className="text-sm font-bold text-slate-900 mb-4">
                     Attendance by Department
@@ -637,7 +637,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
             {/* 3. Department Summary Table */}
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">Department Summary</h3>
-              <div className="rounded-xl overflow-hidden border border-slate-200 shadow-xs">
+              <div className="rounded-xl overflow-x-auto border border-slate-200 shadow-xs">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-indigo-600 text-white font-bold text-xs uppercase tracking-wider">
@@ -672,7 +672,7 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
             {/* 4. Employee Summary Table — Dynamic columns strictly driven by `columns` */}
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-2">Employee Summary</h3>
-              <div className="rounded-xl overflow-hidden border border-slate-200 shadow-xs">
+              <div className="rounded-xl overflow-x-auto border border-slate-200 shadow-xs">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-indigo-600 text-white font-bold text-xs uppercase tracking-wider">

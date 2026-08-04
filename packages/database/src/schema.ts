@@ -1971,3 +1971,190 @@ export const ticketEscalations = pgTable('ticket_escalations', {
   reason: text('reason').notNull(), // 'manual' | 'auto_24h_timeout' | 'no_manager_found' | 'no_gm_found'
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// ATTENDANCE PREFERENCES — centralized, tenant-scoped configuration for
+// all attendance behavior.  Every default reproduces TODAY's behavior, so
+// an absent row (or a freshly-created tenant that has never opened the
+// preferences page) changes absolutely nothing.  The preferences are
+// loaded at runtime by resolveAttendancePreferences() — see
+// api/services/attendancePreferencesService.ts.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const attendancePreferences = pgTable('attendance_preferences', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull().unique(),
+
+  // ── General / Session Rules ──
+  allowMultipleSessions: boolean('allow_multiple_sessions').default(false),
+  maxSessionsPerDay: integer('max_sessions_per_day').default(1),
+  minGapBetweenSessionsMins: integer('min_gap_between_sessions_mins').default(15),
+  requireCheckoutBeforeNewCheckin: boolean('require_checkout_before_new_checkin').default(true),
+  autoCloseOpenSessions: boolean('auto_close_open_sessions').default(false),
+  maxSessionDurationMins: integer('max_session_duration_mins'), // null = unlimited
+
+  // ── Attendance Methods ──
+  // JSON string[] of enabled method keys.  The full universe of known keys
+  // is defined in the frontend's ATTENDANCE_METHODS constant and on the
+  // backend in KNOWN_ATTENDANCE_METHODS (attendancePreferencesService.ts).
+  enabledMethods: jsonb('enabled_methods').default('["face_recognition","gps","manual"]'),
+  defaultMethod: text('default_method').default('face_recognition'),
+  // { primary: string, allowedBackups: string[] } — defines the fallback
+  // chain when the primary method fails or is unavailable.  null = any
+  // enabled method may be used in any order (today's behavior).
+  methodHierarchy: jsonb('method_hierarchy'),
+
+  // ── Verification Settings ──
+  requireFaceMatch: boolean('require_face_match').default(true),
+  requireGps: boolean('require_gps').default(true),
+  requireOfficeWifi: boolean('require_office_wifi').default(false),
+  requireGeoFence: boolean('require_geo_fence').default(false),
+  requireDeviceVerification: boolean('require_device_verification').default(false),
+  requireLivenessDetection: boolean('require_liveness_detection').default(true),
+
+  // ── Shift Behaviour ──
+  allowEarlyCheckin: boolean('allow_early_checkin').default(true),
+  earlyCheckinBufferMins: integer('early_checkin_buffer_mins').default(30),
+  allowLateCheckout: boolean('allow_late_checkout').default(true),
+  maxOvertimeMins: integer('max_overtime_mins'), // null = no cap
+  allowCrossMidnightSessions: boolean('allow_cross_midnight_sessions').default(false),
+  autoSplitAtMidnight: boolean('auto_split_at_midnight').default(false),
+
+  // ── Employee Experience / UI Behaviour ──
+  showRunningTimer: boolean('show_running_timer').default(true),
+  showWorkingHoursLive: boolean('show_working_hours_live').default(true),
+  showAttendanceTimeline: boolean('show_attendance_timeline').default(true),
+  allowEmployeeNotes: boolean('allow_employee_notes').default(true),
+  allowAttendanceRegularization: boolean('allow_attendance_regularization').default(true),
+  allowBreakTracking: boolean('allow_break_tracking').default(true),
+  allowManualCheckout: boolean('allow_manual_checkout').default(true),
+  requireCheckoutReason: boolean('require_checkout_reason').default(false),
+
+  // ── Break Preferences ──
+  enableBreaks: boolean('enable_breaks').default(true),
+  allowMultipleBreaks: boolean('allow_multiple_breaks').default(true),
+  maxBreaks: integer('max_breaks'), // null = unlimited
+  breakCategories: jsonb('break_categories').default('["Lunch","Tea","Personal","Official","General"]'),
+
+  // ── Mobile Preferences ──
+  useCameraForFace: boolean('use_camera_for_face').default(true),
+  requireRearCamera: boolean('require_rear_camera').default(false),
+  allowOfflineAttendance: boolean('allow_offline_attendance').default(false),
+  offlineSync: boolean('offline_sync').default(false),
+  backgroundGps: boolean('background_gps').default(false),
+
+  // ── Presence & Auto Checkout Policy Engine ──
+  presenceEngineEnabled: boolean('presence_engine_enabled').default(true),
+  presenceGracePeriodMins: integer('presence_grace_period_mins').default(30),
+  presenceHeartbeatIntervalSec: integer('presence_heartbeat_interval_sec').default(60),
+  autoCheckoutDelayMins: integer('auto_checkout_delay_mins').default(15), // Warning countdown duration before checkout
+  autoCheckoutConfidenceThreshold: integer('auto_checkout_confidence_threshold').default(40), // Score below this = candidate
+  maxSessionDurationHours: integer('max_session_duration_hours').default(14), // Hard session cap
+  enableBrowserHeartbeat: boolean('enable_browser_heartbeat').default(true),
+  enableBrowserActivityTracking: boolean('enable_browser_activity_tracking').default(true),
+  enableGpsEvaluation: boolean('enable_gps_evaluation').default(true),
+  enableWifiEvaluation: boolean('enable_wifi_evaluation').default(false),
+  enableFaceEvaluation: boolean('enable_face_evaluation').default(true),
+  ignoreGpsDuringBreak: boolean('ignore_gps_during_break').default(true),
+  overtimeThresholdMins: integer('overtime_threshold_mins').default(0),
+
+  // ── Effective Date ──
+  // null = preferences are active immediately.  When set, the system
+  // checks `effectiveFrom <= now()` before applying these preferences —
+  // until that moment, the previous values (or system defaults) are used.
+  effectiveFrom: timestamp('effective_from'),
+
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedByUserId: integer('updated_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const attendancePreferencesRelations = relations(attendancePreferences, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [attendancePreferences.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+// Per-field change history for attendance preferences — every toggle flip,
+// dropdown change, or value edit gets its own row so the admin can see the
+// full audit trail with old→new diffs.  The generic auditLedger gets a
+// summary entry too (via logToAuditLedger), but this table is the detailed
+// per-field record needed for the Change History tab.
+export const attendancePreferenceHistory = pgTable('attendance_preference_history', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  changedByUserId: integer('changed_by_user_id').references(() => users.id).notNull(),
+  changedByName: text('changed_by_name').notNull(),
+  fieldName: text('field_name').notNull(),
+  oldValue: text('old_value'),
+  newValue: text('new_value'),
+  ipAddress: text('ip_address'),
+  deviceInfo: text('device_info'),
+  effectiveFrom: timestamp('effective_from'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const attendancePreferenceHistoryRelations = relations(attendancePreferenceHistory, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [attendancePreferenceHistory.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════
+// PRESENCE EVALUATIONS & AUTO CHECKOUT AUDIT
+// Detailed evaluation ledger populated continuously by the Presence Engine.
+// Records evaluated signals, computed confidence scores (0-100), presence state
+// transitions, and rationale for auditability.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const presenceEvaluations = pgTable('presence_evaluations', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  attendanceLogId: integer('attendance_log_id').references(() => attendanceLogs.id),
+  // State enum: 'active_working' | 'on_break' | 'temporarily_away' | 'shift_ended' | 'overtime' | 'inactive' | 'auto_checkout_candidate' | 'checked_out'
+  state: text('state').notNull(),
+  confidenceScore: real('confidence_score').notNull(), // 0 to 100
+  signalsEvaluated: jsonb('signals_evaluated').notNull(), // json object of all evaluated signals & weights
+  decision: text('decision').notNull(), // 'continue_session' | 'transition_overtime' | 'issue_warning' | 'auto_checkout'
+  reason: text('reason').notNull(),
+  policyVersion: text('policy_version').default('v1.0'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const presenceEvaluationsRelations = relations(presenceEvaluations, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [presenceEvaluations.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [presenceEvaluations.userId],
+    references: [users.id],
+  }),
+}));
+
+// Warnings issued prior to auto-checkout countdown
+export const presenceWarnings = pgTable('presence_warnings', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  attendanceLogId: integer('attendance_log_id').references(() => attendanceLogs.id),
+  warnedAt: timestamp('warned_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'dismissed' | 'executed'
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const presenceWarningsRelations = relations(presenceWarnings, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [presenceWarnings.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [presenceWarnings.userId],
+    references: [users.id],
+  }),
+}));
+

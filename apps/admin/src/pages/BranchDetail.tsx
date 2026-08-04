@@ -5,7 +5,7 @@ import {
   MapPin, Wifi, QrCode, ShieldCheck, SlidersHorizontal,
 } from 'lucide-react';
 import { User } from '../lib/auth';
-import PageChrome from '../components/PageChrome';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 import BranchFormModal, { branchToFormValue } from '../components/BranchFormModal';
 import TimeSelect from '../components/TimeSelect';
 
@@ -19,7 +19,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: SlidersHorizontal },
 ];
 
-export default function BranchDetail({ user }: { user: User }) {
+export default function BranchDetail({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const token = localStorage.getItem('auth_token');
@@ -103,22 +103,22 @@ export default function BranchDetail({ user }: { user: User }) {
 
   if (error && !detail) {
     return (
-      <div className="min-h-screen premium-mesh-bg p-6">
-        <PageChrome fallbackHref="/tenant/branches" />
-        <div className="max-w-3xl mx-auto mt-10 bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-sm p-4 rounded-lg border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>
-      </div>
+      <AdminWorkspaceLayout user={user} onLogout={onLogout} title="Branch Detail">
+        <div className="max-w-3xl mx-auto bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-sm p-4 rounded-xl border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>
+      </AdminWorkspaceLayout>
     );
   }
 
   const branch = detail?.branch;
 
   return (
-    <div className="min-h-screen premium-mesh-bg font-sans p-6">
-      <PageChrome fallbackHref="/tenant/branches" />
-      <div className="max-w-5xl mx-auto">
-        <button onClick={() => navigate('/tenant/branches')} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)] mb-6 transition-colors">
-          <ArrowLeft size={14} /> Back to Branches
-        </button>
+    <AdminWorkspaceLayout
+      user={user}
+      onLogout={onLogout}
+      title={branch?.name || 'Branch Detail'}
+      subtitle="Manage roster, shifts, and branch configuration."
+    >
+      <div className="space-y-6">
 
         {/* Header */}
         <div className="nexus-card mb-6 p-5">
@@ -370,6 +370,6 @@ export default function BranchDetail({ user }: { user: User }) {
           onSaved={() => { setShowEditModal(false); fetchDetail(); }}
         />
       )}
-    </div>
+    </AdminWorkspaceLayout>
   );
 }
