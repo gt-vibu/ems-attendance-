@@ -48,7 +48,7 @@ export default function ProfilePage({ user, tenant, authHeaders, onLogout }: Pro
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-24 md:pb-12">
+    <div className="space-y-6 max-w-5xl mx-auto pb-6 md:pb-6">
       {/* Top Banner / Hero Card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 text-white shadow-xl border border-slate-800">
         <div className="flex flex-col sm:flex-row items-center gap-5">

@@ -64,8 +64,9 @@ export default function PortalShell({
   }, [profileDropdownOpen]);
 
   const bottomNavItems = navItems.slice(0, BOTTOM_NAV_VISIBLE_COUNT);
-  const moreNavItems = navItems.filter((item) => !bottomNavItems.some((b) => b.id === item.id));
-  const hasOverflow = navItems.length > BOTTOM_NAV_VISIBLE_COUNT;
+  const moreNavItems = navItems.filter((item) => !bottomNavItems.some((b) => b.id === item.id) && item.id !== 'profile');
+  const drawerItems = (moreNavItems.length > 0 ? moreNavItems : navItems).filter((item) => item.id !== 'profile');
+  const hasOverflow = drawerItems.length > 0;
 
   const userInitial = (user.name || user.email || '?').charAt(0).toUpperCase();
 
@@ -153,7 +154,7 @@ export default function PortalShell({
             </div>
 
             <div className="grid grid-cols-2 gap-3 pt-1 pb-4">
-              {(moreNavItems.length > 0 ? moreNavItems : navItems).map((item) => {
+              {drawerItems.map((item) => {
                 const isActive = activeTab === item.id;
                 const Icon = item.icon;
                 return (

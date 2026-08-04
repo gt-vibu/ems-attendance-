@@ -261,14 +261,22 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     return payrollJson;
   };
 
-  // Snapshots (idempotently, server-side) the current month's payslip into
-  // history the first time this loads in a given period, then returns every
-  // period recorded so far — see GET /api/payroll/history.
+  // Returns recorded past periods only (excluding current active month) — see GET /api/payroll/history.
   const refreshPayslipHistory = async () => {
     const res = await fetch('/api/payroll/history', { headers: authHeaders });
     if (!res.ok) return;
     const data = await res.json();
-    setPayslipHistory(data.history || []);
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-indexed month
+    const pastOnly = (data.history || []).filter((item: any) => {
+      const y = Number(item.year);
+      const m = Number(item.month);
+      if (y < currentYear) return true;
+      if (y === currentYear && m < currentMonth) return true;
+      return false;
+    });
+    setPayslipHistory(pastOnly);
   };
 
   const downloadPayslip = async (runId: number, year: number, month: number) => {
@@ -1954,7 +1962,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
                 columns={payslipHistoryColumns}
                 searchPlaceholder="Search by month..."
                 pageSize={6}
-                emptyMessage="No payslips generated yet — one is recorded automatically each month you visit this page."
+                emptyMessage="No past month payslips recorded yet."
                 mobileCardTitleKey="period"
                 mobileCardStatusKey="status"
                 hideMobileTableToggle
@@ -1970,23 +1978,36 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
       {/* MY REQUESTS */}
       {tab === 'requests' && (
-        <div className="nexus-card rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans">My Correction Requests</h2>
-            <button onClick={() => setShowCorrectionModal(true)} className="bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-lg transition-colors">New Request</button>
+        <div className="nexus-card rounded-xl p-5 sm:p-6 space-y-4">
+          <div className="text-center mb-5 pb-3 border-b border-[var(--color-nexus-border)]">
+            <h2 className="text-base sm:text-lg font-bold text-[var(--color-nexus-ink)] font-sans tracking-tight">
+              My Correction Requests
+            </h2>
           </div>
           {corrections.length === 0 ? (
-            <p className="text-sm text-[var(--color-nexus-muted)] text-center py-8">No correction requests yet.</p>
+            <p className="text-xs text-[var(--color-nexus-muted)] text-center py-8">No correction requests yet.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {corrections.map((c) => (
-                <div key={c.id} className="flex items-center justify-between text-[11px] font-mono px-3 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg">
-                  <span className="text-[var(--color-nexus-ink)]">{c.requestType.replace('_', ' ')} — {c.requestedDate}</span>
-                  <span className={`text-[9px] uppercase font-bold ${c.status === 'pending' ? 'text-[var(--color-nexus-secondary)]' : c.status === 'approved' ? 'text-[var(--color-nexus-secondary)]' : 'text-[var(--color-nexus-error)]'}`}>{c.status}</span>
+                <div key={c.id} className="flex items-center justify-between text-[11px] font-mono px-3.5 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)]/60 rounded-xl">
+                  <span className="text-[var(--color-nexus-ink)] font-semibold">{c.requestType.replace('_', ' ')} — {c.requestedDate}</span>
+                  <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'pending' ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]' : c.status === 'approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{c.status}</span>
                 </div>
               ))}
             </div>
           )}
+
+          {/* Floating Action Button (+) */}
+          <div className="fixed bottom-18 right-4 z-40">
+            <button
+              type="button"
+              onClick={() => setShowCorrectionModal(true)}
+              className="w-12 h-12 rounded-full bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white shadow-xl flex items-center justify-center transition-all active:scale-95"
+              title="New Request"
+            >
+              <Plus size={22} />
+            </button>
+          </div>
         </div>
       )}
 
