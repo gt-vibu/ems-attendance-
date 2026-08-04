@@ -1950,10 +1950,28 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
           </div>
 
           <div className={`grid lg:grid-cols-3 gap-4 ${payrollSubTab === 'payslips' ? 'block' : 'hidden md:grid'}`}>
-            <div className="nexus-card p-5 bg-gradient-to-br from-[var(--color-nexus-primary)] to-[var(--color-nexus-secondary)] text-white lg:col-span-1 hidden sm:block">
-              <ShieldCheck size={20} className="text-white/80" />
-              <h3 className="text-base font-bold mt-2 text-white">Secure Payout</h3>
-              <p className="text-sm text-white/70 mt-2 leading-relaxed">Your salary is processed through encrypted financial channels.</p>
+            <div className="rounded-xl p-5 border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] lg:col-span-1 hidden sm:block space-y-3">
+              <div className="flex items-center gap-2 text-[var(--color-nexus-primary)]">
+                <ShieldCheck size={20} />
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Secure Payout</h3>
+              </div>
+              <p className="text-xs text-[var(--color-nexus-muted)] leading-relaxed">
+                Your salary statement is generated automatically at the close of each pay period and verified by HR.
+              </p>
+              <div className="pt-2 border-t border-[var(--color-nexus-border)] space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--color-nexus-muted)]">Payment Mode</span>
+                  <span className="font-semibold text-[var(--color-nexus-ink)]">Direct Deposit</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--color-nexus-muted)]">Tax Status</span>
+                  <span className="font-bold text-emerald-600">Compliant (TDS)</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--color-nexus-muted)]">Format</span>
+                  <span className="font-mono text-[11px] text-[var(--color-nexus-ink)]">Signed PDF</span>
+                </div>
+              </div>
             </div>
             <div className="nexus-card rounded-xl p-4 sm:p-6 lg:col-span-2">
               <h2 className="text-base font-bold text-[var(--color-nexus-ink)] font-sans mb-4">Payslip History</h2>
