@@ -48,7 +48,7 @@ export default function AdminWorkspaceLayout({
   );
 
   return (
-    <div className="min-h-screen bg-[var(--color-nexus-bg)] flex flex-col font-sans">
+    <div className="min-h-dvh bg-[var(--color-nexus-bg)] flex flex-col font-sans">
       {/* ── Top Workspace Bar ── */}
       <header className="h-12 bg-[var(--color-nexus-surface)] border-b border-[var(--color-nexus-border)] px-4 flex items-center justify-between sticky top-0 z-30 shadow-xs">
         <div className="flex items-center gap-3">

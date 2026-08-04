@@ -130,7 +130,7 @@ export default function PortalShell({
   );
 
   return (
-    <div className="min-h-screen bg-[var(--color-nexus-bg)] font-sans text-[var(--color-nexus-ink)] flex">
+    <div className="min-h-dvh bg-[var(--color-nexus-bg)] font-sans text-[var(--color-nexus-ink)] flex flex-col md:flex-row">
       {/* Desktop fixed sidebar */}
       <aside className="hidden md:flex md:flex-col w-[236px] shrink-0 bg-[var(--color-nexus-surface)] border-r border-[var(--color-nexus-border)] sticky top-0 h-screen z-30">
         <SidebarContent />
@@ -261,7 +261,7 @@ export default function PortalShell({
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto p-3 md:p-6 w-full pb-20 md:pb-6 flex-1 min-h-0">
+        <main className="max-w-7xl mx-auto p-3 md:p-6 w-full pb-16 md:pb-6">
           {children}
         </main>
       </div>
