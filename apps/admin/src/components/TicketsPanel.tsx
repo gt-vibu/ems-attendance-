@@ -215,9 +215,6 @@ export default function TicketsPanel({ user }: { user: User }) {
         </div>
       )}
 
-        </div>
-      )}
-
       {/* Center-justified Header */}
       <div className="text-center mb-5 pb-3 border-b border-[var(--color-nexus-border)]">
         <h2 className="text-base sm:text-lg font-bold text-[var(--color-nexus-ink)] font-sans tracking-tight">
