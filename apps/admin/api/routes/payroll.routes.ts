@@ -102,76 +102,122 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
 // later raise/component change can't silently rewrite what a past payslip
 // said. This is deliberately NOT the same computation path repeated forever
 // live like /mine — it's a point-in-time record.
+// PURE READ-ONLY endpoint: Returns recorded payroll snapshots for the authenticated user.
+// Performs ZERO calculations and ZERO database inserts/mutations.
 router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
   try {
     const tenantId = req.user.tenantId;
     const userId = req.user.userId;
-    const now = new Date();
-
-    const [settings, profileRows, requests, policies, components, userRows, tenantRows] = await Promise.all([
-      getOrCreatePayrollSettings(tenantId),
-      db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1),
-      db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.tenantId, tenantId), eq(schema.leaveRequests.userId, userId), eq(schema.leaveRequests.status, 'approved'))),
-      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
-      db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, userId))).orderBy(schema.employeeSalaryComponents.sortOrder),
-      db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1),
-      db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
-    ]);
-
-    // Tenant-local period — this decides which month's payslip snapshot
-    // actually gets permanently written (never backfilled/overwritten), so
-    // getting the wrong month here for a non-UTC tenant is a real,
-    // permanent-record bug, not just a display issue.
-    const tParts = tenantParts(tenantRows[0] || null, now);
-    const year = tParts.year;
-    const month = tParts.month;
-
-    let profile: any = profileRows[0] || null;
-    let effectiveComponents = components;
-
-    if (!profile) {
-      const roleName = userRows[0]?.role || '';
-      const roleDefault = await getRoleCompensationDefault(tenantId, roleName);
-      if (roleDefault) {
-        profile = { annualCtc: roleDefault.roleDefault.annualCtc, overtimeHourlyRate: null, effectiveFrom: null, status: 'active' };
-        effectiveComponents = roleDefault.components;
-      }
-    }
-
-    // Only snapshot the current period if there's an actual pay structure to
-    // snapshot — an employee with no CTC configured at all has nothing real
-    // to record yet.
-    if (profile) {
-      const leaveDays = splitLeaveDaysForPayroll(requests, policies, year, month, await leaveCalendarOptions(tenantRows[0], tenantId, userId));
-      const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, userId, tenantId, year, month);
-      const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], userId, tenantId, year, month);
-      const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven, year, month);
-      await db.insert(schema.payrollRuns).values({
-        tenantId,
-        userId,
-        profileId: profile.id ?? null,
-        year,
-        month,
-        workingDays: summary.workingDays,
-        approvedLeaveDays: leaveDays.totalDays,
-        unpaidAbsenceDays: summary.unpaidAbsenceDays,
-        lopDeduction: summary.lopDeduction,
-        overtimeHours,
-        grossPay: summary.monthlyGross,
-        leaveDeduction: summary.leaveDeduction,
-        overtimePay: summary.overtimePay,
-        netPay: summary.monthlyNet,
-        breakdown: summary.annualBreakdown,
-        status: 'generated',
-        version: 1,
-      }).onConflictDoNothing({ target: [schema.payrollRuns.userId, schema.payrollRuns.year, schema.payrollRuns.month, schema.payrollRuns.version] });
-    }
 
     const history = await db.select().from(schema.payrollRuns)
       .where(and(eq(schema.payrollRuns.tenantId, tenantId), eq(schema.payrollRuns.userId, userId)))
       .orderBy(desc(schema.payrollRuns.year), desc(schema.payrollRuns.month));
 
     res.json({ history });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dedicated HR / Admin Payroll Processing Engine: Allows HR to explicitly calculate
+// and snapshot payroll runs for any target pay period (e.g. July 2026, August 2026).
+router.post('/api/tenant/payroll/process', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await hasPrivilege(req.user, 'payroll.manage')) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges to process payroll.' });
+    }
+
+    const tenantId = req.user.tenantId;
+    const { year, month, userId: targetUserId } = req.body || {};
+
+    if (!year || !month) {
+      return res.status(400).json({ error: 'year and month are required (e.g. { year: 2026, month: 7 }).' });
+    }
+
+    // Determine target users (either single user or all employees in tenant)
+    const targetUsers = targetUserId
+      ? await db.select().from(schema.users).where(and(eq(schema.users.id, Number(targetUserId)), eq(schema.users.tenantId, tenantId)))
+      : await db.select().from(schema.users).where(eq(schema.users.tenantId, tenantId));
+
+    const settings = await getOrCreatePayrollSettings(tenantId);
+    const [tenantRows, policies] = await Promise.all([
+      db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
+      db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId)),
+    ]);
+
+    let processedCount = 0;
+
+    for (const u of targetUsers) {
+      // Skip if locked run already exists for this period
+      const existingLocked = await db.select().from(schema.payrollRuns).where(and(
+        eq(schema.payrollRuns.tenantId, tenantId),
+        eq(schema.payrollRuns.userId, u.id),
+        eq(schema.payrollRuns.year, Number(year)),
+        eq(schema.payrollRuns.month, Number(month)),
+        eq(schema.payrollRuns.status, 'locked')
+      )).limit(1);
+
+      if (existingLocked.length > 0) continue;
+
+      const profileRows = await db.select().from(schema.employeeCompensationProfiles).where(and(
+        eq(schema.employeeCompensationProfiles.tenantId, tenantId),
+        eq(schema.employeeCompensationProfiles.userId, u.id),
+        eq(schema.employeeCompensationProfiles.status, 'active')
+      )).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1);
+
+      const components = await db.select().from(schema.employeeSalaryComponents).where(and(
+        eq(schema.employeeSalaryComponents.tenantId, tenantId),
+        eq(schema.employeeSalaryComponents.userId, u.id)
+      )).orderBy(schema.employeeSalaryComponents.sortOrder);
+
+      const requests = await db.select().from(schema.leaveRequests).where(and(
+        eq(schema.leaveRequests.tenantId, tenantId),
+        eq(schema.leaveRequests.userId, u.id),
+        eq(schema.leaveRequests.status, 'approved')
+      ));
+
+      let profile: any = profileRows[0] || null;
+      let effectiveComponents = components;
+
+      if (!profile) {
+        const roleDefault = await getRoleCompensationDefault(tenantId, u.role || '');
+        if (roleDefault) {
+          profile = { annualCtc: roleDefault.roleDefault.annualCtc, overtimeHourlyRate: null, effectiveFrom: null, status: 'active' };
+          effectiveComponents = roleDefault.components;
+        }
+      }
+
+      if (profile) {
+        const leaveDays = splitLeaveDaysForPayroll(requests, policies, Number(year), Number(month), await leaveCalendarOptions(tenantRows[0], tenantId, u.id));
+        const overtimeHours = await resolveOvertimeHours(!!tenantRows[0]?.overtimePayrollEnabled, u.id, tenantId, Number(year), Number(month));
+        const attendanceDriven = await resolveAttendanceDrivenInputs(tenantRows[0], u.id, tenantId, Number(year), Number(month));
+        const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven, Number(year), Number(month));
+
+        await db.insert(schema.payrollRuns).values({
+          tenantId,
+          userId: u.id,
+          profileId: profile.id ?? null,
+          year: Number(year),
+          month: Number(month),
+          workingDays: summary.workingDays,
+          approvedLeaveDays: leaveDays.totalDays,
+          unpaidAbsenceDays: summary.unpaidAbsenceDays,
+          lopDeduction: summary.lopDeduction,
+          overtimeHours,
+          grossPay: summary.monthlyGross,
+          leaveDeduction: summary.leaveDeduction,
+          overtimePay: summary.overtimePay,
+          netPay: summary.monthlyNet,
+          breakdown: summary.annualBreakdown,
+          status: 'generated',
+          version: 1,
+        }).onConflictDoNothing({ target: [schema.payrollRuns.userId, schema.payrollRuns.year, schema.payrollRuns.month, schema.payrollRuns.version] });
+
+        processedCount++;
+      }
+    }
+
+    res.json({ success: true, processedCount, year: Number(year), month: Number(month) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
