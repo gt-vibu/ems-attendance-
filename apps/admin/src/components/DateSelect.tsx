@@ -11,8 +11,7 @@
 // identically on every platform, and never opens an OS overlay that can
 // visually clash with or get cut off by the surrounding page.
 //
-// value/onChange use the same 'YYYY-MM-DD' string the native input did, so
-// this drops in wherever that was used without touching surrounding state.
+import { useState, useEffect } from 'react';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -49,27 +48,51 @@ export default function DateSelect({
   maxYear?: number;
   required?: boolean;
 }) {
-  const { year, month, day } = parseValue(value);
-  const maxDay = year && month ? daysInMonth(year, month) : 31;
+  const parsed = parseValue(value);
+  const [internalYear, setInternalYear] = useState<number | ''>(parsed.year);
+  const [internalMonth, setInternalMonth] = useState<number | ''>(parsed.month);
+  const [internalDay, setInternalDay] = useState<number | ''>(parsed.day);
+
+  useEffect(() => {
+    const p = parseValue(value);
+    setInternalYear(p.year);
+    setInternalMonth(p.month);
+    setInternalDay(p.day);
+  }, [value]);
+
+  const maxDay = internalYear && internalMonth ? daysInMonth(Number(internalYear), Number(internalMonth)) : 31;
   const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i);
   const days = Array.from({ length: maxDay }, (_, i) => i + 1);
 
   const setPart = (part: 'year' | 'month' | 'day', v: number | '') => {
-    const next = { year, month, day, [part]: v };
-    // Clamp day if the newly-selected month/year has fewer days than what
-    // was previously selected (e.g. switching from Jan 31 to February).
-    if (next.year && next.month) {
-      const cap = daysInMonth(next.year, next.month);
-      if (next.day && next.day > cap) next.day = cap;
+    const today = new Date();
+    let nextYear = part === 'year' ? v : internalYear;
+    let nextMonth = part === 'month' ? v : internalMonth;
+    let nextDay = part === 'day' ? v : internalDay;
+
+    if (v !== '') {
+      if (!nextYear) nextYear = today.getFullYear();
+      if (!nextMonth) nextMonth = today.getMonth() + 1;
+      if (!nextDay) nextDay = today.getDate();
     }
-    onChange(formatValue(next.year, next.month, next.day));
+
+    if (nextYear && nextMonth && nextDay) {
+      const cap = daysInMonth(Number(nextYear), Number(nextMonth));
+      if (Number(nextDay) > cap) nextDay = cap;
+    }
+
+    setInternalYear(nextYear);
+    setInternalMonth(nextMonth);
+    setInternalDay(nextDay);
+
+    onChange(formatValue(nextYear, nextMonth, nextDay));
   };
 
   return (
     <div className="flex gap-2" role="group" aria-label="Date">
       <select
         className={selectClass}
-        value={day || ''}
+        value={internalDay}
         onChange={(e) => setPart('day', e.target.value ? Number(e.target.value) : '')}
         required={required}
       >
@@ -78,7 +101,7 @@ export default function DateSelect({
       </select>
       <select
         className={`${selectClass} flex-[1.4]`}
-        value={month || ''}
+        value={internalMonth}
         onChange={(e) => setPart('month', e.target.value ? Number(e.target.value) : '')}
         required={required}
       >
@@ -87,7 +110,7 @@ export default function DateSelect({
       </select>
       <select
         className={selectClass}
-        value={year || ''}
+        value={internalYear}
         onChange={(e) => setPart('year', e.target.value ? Number(e.target.value) : '')}
         required={required}
       >

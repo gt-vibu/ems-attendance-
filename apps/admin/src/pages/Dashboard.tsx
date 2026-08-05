@@ -705,7 +705,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     // team.manage — the tenant admin already administers the whole org via
     // Administration, so it's deliberately excluded here even though
     // hasAnyPrivilege('team.manage') is always true for them.
-    { id: 'teams', label: 'Teams', icon: Users2, description: 'Build your own team from your department and track their stats.', visible: hasAnyPrivilege('team.manage') },
+    { id: 'teams', label: 'Teams', icon: Users2, description: 'Build your own team from your department and track their stats.', visible: true },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'View system notifications, alerts, and policies.', visible: true },
     { id: 'administration', label: 'Administration', icon: ShieldCheck, description: 'Workspace config, branches, roles, staff management, audit ledger, device approvals.', visible: hasAnyPrivilege('settings.edit', 'branch.manage', 'shift.manage', 'holiday.manage', 'employee.create', 'roles.manage') },
   ];
@@ -3944,6 +3944,11 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
         {/* Unified Notifications Tab — displays system notifications inline */}
         {(activeTab === 'notifications' || (activeTab === 'administration' && adminSubTab === 'notifications')) && (
           <NotificationsTab notifications={notifications} />
+        )}
+
+        {/* Teams Tab */}
+        {activeTab === 'teams' && (
+          <TeamsPage user={user} embedded />
         )}
 
         {/* Immutable Audit Ledger Tab */}
