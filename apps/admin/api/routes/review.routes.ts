@@ -59,9 +59,16 @@ router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
       const effective = await getEffectivePrivileges(req.user);
       const holds = (key: string) => effective === 'ALL' || effective.includes(key);
 
+      // Visibility is a privilege-based filter applied in-memory below (it
+      // depends on per-caller assignment/privilege, not something a single
+      // WHERE clause can express), so true offset-based pagination isn't
+      // possible here without restructuring that check into SQL. Capping
+      // the pre-filter fetch at the most recent 1000 alerts still closes
+      // the unbounded-full-table-scan risk for the common case.
       const alerts = await db.select().from(schema.attendanceAlerts)
         .where(eq(schema.attendanceAlerts.tenantId, req.user.tenantId))
-        .orderBy(desc(schema.attendanceAlerts.createdAt));
+        .orderBy(desc(schema.attendanceAlerts.createdAt))
+        .limit(1000);
 
       const visible = alerts.filter((a: any) => {
         if (a.currentAssigneeUserId === req.user.userId) return true;
@@ -122,13 +129,21 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
         return res.status(403).json({ error: `Access denied: You have not been granted permission to resolve this alert type.` });
       }
 
-      await db.update(schema.attendanceAlerts)
+      // Guard the UPDATE itself on status='pending' — closes the race where
+      // two people resolve the same alert concurrently and both pass the
+      // check above before either write lands (both would otherwise
+      // double-fire the audit-ledger entry below).
+      const claimed = await db.update(schema.attendanceAlerts)
         .set({
           status: action === 'accept' ? 'accepted' : 'rejected',
           resolvedByUserId: req.user.userId,
           resolvedAt: new Date()
         })
-        .where(eq(schema.attendanceAlerts.id, alertId));
+        .where(and(eq(schema.attendanceAlerts.id, alertId), eq(schema.attendanceAlerts.status, 'pending')))
+        .returning({ id: schema.attendanceAlerts.id });
+      if (claimed.length === 0) {
+        return res.status(400).json({ error: 'This alert has already been resolved.' });
+      }
 
       await logToAuditLedger({
         tenantId: req.user.tenantId,
@@ -490,6 +505,41 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
 
+      // Re-check the freeze guard at APPROVAL time, not just at submission
+      // time (review.routes.ts:331 above checks it when the correction is
+      // requested). If the period got frozen in the time between request
+      // and approval, approving now would silently mutate attendance data
+      // inside what should already be an immutable period — the same
+      // override privilege used at submission time is required here too.
+      if (action === 'approve'
+        && await isDateFrozen(req.user.tenantId, correction.requestedDate)
+        && !(await hasPrivilege(req.user, 'attendance.override_without_approval'))) {
+        return res.status(400).json({ error: `${correction.requestedDate} was frozen after this correction was requested and can no longer be approved directly. Use a payroll adjustment instead, or ask someone with override privileges.` });
+      }
+
+      // Claim the correction now, atomically, before doing any of the
+      // side-effecting work below — closes the race where two approvers
+      // both pass the status check above before either write lands (which
+      // would otherwise regularize the attendance day and/or create a
+      // payroll adjustment twice). Set straight to the real terminal status
+      // rather than a placeholder: if the process crashes partway through
+      // the side effects below, the row is left in its correct final status
+      // rather than stuck in a made-up intermediate one with no recovery
+      // path (same category of non-transactional risk this flow already
+      // had — see the "not fully transactional" note below — not a new one).
+      const claimed = await db.update(schema.attendanceCorrections)
+        .set({
+          status: action === 'approve' ? 'approved' : 'rejected',
+          reviewedByUserId: req.user.userId,
+          reviewedAt: new Date(),
+          reviewRemarks: remarks || null,
+        })
+        .where(and(eq(schema.attendanceCorrections.id, correctionId), eq(schema.attendanceCorrections.status, 'pending')))
+        .returning({ id: schema.attendanceCorrections.id });
+      if (claimed.length === 0) {
+        return res.status(400).json({ error: 'This request has already been resolved.' });
+      }
+
       let appliedLogId: number | null = null;
       if (action === 'approve') {
         // Reuse the same safe mutation path direct admin edits and ticket
@@ -555,15 +605,15 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         }
       }
 
-      await db.update(schema.attendanceCorrections)
-        .set({
-          status: action === 'approve' ? 'approved' : 'rejected',
-          reviewedByUserId: req.user.userId,
-          reviewedAt: new Date(),
-          reviewRemarks: remarks || null,
-          appliedLogId,
-        })
-        .where(eq(schema.attendanceCorrections.id, correctionId));
+      // status/reviewedByUserId/reviewedAt/reviewRemarks were already set by
+      // the claim UPDATE above (before the side effects ran); this just
+      // fills in appliedLogId, which editAttendanceDay() only produces
+      // after that claim.
+      if (appliedLogId != null) {
+        await db.update(schema.attendanceCorrections)
+          .set({ appliedLogId })
+          .where(eq(schema.attendanceCorrections.id, correctionId));
+      }
 
       await logToAuditLedger({
         tenantId: req.user.tenantId,
@@ -604,6 +654,8 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
       if (!await hasAnyPrivilege(req.user, ['attendance.approve.late_arrival', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
+      const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 500));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
       const list = await db.select().from(schema.attendanceLogs)
         .where(
           and(
@@ -611,7 +663,9 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
             eq(schema.attendanceLogs.status, 'pending')
           )
         )
-        .orderBy(desc(schema.attendanceLogs.createdAt));
+        .orderBy(desc(schema.attendanceLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
 
       // Batched lookup instead of one query per row (N+1).
       const userIds: number[] = Array.from(new Set<number>(list.map((l: any) => l.userId as number)));
@@ -621,7 +675,7 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
       const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
       const withNames = list.map((l: any) => ({ ...l, userName: userById.get(l.userId)?.name || 'Unknown', userRole: userById.get(l.userId)?.role || '' }));
 
-      res.json({ logs: withNames });
+      res.json({ logs: withNames, pagination: { limit, offset, returned: list.length } });
     } catch (err: any) {
       sendServerError(res, err, "review.routes.ts");
     }
@@ -653,13 +707,20 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
       // 'approved', so updating it in place here doesn't touch an audit
       // trail the way editing an already-approved log would (that's what
       // attendanceCorrections is for instead).
-      await db.update(schema.attendanceLogs)
+      // Guarded on status='pending' so two concurrent approvals of the same
+      // log can't both pass the check above and both fire the audit-ledger/
+      // notification side effects below.
+      const claimed = await db.update(schema.attendanceLogs)
         .set(
           action === 'approve'
             ? { status: 'approved' }
             : { status: 'rejected', type: 'absent' }
         )
-        .where(eq(schema.attendanceLogs.id, logId));
+        .where(and(eq(schema.attendanceLogs.id, logId), eq(schema.attendanceLogs.status, 'pending')))
+        .returning({ id: schema.attendanceLogs.id });
+      if (claimed.length === 0) {
+        return res.status(400).json({ error: 'This request has already been resolved.' });
+      }
 
       const isWfh = log.attendanceMode === 'wfh';
       await logToAuditLedger({
