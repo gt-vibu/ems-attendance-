@@ -65,8 +65,8 @@ router.post('/api/tenant/employees/:id/shift-override', authenticate, async (req
       return res.status(400).json({ error: 'startDate cannot be after endDate.' });
     }
 
-    const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId)).limit(1);
-    if (shiftRows.length === 0 || shiftRows[0].tenantId !== req.user.tenantId) {
+    const shiftRows = await db.select().from(schema.shifts).where(and(eq(schema.shifts.id, shiftId), eq(schema.shifts.tenantId, req.user.tenantId))).limit(1);
+    if (shiftRows.length === 0) {
       return res.status(400).json({ error: 'Invalid shift ID.' });
     }
     const shift = shiftRows[0];
@@ -167,8 +167,12 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
     if (!employee) return;
 
     const overrideId = parseInt(req.params.overrideId, 10);
-    const overrideRows = await db.select().from(schema.shiftOverrides).where(eq(schema.shiftOverrides.id, overrideId)).limit(1);
-    if (overrideRows.length === 0 || overrideRows[0].tenantId !== req.user.tenantId || overrideRows[0].userId !== employee.id) {
+    const overrideRows = await db.select().from(schema.shiftOverrides).where(and(
+      eq(schema.shiftOverrides.id, overrideId),
+      eq(schema.shiftOverrides.tenantId, req.user.tenantId),
+      eq(schema.shiftOverrides.userId, employee.id),
+    )).limit(1);
+    if (overrideRows.length === 0) {
       return res.status(404).json({ error: 'Shift override not found.' });
     }
     const override = overrideRows[0];

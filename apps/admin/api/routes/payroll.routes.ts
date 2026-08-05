@@ -242,8 +242,8 @@ router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, re
     }
     const runId = Number(req.params.runId);
     const locked = await db.transaction(async (tx: any) => {
-      const [run] = await tx.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.id, runId)).limit(1);
-      if (!run || run.tenantId !== req.user.tenantId) {
+      const [run] = await tx.select().from(schema.payrollRuns).where(and(eq(schema.payrollRuns.id, runId), eq(schema.payrollRuns.tenantId, req.user.tenantId))).limit(1);
+      if (!run) {
         return { notFound: true } as const;
       }
       if (run.status === 'locked') {
@@ -322,8 +322,8 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
     const applyToNextCycle = !!req.body?.applyToNextCycle;
 
     const outcome = await db.transaction(async (tx: any) => {
-      const [adjustment] = await tx.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.id, id)).limit(1);
-      if (!adjustment || adjustment.tenantId !== req.user.tenantId) {
+      const [adjustment] = await tx.select().from(schema.payrollAdjustments).where(and(eq(schema.payrollAdjustments.id, id), eq(schema.payrollAdjustments.tenantId, req.user.tenantId))).limit(1);
+      if (!adjustment) {
         return { notFound: true } as const;
       }
       if (adjustment.status === 'applied') {
@@ -535,8 +535,8 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
     if (userId === req.user.userId && req.user.role !== 'tenant_admin' && req.user.role !== 'super_admin') {
       return res.status(403).json({ error: 'Access denied: You cannot set up your own payroll. Ask a tenant admin or another payroll manager to configure it.' });
     }
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
 
@@ -698,8 +698,8 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     const tPartsEarly = tenantParts(tenantRowEarly, new Date());
     const year = Number(req.query.year || tPartsEarly.year);
     const month = Number(req.query.month || tPartsEarly.month);
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const employee = employeeRows[0];
@@ -1174,8 +1174,8 @@ router.get('/api/tenant/payroll/batches/:id/exceptions', authenticate, async (re
     if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const rows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
     const exceptions = await scanBatchExceptions(req.user.tenantId, rows[0].year, rows[0].month);
 
     // Pending Payroll Adjustments (e.g. an attendance correction approved
@@ -1236,8 +1236,8 @@ router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (re
     if (!await hasPrivilege(req.user, 'payroll.batch.create')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const batchRows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-    if (batchRows.length === 0 || batchRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const batchRows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+    if (batchRows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
     const batch = batchRows[0];
     if (batch.status !== 'draft' && batch.status !== 'calculated') {
       return res.status(400).json({ error: `Cannot calculate a batch in status '${batch.status}'.` });
@@ -1275,8 +1275,8 @@ function makeTransitionRoute(opts: {
       if (!await hasPrivilege(req.user, opts.privilege)) {
         return res.status(403).json({ error: 'Access denied.' });
       }
-      const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+      const rows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+      if (rows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
       const batch = rows[0];
       if (batch.status !== opts.fromStatus) {
         return res.status(400).json({ error: `This batch is in status '${batch.status}'; expected '${opts.fromStatus}' for this action.` });

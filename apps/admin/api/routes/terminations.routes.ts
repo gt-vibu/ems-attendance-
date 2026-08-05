@@ -145,14 +145,11 @@ router.post('/api/tenant/termination-requests/action', authenticate, async (req:
       return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required.' });
     }
 
-    const rows = await db.select().from(schema.terminationRequests).where(eq(schema.terminationRequests.id, requestId)).limit(1);
+    const rows = await db.select().from(schema.terminationRequests).where(and(eq(schema.terminationRequests.id, requestId), eq(schema.terminationRequests.tenantId, req.user.tenantId))).limit(1);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Termination request not found.' });
     }
     const request = rows[0];
-    if (request.tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This request belongs to another organization.' });
-    }
     if (request.status !== 'pending') {
       return res.status(400).json({ error: 'This request has already been reviewed.' });
     }

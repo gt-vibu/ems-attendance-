@@ -250,8 +250,8 @@ router.post('/api/tenant/users/create', authenticate, async (req: any, res: any)
         return res.status(400).json({ error: 'branchId and shiftId are required' });
       }
 
-      const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
-      if (branchRows.length === 0 || branchRows[0].tenantId !== req.user.tenantId) {
+      const branchRows = await db.select().from(schema.branches).where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, req.user.tenantId)));
+      if (branchRows.length === 0) {
         return res.status(400).json({ error: 'Invalid branchId' });
       }
 
@@ -562,12 +562,9 @@ router.post('/api/tenant/users/:id/qr-access', authenticate, async (req: any, re
       const requesterPrivileges = await getEffectivePrivileges(req.user);
       const grantable = requesterPrivileges === 'ALL' ? requested : requested.filter((p: string) => requesterPrivileges.includes(p));
 
-      const targetList = await db.select().from(schema.users).where(eq(schema.users.id, targetId));
+      const targetList = await db.select().from(schema.users).where(and(eq(schema.users.id, targetId), eq(schema.users.tenantId, req.user.tenantId)));
       if (targetList.length === 0) return res.status(404).json({ error: 'User not found' });
       const target = targetList[0];
-      if (target.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This user does not belong to your organization.' });
-      }
 
       const existingPrivileges: string[] = Array.isArray(target.privileges) ? (target.privileges as string[]) : [];
       const withoutQr = existingPrivileges.filter((p: string) => !qrPermissionValues.includes(p));
@@ -673,18 +670,15 @@ router.post('/api/tenant/device-requests/action', authenticate, async (req: any,
       }
       const { requestId, action } = req.body; // action: 'approve' | 'reject'
       
-      const reqList = await db.select().from(schema.deviceChangeRequests).where(eq(schema.deviceChangeRequests.id, requestId));
+      // SECURITY: enforce tenant isolation in the query itself — without
+      // this, any tenant admin/HR/GM could approve or reject a device-
+      // change request belonging to a completely different tenant just by
+      // guessing an ID.
+      const reqList = await db.select().from(schema.deviceChangeRequests).where(and(eq(schema.deviceChangeRequests.id, requestId), eq(schema.deviceChangeRequests.tenantId, req.user.tenantId)));
       if (reqList.length === 0) {
         return res.status(404).json({ error: 'Request not found' });
       }
       const deviceReq = reqList[0];
-
-      // SECURITY: enforce tenant isolation — without this check, any tenant
-      // admin/HR/GM could approve or reject a device-change request
-      // belonging to a completely different tenant just by guessing an ID.
-      if (deviceReq.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
 
       if (action === 'approve') {
         // Update user device ID

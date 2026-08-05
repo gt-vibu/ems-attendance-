@@ -183,12 +183,9 @@ router.post('/api/qr/session/stop', authenticate, async (req: any, res: any) => 
       const { sessionId } = req.body;
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
 
-      const rows = await db.select().from(schema.qrSessions).where(eq(schema.qrSessions.id, sessionId));
+      const rows = await db.select().from(schema.qrSessions).where(and(eq(schema.qrSessions.id, sessionId), eq(schema.qrSessions.tenantId, req.user.tenantId)));
       if (rows.length === 0) return res.status(404).json({ error: 'Session not found' });
       const session = rows[0];
-      if (session.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This session does not belong to your organization.' });
-      }
 
       await db.update(schema.qrSessions).set({ status: 'closed', closedAt: new Date() }).where(eq(schema.qrSessions.id, sessionId));
 
@@ -591,12 +588,9 @@ router.post('/api/qr/scans/:id/override', authenticate, async (req: any, res: an
         return res.status(400).json({ error: 'A reason is required to override a failed QR scan.' });
       }
 
-      const scanList = await db.select().from(schema.qrScans).where(eq(schema.qrScans.id, scanId));
+      const scanList = await db.select().from(schema.qrScans).where(and(eq(schema.qrScans.id, scanId), eq(schema.qrScans.tenantId, req.user.tenantId)));
       if (scanList.length === 0) return res.status(404).json({ error: 'Scan not found' });
       const scan = scanList[0];
-      if (scan.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This scan does not belong to your organization.' });
-      }
       if (scan.status !== 'failed') {
         return res.status(400).json({ error: 'Only a failed scan can be overridden.' });
       }

@@ -946,8 +946,8 @@ router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: a
         return res.status(400).json({ error: 'reason is required — this becomes part of the permanent attendance record.' });
       }
 
-      const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
-      if (targetRows.length === 0 || targetRows[0].tenantId !== req.user.tenantId) {
+      const targetRows = await db.select().from(schema.users).where(and(eq(schema.users.id, targetUserId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+      if (targetRows.length === 0) {
         return res.status(404).json({ error: 'Employee not found.' });
       }
       const scopedBranchIds = await getScopedBranchIds(req.user);

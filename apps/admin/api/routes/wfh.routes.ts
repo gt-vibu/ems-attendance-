@@ -226,13 +226,9 @@ router.post('/api/tenant/wfh/location-change-requests/action', authenticate, asy
         return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.wfhLocationChangeRequests).where(eq(schema.wfhLocationChangeRequests.id, requestId));
+      const list = await db.select().from(schema.wfhLocationChangeRequests).where(and(eq(schema.wfhLocationChangeRequests.id, requestId), eq(schema.wfhLocationChangeRequests.tenantId, req.user.tenantId)));
       if (list.length === 0) return res.status(404).json({ error: 'Request not found' });
       const changeRequest = list[0];
-
-      if (changeRequest.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (changeRequest.status !== 'pending') {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
@@ -424,12 +420,9 @@ router.post('/api/tenant/users/:id/wfh-access', authenticate, async (req: any, r
       const requesterPrivileges = await getEffectivePrivileges(req.user);
       const grantable = requesterPrivileges === 'ALL' ? requested : requested.filter((p: string) => requesterPrivileges.includes(p));
 
-      const targetList = await db.select().from(schema.users).where(eq(schema.users.id, targetId));
+      const targetList = await db.select().from(schema.users).where(and(eq(schema.users.id, targetId), eq(schema.users.tenantId, req.user.tenantId)));
       if (targetList.length === 0) return res.status(404).json({ error: 'User not found' });
       const target = targetList[0];
-      if (target.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This user does not belong to your organization.' });
-      }
 
       const existingPrivileges: string[] = Array.isArray(target.privileges) ? (target.privileges as string[]) : [];
       const withoutWfh = existingPrivileges.filter((p: string) => !wfhPermissionValues.includes(p));

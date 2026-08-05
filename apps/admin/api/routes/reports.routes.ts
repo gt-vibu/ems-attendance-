@@ -344,8 +344,12 @@ router.post('/api/reports/saved-templates', authenticate, async (req: any, res: 
 router.delete('/api/reports/saved-templates/:id', authenticate, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.id, id)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId || rows[0].createdByUserId !== req.user.userId) {
+    const rows = await db.select().from(schema.reportSavedTemplates).where(and(
+      eq(schema.reportSavedTemplates.id, id),
+      eq(schema.reportSavedTemplates.tenantId, req.user.tenantId),
+      eq(schema.reportSavedTemplates.createdByUserId, req.user.userId),
+    )).limit(1);
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Template not found.' });
     }
     await db.delete(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.id, id));
@@ -420,8 +424,8 @@ router.delete('/api/reports/schedules/:id', authenticate, async (req: any, res: 
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.reportSchedules).where(eq(schema.reportSchedules.id, id)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Schedule not found.' });
+    const rows = await db.select().from(schema.reportSchedules).where(and(eq(schema.reportSchedules.id, id), eq(schema.reportSchedules.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Schedule not found.' });
     await db.delete(schema.reportSchedules).where(eq(schema.reportSchedules.id, id));
     return res.json({ success: true });
   } catch (err: any) {

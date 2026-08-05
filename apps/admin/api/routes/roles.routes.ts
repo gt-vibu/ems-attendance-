@@ -141,11 +141,8 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const roleId = parseInt(req.params.id, 10);
-    const roleRows = await db.select().from(schema.rolePrivilegeDefaults).where(eq(schema.rolePrivilegeDefaults.id, roleId));
+    const roleRows = await db.select().from(schema.rolePrivilegeDefaults).where(and(eq(schema.rolePrivilegeDefaults.id, roleId), eq(schema.rolePrivilegeDefaults.tenantId, req.user.tenantId)));
     if (roleRows.length === 0) return res.status(404).json({ error: 'Role not found' });
-    if (roleRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This role does not belong to your organization.' });
-    }
 
     const { privileges } = req.body;
     const validated = validatePrivilegesList(privileges);

@@ -61,8 +61,8 @@ router.post('/api/tenant/payroll/loans', authenticate, async (req: any, res: any
     if (!userId || !principal || !emiAmount || !startYear || !startMonth) {
       return res.status(400).json({ error: 'userId, principal, emiAmount, startYear, and startMonth are required.' });
     }
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(userId))).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Employee not found.' });
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, Number(userId)), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) return res.status(404).json({ error: 'Employee not found.' });
 
     const [loan] = await db.insert(schema.payrollLoans).values({
       tenantId: req.user.tenantId, userId: Number(userId), principal: Number(principal), emiAmount: Number(emiAmount),
@@ -84,8 +84,8 @@ router.post('/api/tenant/payroll/loans/:id/close', authenticate, async (req: any
     if (!await hasPrivilege(req.user, 'payroll.loans.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const rows = await db.select().from(schema.payrollLoans).where(eq(schema.payrollLoans.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Loan not found.' });
+    const rows = await db.select().from(schema.payrollLoans).where(and(eq(schema.payrollLoans.id, Number(req.params.id)), eq(schema.payrollLoans.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Loan not found.' });
     await db.update(schema.payrollLoans).set({ status: 'closed', remainingBalance: 0 }).where(eq(schema.payrollLoans.id, rows[0].id));
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_LOAN_CLOSED', details: { loanId: rows[0].id } });
     res.json({ success: true });
@@ -119,8 +119,8 @@ router.post('/api/tenant/payroll/advances', authenticate, async (req: any, res: 
     if (!userId || !amount || !startYear || !startMonth) {
       return res.status(400).json({ error: 'userId, amount, startYear, and startMonth are required.' });
     }
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(userId))).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Employee not found.' });
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, Number(userId)), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) return res.status(404).json({ error: 'Employee not found.' });
 
     const months = Math.max(1, Number(recoveryMonths) || 1);
     const recoveryPerMonth = Number(amount) / months;
@@ -184,8 +184,8 @@ router.post('/api/tenant/payroll/reimbursements/:id/action', authenticate, async
     }
     const { action } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject.' });
-    const rows = await db.select().from(schema.payrollReimbursements).where(eq(schema.payrollReimbursements.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Reimbursement not found.' });
+    const rows = await db.select().from(schema.payrollReimbursements).where(and(eq(schema.payrollReimbursements.id, Number(req.params.id)), eq(schema.payrollReimbursements.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Reimbursement not found.' });
     if (rows[0].status !== 'pending') return res.status(400).json({ error: 'This reimbursement has already been decided.' });
 
     const [updated] = await db.update(schema.payrollReimbursements).set({
@@ -226,8 +226,8 @@ router.post('/api/tenant/payroll/bonuses', authenticate, async (req: any, res: a
     }
     const { userId, type, amount, reason } = req.body || {};
     if (!userId || !type || !amount) return res.status(400).json({ error: 'userId, type, and amount are required.' });
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(userId))).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Employee not found.' });
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, Number(userId)), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) return res.status(404).json({ error: 'Employee not found.' });
 
     const [bonus] = await db.insert(schema.payrollBonuses).values({
       tenantId: req.user.tenantId, userId: Number(userId), type, amount: Number(amount), reason: reason || null,
@@ -290,8 +290,8 @@ router.post('/api/tenant/payroll/salary-revisions/:id/hr-review', authenticate, 
     if (!await hasPrivilege(req.user, 'payroll.review.hr')) return res.status(403).json({ error: 'Access denied.' });
     const { action } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject.' });
-    const rows = await db.select().from(schema.salaryRevisionRequests).where(eq(schema.salaryRevisionRequests.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Revision not found.' });
+    const rows = await db.select().from(schema.salaryRevisionRequests).where(and(eq(schema.salaryRevisionRequests.id, Number(req.params.id)), eq(schema.salaryRevisionRequests.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Revision not found.' });
     if (rows[0].status !== 'pending_hr') return res.status(400).json({ error: `Expected status 'pending_hr', got '${rows[0].status}'.` });
     const [updated] = await db.update(schema.salaryRevisionRequests).set({
       status: action === 'approve' ? 'pending_finance' : 'rejected', hrReviewedByUserId: req.user.userId, hrReviewedAt: new Date(),
@@ -307,8 +307,8 @@ router.post('/api/tenant/payroll/salary-revisions/:id/finance-review', authentic
     if (!await hasPrivilege(req.user, 'payroll.review.finance')) return res.status(403).json({ error: 'Access denied.' });
     const { action } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'action must be approve or reject.' });
-    const rows = await db.select().from(schema.salaryRevisionRequests).where(eq(schema.salaryRevisionRequests.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Revision not found.' });
+    const rows = await db.select().from(schema.salaryRevisionRequests).where(and(eq(schema.salaryRevisionRequests.id, Number(req.params.id)), eq(schema.salaryRevisionRequests.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Revision not found.' });
     if (rows[0].status !== 'pending_finance') return res.status(400).json({ error: `Expected status 'pending_finance', got '${rows[0].status}'.` });
     const revision = rows[0];
 
@@ -381,8 +381,8 @@ router.post('/api/tenant/payroll/settlements/generate', authenticate, async (req
     const { terminationRequestId, lastWorkingDate, noticePeriodRecoveryAmount } = req.body || {};
     if (!terminationRequestId || !lastWorkingDate) return res.status(400).json({ error: 'terminationRequestId and lastWorkingDate are required.' });
 
-    const termRows = await db.select().from(schema.terminationRequests).where(eq(schema.terminationRequests.id, Number(terminationRequestId))).limit(1);
-    if (termRows.length === 0 || termRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Termination request not found.' });
+    const termRows = await db.select().from(schema.terminationRequests).where(and(eq(schema.terminationRequests.id, Number(terminationRequestId)), eq(schema.terminationRequests.tenantId, req.user.tenantId))).limit(1);
+    if (termRows.length === 0) return res.status(404).json({ error: 'Termination request not found.' });
     const termination = termRows[0];
     if (termination.status !== 'approved') return res.status(400).json({ error: 'Settlement can only be generated for an approved termination.' });
 
@@ -436,8 +436,8 @@ router.post('/api/tenant/payroll/settlements/:id/approve', authenticate, async (
     if (!await hasPrivilege(req.user, 'payroll.settlement.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const rows = await db.select().from(schema.payrollFinalSettlements).where(eq(schema.payrollFinalSettlements.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Settlement not found.' });
+    const rows = await db.select().from(schema.payrollFinalSettlements).where(and(eq(schema.payrollFinalSettlements.id, Number(req.params.id)), eq(schema.payrollFinalSettlements.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Settlement not found.' });
     if (rows[0].status !== 'draft') return res.status(400).json({ error: `Cannot approve a settlement in status '${rows[0].status}'.` });
 
     const [updated] = await db.update(schema.payrollFinalSettlements).set({ status: 'approved', approvedByUserId: req.user.userId, approvedAt: new Date() }).where(eq(schema.payrollFinalSettlements.id, rows[0].id)).returning();

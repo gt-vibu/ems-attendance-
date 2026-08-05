@@ -213,9 +213,9 @@ router.post('/api/tenant/teams/members', authenticate, async (req: any, res: any
     const { manager, team } = await loadManagerAndTeam(req);
     if (!team) return res.status(400).json({ error: 'Create your team before adding members.' });
 
-    const candidateRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    const candidateRows = await db.select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
     const candidate = candidateRows[0];
-    if (!candidate || candidate.tenantId !== req.user.tenantId) {
+    if (!candidate) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     if (candidate.id === req.user.userId) {

@@ -65,12 +65,9 @@ router.get('/api/branches', authenticate, async (req: any, res: any) => {
 router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
   try {
     const branchId = parseInt(req.params.id, 10);
-    const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
+    const branchRows = await db.select().from(schema.branches).where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, req.user.tenantId)));
     if (branchRows.length === 0) return res.status(404).json({ error: 'Branch not found' });
     const branch = branchRows[0];
-    if (branch.tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This branch does not belong to your organization.' });
-    }
 
     // SECURITY: this response includes the full roster's names/emails plus
     // today's attendance — getScopedBranchIds() returns null both for
@@ -251,11 +248,8 @@ router.patch('/api/branches/:id', authenticate, async (req: any, res: any) => {
       return res.status(400).json({ error: 'Device Identity Check is a company-wide setting, not a per-branch field. Use /api/tenant/config/update instead.' });
     }
     const branchId = parseInt(req.params.id, 10);
-    const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
+    const branchRows = await db.select().from(schema.branches).where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, req.user.tenantId)));
     if (branchRows.length === 0) return res.status(404).json({ error: 'Branch not found' });
-    if (branchRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This branch does not belong to your organization.' });
-    }
 
     const update: any = {};
     const editableFields = ['name', 'address', 'locationLat', 'locationLng', 'locationRadiusMeters', 'status', ...POLICY_FIELDS];

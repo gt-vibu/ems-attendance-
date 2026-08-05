@@ -12,11 +12,8 @@ export const router = Router();
 router.get('/api/branches/:branchId/shifts', authenticate, async (req: any, res: any) => {
   try {
     const branchId = parseInt(req.params.branchId, 10);
-    const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
+    const branchRows = await db.select().from(schema.branches).where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, req.user.tenantId)));
     if (branchRows.length === 0) return res.status(404).json({ error: 'Branch not found' });
-    if (branchRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This branch does not belong to your organization.' });
-    }
     const shiftList = await db.select().from(schema.shifts)
       .where(and(eq(schema.shifts.branchId, branchId), eq(schema.shifts.status, 'active')));
     res.json({ shifts: shiftList });
@@ -31,11 +28,8 @@ router.post('/api/branches/:branchId/shifts', authenticate, async (req: any, res
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const branchId = parseInt(req.params.branchId, 10);
-    const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
+    const branchRows = await db.select().from(schema.branches).where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, req.user.tenantId)));
     if (branchRows.length === 0) return res.status(404).json({ error: 'Branch not found' });
-    if (branchRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This branch does not belong to your organization.' });
-    }
 
     const { name, checkInTime, checkOutTime, gracePeriodMins } = req.body;
     if (!name || !checkInTime || !checkOutTime) {
@@ -79,11 +73,8 @@ router.patch('/api/shifts/:id', authenticate, async (req: any, res: any) => {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const shiftId = parseInt(req.params.id, 10);
-    const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
+    const shiftRows = await db.select().from(schema.shifts).where(and(eq(schema.shifts.id, shiftId), eq(schema.shifts.tenantId, req.user.tenantId)));
     if (shiftRows.length === 0) return res.status(404).json({ error: 'Shift not found' });
-    if (shiftRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied: This shift does not belong to your organization.' });
-    }
 
     const before = shiftRows[0];
     const update: any = {};
@@ -123,11 +114,8 @@ router.get('/api/shifts/:id/history', authenticate, async (req: any, res: any) =
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const shiftId = parseInt(req.params.id, 10);
-    const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
+    const shiftRows = await db.select().from(schema.shifts).where(and(eq(schema.shifts.id, shiftId), eq(schema.shifts.tenantId, req.user.tenantId)));
     if (shiftRows.length === 0) return res.status(404).json({ error: 'Shift not found' });
-    if (shiftRows[0].tenantId !== req.user.tenantId) {
-      return res.status(403).json({ error: 'Access denied.' });
-    }
     const history = await db.select().from(schema.shiftHistory)
       .where(and(eq(schema.shiftHistory.shiftId, shiftId), eq(schema.shiftHistory.tenantId, req.user.tenantId)))
       .orderBy(desc(schema.shiftHistory.createdAt));

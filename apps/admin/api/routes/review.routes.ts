@@ -99,17 +99,14 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
         return res.status(400).json({ error: 'alertId and a valid action (accept|reject) are required' });
       }
 
-      const alertList = await db.select().from(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.id, alertId));
+      // SECURITY: tenant isolation — never let someone resolve another
+      // tenant's alert just by guessing an ID; scoped in the query itself
+      // rather than fetch-then-check.
+      const alertList = await db.select().from(schema.attendanceAlerts).where(and(eq(schema.attendanceAlerts.id, alertId), eq(schema.attendanceAlerts.tenantId, req.user.tenantId)));
       if (alertList.length === 0) {
         return res.status(404).json({ error: 'Alert not found' });
       }
       const alert = alertList[0];
-
-      // SECURITY: tenant isolation — never let someone resolve another
-      // tenant's alert just by guessing an ID.
-      if (alert.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This alert does not belong to your organization.' });
-      }
       if (alert.status !== 'pending') {
         return res.status(400).json({ error: 'This alert has already been resolved.' });
       }
@@ -223,12 +220,9 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      const holidayList = await db.select().from(schema.holidays).where(and(eq(schema.holidays.id, parseInt(req.params.id)), eq(schema.holidays.tenantId, req.user.tenantId)));
       if (holidayList.length === 0) {
         return res.status(404).json({ error: 'Holiday not found' });
-      }
-      if (holidayList[0].tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This holiday does not belong to your organization.' });
       }
       const holiday = holidayList[0];
       if (holiday.isArchived) {
@@ -259,10 +253,9 @@ router.post('/api/tenant/holidays/:id/restore', authenticate, async (req: any, r
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      const holidayList = await db.select().from(schema.holidays).where(and(eq(schema.holidays.id, parseInt(req.params.id)), eq(schema.holidays.tenantId, req.user.tenantId)));
       if (holidayList.length === 0) return res.status(404).json({ error: 'Holiday not found' });
       const holiday = holidayList[0];
-      if (holiday.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
       if (!holiday.isArchived) return res.status(400).json({ error: 'This holiday is not archived.' });
       await db.update(schema.holidays).set({ isArchived: false, archivedAt: null, archivedByUserId: null }).where(eq(schema.holidays.id, holiday.id));
       await db.insert(schema.holidayHistory).values({
@@ -332,8 +325,12 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
         if (!(await documentsEnabledForTenant(req.user.tenantId))) {
           return res.status(403).json({ error: 'Document attachments are not enabled for this organization.' });
         }
-        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(documentId))).limit(1);
-        if (docRows.length === 0 || docRows[0].tenantId !== req.user.tenantId || docRows[0].userId !== req.user.userId) {
+        const docRows = await db.select().from(schema.employeeDocuments).where(and(
+          eq(schema.employeeDocuments.id, Number(documentId)),
+          eq(schema.employeeDocuments.tenantId, req.user.tenantId),
+          eq(schema.employeeDocuments.userId, req.user.userId),
+        )).limit(1);
+        if (docRows.length === 0) {
           return res.status(400).json({ error: 'Invalid document attachment.' });
         }
         verifiedDocumentId = docRows[0].id;
@@ -409,8 +406,8 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
   // 'attendance.approve.corrections' shouldn't imply general document access.
 router.get('/api/attendance/corrections/:id/attachment', authenticate, async (req: any, res: any) => {
     try {
-      const rows = await db.select().from(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.id, parseInt(req.params.id, 10))).limit(1);
-      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId || !rows[0].documentId) {
+      const rows = await db.select().from(schema.attendanceCorrections).where(and(eq(schema.attendanceCorrections.id, parseInt(req.params.id, 10)), eq(schema.attendanceCorrections.tenantId, req.user.tenantId))).limit(1);
+      if (rows.length === 0 || !rows[0].documentId) {
         return res.status(404).json({ error: 'No attachment found for this request.' });
       }
       const correction = rows[0];
@@ -470,15 +467,11 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         return res.status(400).json({ error: 'correctionId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.id, correctionId));
+      const list = await db.select().from(schema.attendanceCorrections).where(and(eq(schema.attendanceCorrections.id, correctionId), eq(schema.attendanceCorrections.tenantId, req.user.tenantId)));
       if (list.length === 0) {
         return res.status(404).json({ error: 'Correction request not found' });
       }
       const correction = list[0];
-
-      if (correction.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (correction.status !== 'pending') {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
@@ -627,15 +620,11 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
         return res.status(400).json({ error: 'logId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.attendanceLogs).where(eq(schema.attendanceLogs.id, logId));
+      const list = await db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.id, logId), eq(schema.attendanceLogs.tenantId, req.user.tenantId)));
       if (list.length === 0) {
         return res.status(404).json({ error: 'Attendance log not found' });
       }
       const log = list[0];
-
-      if (log.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (log.status !== 'pending') {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }

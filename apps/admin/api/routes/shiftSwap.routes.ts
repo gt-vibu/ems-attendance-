@@ -110,10 +110,10 @@ router.post('/api/tenant/shift-swap/:id/respond', authenticate, async (req: any,
     if (!['accept', 'decline'].includes(action)) {
       return res.status(400).json({ error: 'A valid action (accept|decline) is required.' });
     }
-    const rows = await db.select().from(schema.shiftSwapRequests).where(eq(schema.shiftSwapRequests.id, Number(req.params.id))).limit(1);
+    const rows = await db.select().from(schema.shiftSwapRequests).where(and(eq(schema.shiftSwapRequests.id, Number(req.params.id)), eq(schema.shiftSwapRequests.tenantId, req.user.tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Shift swap request not found.' });
     const request = rows[0];
-    if (request.tenantId !== req.user.tenantId || request.targetUserId !== req.user.userId) {
+    if (request.targetUserId !== req.user.userId) {
       return res.status(403).json({ error: 'Access denied.' });
     }
     if (request.status !== 'pending_target') {
@@ -183,10 +183,9 @@ router.post('/api/tenant/shift-swap/:id/action', authenticate, async (req: any, 
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ error: 'A valid action (approve|reject) is required.' });
     }
-    const rows = await db.select().from(schema.shiftSwapRequests).where(eq(schema.shiftSwapRequests.id, Number(req.params.id))).limit(1);
+    const rows = await db.select().from(schema.shiftSwapRequests).where(and(eq(schema.shiftSwapRequests.id, Number(req.params.id)), eq(schema.shiftSwapRequests.tenantId, req.user.tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Shift swap request not found.' });
     const request = rows[0];
-    if (request.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
     if (request.status !== 'pending_approval') return res.status(400).json({ error: 'This request is not awaiting approval.' });
 
     if (action === 'approve') {

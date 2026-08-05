@@ -128,8 +128,8 @@ router.get('/api/tenant/employees/:id/leave-balance', authenticate, async (req: 
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const employeeId = parseInt(req.params.id, 10);
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, employeeId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -169,10 +169,10 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
     if (totalDays <= 0) return res.status(400).json({ error: 'Leave range contains no working days.' });
 
     const policyRows = policyId
-      ? await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1)
+      ? await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.id, Number(policyId)), eq(schema.leavePolicies.tenantId, req.user.tenantId))).limit(1)
       : await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.tenantId, req.user.tenantId), eq(schema.leavePolicies.code, leaveType))).limit(1);
     const policy = policyRows[0] || null;
-    if (policy && policy.tenantId !== req.user.tenantId) {
+    if (policyId && !policy) {
       return res.status(403).json({ error: 'Invalid leave policy selected.' });
     }
     if (policy && !policy.allowHalfDay && halfDay) {
@@ -382,10 +382,9 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     }
     const { requestId, action, comment } = req.body || {};
     if (!requestId || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'requestId and valid action are required.' });
-    const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, Number(requestId))).limit(1);
+    const requestRows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, Number(requestId)), eq(schema.leaveRequests.tenantId, req.user.tenantId))).limit(1);
     if (requestRows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
     const leaveRequest = requestRows[0];
-    if (leaveRequest.tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Leave request not found.' });
     if (leaveRequest.status !== 'pending') return res.status(400).json({ error: 'This request has already been decided.' });
     const [updated] = await db.update(schema.leaveRequests).set({
       status: action === 'approve' ? 'approved' : 'rejected',
@@ -447,10 +446,9 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
     for (const rawId of requestIds) {
       const requestId = Number(rawId);
       try {
-        const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
+        const requestRows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, requestId), eq(schema.leaveRequests.tenantId, req.user.tenantId))).limit(1);
         if (requestRows.length === 0) throw new Error('not found');
         const leaveRequest = requestRows[0];
-        if (leaveRequest.tenantId !== req.user.tenantId) throw new Error('not in your organization');
         if (leaveRequest.status !== 'pending') throw new Error('already decided');
 
         const [updated] = await db.update(schema.leaveRequests).set({
@@ -621,8 +619,8 @@ router.post('/api/leave/encashment', authenticate, async (req: any, res: any) =>
       return res.status(400).json({ error: 'policyId and a positive number of days are required.' });
     }
 
-    const policyRows = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1);
-    if (policyRows.length === 0 || policyRows[0].tenantId !== req.user.tenantId) {
+    const policyRows = await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.id, Number(policyId)), eq(schema.leavePolicies.tenantId, req.user.tenantId))).limit(1);
+    if (policyRows.length === 0) {
       return res.status(404).json({ error: 'Leave policy not found.' });
     }
     const policy = policyRows[0];
@@ -691,10 +689,9 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
       return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required.' });
     }
 
-    const rows = await db.select().from(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.id, Number(requestId))).limit(1);
+    const rows = await db.select().from(schema.leaveEncashmentRequests).where(and(eq(schema.leaveEncashmentRequests.id, Number(requestId)), eq(schema.leaveEncashmentRequests.tenantId, req.user.tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Encashment request not found.' });
     const request = rows[0];
-    if (request.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
     if (request.status !== 'pending') return res.status(400).json({ error: 'This request has already been reviewed.' });
 
     let ratePerDay: number | null = null;
