@@ -50,6 +50,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [availableManagers, setAvailableManagers] = useState<any[]>([]);
+  const [todayStats, setTodayStats] = useState<{ presentTodayCount: number; averageWorkedHoursToday: number | null }>({ presentTodayCount: 0, averageWorkedHoursToday: null });
 
   // Create team state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -91,6 +92,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       if (Array.isArray(data.availableManagers)) {
         setAvailableManagers(data.availableManagers);
       }
+      setTodayStats(data.todayStats || { presentTodayCount: 0, averageWorkedHoursToday: null });
     } catch (err: any) {
       setError(err.message || 'Could not load team workspace.');
     } finally {
@@ -206,19 +208,25 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
     (m.designation && m.designation.toLowerCase().includes(memberSearch.toLowerCase()))
   );
 
+  // Only real, data-backed roles — no invented "HR Department"/"Ops Unit"
+  // placeholders. Team Lead and Reporting Manager both resolve to the
+  // team's actual manager; there's no separate HRBP/Ops assignment on a
+  // team record today, so those aren't shown rather than faked.
   const leadershipRoles: LeadershipRole[] = [
     { roleTitle: 'Team Lead', assignedPerson: team?.managerName || user.name, description: 'Directs day-to-day operations and team workflows.' },
     { roleTitle: 'Reporting Manager', assignedPerson: team?.managerName || user.name, description: 'Manages performance reviews and reporting tree.' },
-    { roleTitle: 'HR Business Partner', assignedPerson: 'HR Department', description: 'Handles employee relations, policies, and onboarding.' },
-    { roleTitle: 'Operations Lead', assignedPerson: 'Ops Unit', description: 'Oversees shift schedules and attendance regularization.' },
   ];
 
-  const notificationRoutes = [
-    { event: 'Late Arrival Alert', recipient: 'Team Lead & HR', status: 'Enabled' },
-    { event: 'Missed Punch Out', recipient: 'Reporting Manager', status: 'Enabled' },
-    { event: 'Attendance Correction Submitted', recipient: 'Attendance Approver', status: 'Enabled' },
-    { event: 'Leave Request Submitted', recipient: 'Reporting Manager & HR', status: 'Enabled' },
-    { event: 'Payroll Batch Generation', recipient: 'Payroll Reviewer', status: 'Enabled' },
+  // Reference list of the org-wide event types that CAN be routed —
+  // actual routing rules live in Notification Policies (tenant admin
+  // settings), not per-team, so this is explicitly static reference
+  // information rather than a live per-team status table.
+  const notificationEventReference = [
+    { event: 'Late Arrival Alert', recipient: 'Reporting Manager & HR' },
+    { event: 'Missed Punch Out', recipient: 'Reporting Manager' },
+    { event: 'Attendance Correction Submitted', recipient: 'Attendance Approver' },
+    { event: 'Leave Request Submitted', recipient: 'Reporting Manager & HR' },
+    { event: 'Payroll Batch Generation', recipient: 'Payroll Reviewer' },
   ];
 
   const content = (
@@ -238,7 +246,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       )}
 
       {/* Main Single Workspace Header */}
-      <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl shadow-xs space-y-4">
+      <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
@@ -250,7 +258,9 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
                   {team ? team.name : 'Organization Teams Workspace'}
                 </h1>
                 <p className="text-xs text-[var(--color-nexus-muted)]">
-                  {team ? `Department: ${team.department || 'Engineering'} | Branch: ${team.branchName || 'HQ'}` : 'Configure operational team hierarchies, leadership roles, and reporting paths.'}
+                  {team
+                    ? [team.department, team.branchName].filter(Boolean).join(' · ') || 'No department or branch set'
+                    : 'Configure operational team hierarchies, leadership roles, and reporting paths.'}
                 </p>
               </div>
             </div>
@@ -329,38 +339,38 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
           {/* TAB 1: OVERVIEW & LEADERSHIP */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              {/* Operational KPIs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] font-mono block">Total Members</span>
-                  <span className="text-2xl font-extrabold text-[var(--color-nexus-ink)] mt-1 block font-mono">{members.length}</span>
+              {/* Operational KPIs — every value here is real, sourced from
+                  today's attendance_logs for this team; no placeholder
+                  numbers. */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5">
+                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] block">Total Members</span>
+                  <span className="text-lg font-bold text-[var(--color-nexus-ink)] mt-1.5 block">{members.length}</span>
                 </div>
-                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] font-mono block">Present Today</span>
-                  <span className="text-2xl font-extrabold text-[var(--color-nexus-secondary)] mt-1 block font-mono">{members.length > 0 ? members.length : 0}</span>
+                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] block">Present Today</span>
+                  <span className="text-lg font-bold text-[var(--color-nexus-secondary)] mt-1.5 block">{todayStats.presentTodayCount} / {members.length}</span>
                 </div>
-                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] font-mono block">Average Hours</span>
-                  <span className="text-2xl font-extrabold text-[var(--color-nexus-primary)] mt-1 block font-mono">8.5h</span>
-                </div>
-                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] font-mono block">Attendance Score</span>
-                  <span className="text-2xl font-extrabold text-emerald-600 mt-1 block font-mono">98%</span>
+                <div className="p-4 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] block">Avg. Hours Today</span>
+                  <span className="text-lg font-bold text-[var(--color-nexus-primary)] mt-1.5 block">
+                    {todayStats.averageWorkedHoursToday !== null ? `${todayStats.averageWorkedHoursToday}h` : 'No checkouts yet'}
+                  </span>
                 </div>
               </div>
 
               {/* Leadership Roles Matrix */}
-              <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-4">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]">Team Leadership & Governance</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-3.5">
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Leadership</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {leadershipRoles.map((role) => (
-                    <div key={role.roleTitle} className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-2">
+                    <div key={role.roleTitle} className="p-3.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[var(--color-nexus-primary)] uppercase font-mono">{role.roleTitle}</span>
+                        <span className="text-xs font-bold text-[var(--color-nexus-primary)]">{role.roleTitle}</span>
                         <Shield size={14} className="text-[var(--color-nexus-muted)]" />
                       </div>
-                      <span className="text-sm font-extrabold text-[var(--color-nexus-ink)] block">{role.assignedPerson}</span>
-                      <p className="text-[10px] text-[var(--color-nexus-muted)] leading-relaxed">{role.description}</p>
+                      <span className="text-sm font-bold text-[var(--color-nexus-ink)] block">{role.assignedPerson}</span>
+                      <p className="text-[11px] text-[var(--color-nexus-muted)] leading-relaxed">{role.description}</p>
                     </div>
                   ))}
                 </div>
@@ -370,7 +380,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
           {/* TAB 2: MEMBERS ROSTER */}
           {activeTab === 'members' && (
-            <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-4">
+            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="relative flex-1 max-w-md">
                   <Search size={14} className="absolute left-3.5 top-3 text-[var(--color-nexus-muted)]" />
@@ -388,8 +398,8 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
                 </span>
               </div>
 
-              <div className="border border-[var(--color-nexus-border)] rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
+              <div className="border border-[var(--color-nexus-border)] rounded-xl overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse min-w-[720px]">
                   <thead>
                     <tr className="bg-[var(--color-nexus-surface-alt)] border-b border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] font-mono text-[10px] uppercase">
                       <th className="py-3 px-4">Member</th>
@@ -469,17 +479,17 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
           {/* TAB 3: REPORTING HIERARCHY TREE */}
           {activeTab === 'hierarchy' && (
-            <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-6">
+            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-6">
               <div>
                 <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Organizational Reporting Tree</h3>
                 <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Hierarchical tree view mapping direct reporting relationships within this team.</p>
               </div>
 
-              <div className="p-6 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
+              <div className="p-5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg space-y-4">
                 {/* Department Node */}
                 <div className="flex items-center gap-2">
                   <Building2 size={16} className="text-[var(--color-nexus-primary)]" />
-                  <span className="text-sm font-extrabold text-[var(--color-nexus-ink)] uppercase font-mono">{team.department || 'Engineering'} Department</span>
+                  <span className="text-sm font-extrabold text-[var(--color-nexus-ink)] uppercase font-mono">{team.department ? `${team.department} Department` : 'No Department Set'}</span>
                 </div>
 
                 {/* Manager Node */}
@@ -495,7 +505,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
                   <div className="pl-6 border-l-2 border-[var(--color-nexus-border)] space-y-2">
                     <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)] block">Direct Team Members:</span>
                     {members.map((m) => (
-                      <div key={m.id} className="flex items-center gap-2 text-xs font-mono p-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg">
+                      <div key={m.id} className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs font-mono p-2 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-lg">
                         <CornerDownRight size={12} className="text-[var(--color-nexus-muted)]" />
                         <span className="font-bold text-[var(--color-nexus-ink)]">{m.name}</span>
                         <span className="text-[var(--color-nexus-muted)]">({m.designation || m.role})</span>
@@ -510,31 +520,28 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
           {/* TAB 4: NOTIFICATION ROUTING */}
           {activeTab === 'routing' && (
-            <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-4">
+            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Workflow Notification & Approval Routing</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Configurable notification rules for team escalations, attendance exceptions, and leave requests.</p>
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Event Routing Reference</h3>
+                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">
+                  Typical recipients for each workflow event. Routing is configured centrally under Notification
+                  Policies (Settings), not per team — this is reference information, not a live per-team status.
+                </p>
               </div>
 
-              <div className="border border-[var(--color-nexus-border)] rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
+              <div className="border border-[var(--color-nexus-border)] rounded-xl overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse min-w-[420px]">
                   <thead>
-                    <tr className="bg-[var(--color-nexus-surface-alt)] border-b border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] font-mono text-[10px] uppercase">
-                      <th className="py-3 px-4">Workflow Event Trigger</th>
-                      <th className="py-3 px-4">Target Notification Recipients</th>
-                      <th className="py-3 px-4 text-right">Status</th>
+                    <tr className="bg-[var(--color-nexus-surface-alt)] border-b border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)] text-[10px] uppercase">
+                      <th className="py-2.5 px-4">Workflow Event</th>
+                      <th className="py-2.5 px-4">Typical Recipients</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--color-nexus-border)]">
-                    {notificationRoutes.map((route) => (
+                    {notificationEventReference.map((route) => (
                       <tr key={route.event} className="hover:bg-[var(--color-nexus-surface-alt)]/50 transition-colors">
-                        <td className="py-3.5 px-4 font-bold text-[var(--color-nexus-ink)]">{route.event}</td>
-                        <td className="py-3.5 px-4 font-mono text-[11px] text-[var(--color-nexus-primary)]">{route.recipient}</td>
-                        <td className="py-3.5 px-4 text-right">
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase">
-                            {route.status}
-                          </span>
-                        </td>
+                        <td className="py-3 px-4 font-bold text-[var(--color-nexus-ink)]">{route.event}</td>
+                        <td className="py-3 px-4 text-[11px] text-[var(--color-nexus-muted)]">{route.recipient}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -545,49 +552,41 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
           {/* TAB 5: TEAM ANALYTICS */}
           {activeTab === 'analytics' && (
-            <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-6">
+            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Operational Analytics & Reports</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Team performance, attendance stability, and working hours stats.</p>
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Analytics</h3>
+                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Attendance and working-hours trends for this team.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)]">On-Time Arrival Rate</span>
-                  <span className="text-2xl font-extrabold text-emerald-600 font-mono block">96.4%</span>
-                  <p className="text-[10px] text-[var(--color-nexus-muted)]">96.4% of check-ins occurred within grace period.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-[var(--color-nexus-muted)]">Present Today</span>
+                  <span className="text-lg font-bold text-[var(--color-nexus-secondary)] block">{todayStats.presentTodayCount} / {members.length}</span>
                 </div>
-                <div className="p-5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)]">Leave Utilization</span>
-                  <span className="text-2xl font-extrabold text-[var(--color-nexus-primary)] font-mono block">12.5%</span>
-                  <p className="text-[10px] text-[var(--color-nexus-muted)]">Percentage of available leave balance used this quarter.</p>
+                <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg space-y-1">
+                  <span className="text-[10px] font-bold uppercase text-[var(--color-nexus-muted)]">Avg. Hours Today</span>
+                  <span className="text-lg font-bold text-[var(--color-nexus-primary)] block">
+                    {todayStats.averageWorkedHoursToday !== null ? `${todayStats.averageWorkedHoursToday}h` : '—'}
+                  </span>
                 </div>
-                <div className="p-5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)]">Open Approvals</span>
-                  <span className="text-2xl font-extrabold text-[var(--color-nexus-secondary)] font-mono block">0</span>
-                  <p className="text-[10px] text-[var(--color-nexus-muted)]">Pending attendance regularization requests.</p>
-                </div>
+              </div>
+
+              <div className="p-4 rounded-lg border border-dashed border-[var(--color-nexus-border)] text-[11px] text-[var(--color-nexus-muted)] text-center">
+                Multi-week trends (on-time rate, leave utilization) aren't tracked per team yet — see the org-wide
+                Reports section for historical attendance and leave analytics.
               </div>
             </div>
           )}
 
           {/* TAB 6: SETTINGS */}
           {activeTab === 'settings' && (
-            <div className="p-6 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl space-y-6">
+            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wider">Team Default Configurations</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">Configure workspace parameters for this team unit.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)]">Default Working Shift</span>
-                  <span className="text-xs font-bold text-[var(--color-nexus-ink)] block">General Shift (09:00 AM – 06:00 PM)</span>
-                </div>
-                <div className="p-4 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase text-[var(--color-nexus-muted)]">Attendance Policy</span>
-                  <span className="text-xs font-bold text-[var(--color-nexus-ink)] block">Standard Corporate Policy (15m grace)</span>
-                </div>
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Configuration</h3>
+                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">
+                  Working shift and attendance policy are configured org-wide (Attendance Preferences), not per team —
+                  nothing team-specific to override yet.
+                </p>
               </div>
             </div>
           )}

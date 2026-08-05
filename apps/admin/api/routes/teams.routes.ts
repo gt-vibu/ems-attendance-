@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, ne, inArray, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
+import { tenantDateKey, tenantDateTime } from '../services/tenantTime';
 
 export const router = Router();
 
@@ -68,20 +70,53 @@ router.get('/api/tenant/teams/mine', authenticate, async (req: any, res: any) =>
         };
       });
 
+    // Real today's-attendance signal for the Overview KPI cards — no
+    // fabricated numbers. Present = at least one approved check-in today;
+    // average hours = mean workedMinutes across today's checked-out
+    // sessions for this team only (null/undefined when nobody has
+    // checked out yet, rather than a fake placeholder value).
+    let presentTodayCount = 0;
+    let averageWorkedHoursToday: number | null = null;
+    if (memberIds.length > 0) {
+      const tenantRow = (await db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      const todayKey = tenantDateKey(tenantRow, new Date());
+      const dayStart = tenantDateTime(tenantRow, todayKey, 0, 0);
+      const dayEnd = tenantDateTime(tenantRow, todayKey, 23, 59);
+      const todaysLogs = await db.select().from(schema.attendanceLogs).where(and(
+        eq(schema.attendanceLogs.tenantId, req.user.tenantId),
+        inArray(schema.attendanceLogs.userId, memberIds),
+        gte(schema.attendanceLogs.createdAt, dayStart),
+        lte(schema.attendanceLogs.createdAt, dayEnd),
+      ));
+      const presentUserIds = new Set(
+        todaysLogs.filter((l: any) => l.type === 'check_in' && l.status === 'approved').map((l: any) => l.userId)
+      );
+      presentTodayCount = presentUserIds.size;
+      const workedMinutesToday = todaysLogs
+        .filter((l: any) => typeof l.workedMinutes === 'number' && l.workedMinutes > 0)
+        .map((l: any) => l.workedMinutes as number);
+      averageWorkedHoursToday = workedMinutesToday.length > 0
+        ? Math.round((workedMinutesToday.reduce((a: number, b: number) => a + b, 0) / workedMinutesToday.length / 60) * 10) / 10
+        : null;
+    }
+
     res.json({
       team: {
         id: team.id,
         name: team.name,
         managerId: team.managerId,
         managerName: manager ? (manager as any).name : 'Unassigned',
-        department: (manager as any)?.department || 'Engineering',
+        // No fake fallback — a manager without a department set just
+        // shows nothing here rather than an invented 'Engineering'.
+        department: (manager as any)?.department || null,
         createdAt: team.createdAt,
       },
       members,
       availableManagers: allTenantUsers.map((u: any) => ({ id: u.id, name: u.name, role: u.role, department: u.department })),
+      todayStats: { presentTodayCount, averageWorkedHoursToday },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
 
@@ -99,7 +134,7 @@ router.post('/api/tenant/teams/assign-manager', authenticate, async (req: any, r
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
 
@@ -125,7 +160,7 @@ router.post('/api/tenant/teams', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, team: { id: team.id, name: team.name, createdAt: team.createdAt } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
 
@@ -163,7 +198,7 @@ router.get('/api/tenant/teams/candidates', authenticate, async (req: any, res: a
         .map((u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, department: u.department, designation: u.designation })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
 
@@ -200,7 +235,7 @@ router.post('/api/tenant/teams/members', authenticate, async (req: any, res: any
     await db.insert(schema.teamMembers).values({ teamId: team.id, userId });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
 
@@ -218,6 +253,6 @@ router.delete('/api/tenant/teams/members/:userId', authenticate, async (req: any
     );
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "teams.routes.ts");
   }
 });
