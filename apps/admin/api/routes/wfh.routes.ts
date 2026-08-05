@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -72,7 +73,7 @@ router.get('/api/attendance/wfh/eligibility', authenticate, async (req: any, res
         homeLocation: homeLocation ? { latitude: homeLocation.latitude, longitude: homeLocation.longitude, address: homeLocation.address } : null,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -81,7 +82,7 @@ router.get('/api/attendance/wfh/home-location', authenticate, async (req: any, r
       const homeLocation = await getActiveHomeLocation(req.user.userId);
       res.json({ homeLocation });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -129,7 +130,7 @@ router.post('/api/attendance/wfh/register-home', authenticate, async (req: any, 
 
       res.json({ homeLocation: inserted[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -174,7 +175,7 @@ router.post('/api/attendance/wfh/location-change-request', authenticate, async (
 
       res.json({ request: inserted[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -185,7 +186,7 @@ router.get('/api/attendance/wfh/location-change-requests/mine', authenticate, as
         .orderBy(desc(schema.wfhLocationChangeRequests.createdAt));
       res.json({ requests: list });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -212,7 +213,7 @@ router.get('/api/tenant/wfh/location-change-requests', authenticate, async (req:
 
       res.json({ requests: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -268,7 +269,7 @@ router.post('/api/tenant/wfh/location-change-requests/action', authenticate, asy
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -340,7 +341,7 @@ router.get('/api/tenant/wfh/stats', authenticate, async (req: any, res: any) => 
         roleWiseWfhThisMonth: roleWiseCounts,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -395,7 +396,7 @@ router.get('/api/tenant/wfh/ledger', authenticate, async (req: any, res: any) =>
 
       res.json({ ledger });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -440,6 +441,6 @@ router.post('/api/tenant/users/:id/wfh-access', authenticate, async (req: any, r
 
       res.json({ success: true, privileges: finalPrivileges });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });

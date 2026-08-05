@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -82,7 +83,7 @@ router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
 
       res.json({ alerts: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -139,7 +140,7 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -162,7 +163,7 @@ router.get('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
         .orderBy(schema.holidays.date);
       res.json({ holidays: list });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -211,7 +212,7 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
       );
       res.json({ holiday: created[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -244,7 +245,7 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
       });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -265,7 +266,7 @@ router.post('/api/tenant/holidays/:id/restore', authenticate, async (req: any, r
       });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -279,7 +280,7 @@ router.get('/api/tenant/holidays/:id/history', authenticate, async (req: any, re
       ).orderBy(desc(schema.holidayHistory.createdAt));
       res.json({ history: rows });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -379,7 +380,7 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
 
       res.json({ correction: created[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -396,7 +397,7 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
       }));
       res.json({ corrections: withAttachments });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -426,7 +427,7 @@ router.get('/api/attendance/corrections/:id/attachment', authenticate, async (re
       res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName.replace(/["\r\n]/g, '')}"`);
       res.send(buffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -453,7 +454,7 @@ router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) =
 
       res.json({ corrections: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -579,7 +580,7 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -606,7 +607,7 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
 
       res.json({ logs: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -691,6 +692,6 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });

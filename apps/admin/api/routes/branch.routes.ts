@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -58,7 +59,7 @@ router.get('/api/branches', authenticate, async (req: any, res: any) => {
       .where(and(eq(schema.branches.tenantId, req.user.tenantId), eq(schema.branches.status, 'active')));
     res.json({ branches: branchList });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -143,7 +144,7 @@ router.get('/api/branches/:id', authenticate, async (req: any, res: any) => {
       shiftBreakdown,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -205,7 +206,7 @@ router.post('/api/branches/bulk', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, branches: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -235,7 +236,7 @@ router.post('/api/branches', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, branch });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -271,7 +272,7 @@ router.patch('/api/branches/:id', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, branch: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -287,7 +288,7 @@ router.post('/api/geocode/forward', authenticate, async (req: any, res: any) => 
     if (!result) return res.status(404).json({ error: 'No matching location found' });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });
 
@@ -301,6 +302,6 @@ router.get('/api/geocode/search', authenticate, async (req: any, res: any) => {
     const results = await searchPlaces(query, 5);
     res.json({ results });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "branch.routes.ts");
   }
 });

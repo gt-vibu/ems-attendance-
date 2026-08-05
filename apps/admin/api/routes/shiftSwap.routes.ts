@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { getEffectiveShiftId } from '../services/shiftOverrides';
@@ -67,7 +68,7 @@ router.post('/api/tenant/shift-swap', authenticate, async (req: any, res: any) =
 
     res.json({ success: true, request });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftSwap.routes.ts");
   }
 });
 
@@ -98,7 +99,7 @@ router.get('/api/tenant/shift-swap/mine', authenticate, async (req: any, res: an
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftSwap.routes.ts");
   }
 });
 
@@ -138,7 +139,7 @@ router.post('/api/tenant/shift-swap/:id/respond', authenticate, async (req: any,
 
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftSwap.routes.ts");
   }
 });
 
@@ -170,7 +171,7 @@ router.get('/api/tenant/shift-swap/pending-approval', authenticate, async (req: 
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftSwap.routes.ts");
   }
 });
 
@@ -229,6 +230,6 @@ router.post('/api/tenant/shift-swap/:id/action', authenticate, async (req: any, 
 
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftSwap.routes.ts");
   }
 });

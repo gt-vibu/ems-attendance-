@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -168,7 +169,7 @@ router.get('/api/tenant/analytics', authenticate, async (req: any, res: any) => 
         breakdown,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -231,7 +232,7 @@ router.get('/api/tenant/analytics/trends', authenticate, async (req: any, res: a
 
       res.json({ days, branchIds, series });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -415,7 +416,7 @@ router.post('/api/tenant/users/create', authenticate, async (req: any, res: any)
       // claiming success even when no mail provider is configured.
       res.json({ success: true, isNewRole: existingRoleRow.length === 0, role, emailDelivered: emailResult.delivered });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -511,7 +512,7 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
 
       res.json({ success: true, results, created: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -531,7 +532,7 @@ router.get('/api/tenant/users', authenticate, async (req: any, res: any) => {
 
       res.json({ users: usersList });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -582,7 +583,7 @@ router.post('/api/tenant/users/:id/qr-access', authenticate, async (req: any, re
 
       res.json({ success: true, privileges: finalPrivileges });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -598,7 +599,7 @@ router.get('/api/tenant/notifications', authenticate, async (req: any, res: any)
         .limit(50);
       res.json({ notifications: notifyList });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -612,7 +613,7 @@ router.post('/api/tenant/notifications/:id/read', authenticate, async (req: any,
       await db.update(schema.notifications).set({ isRead: true }).where(eq(schema.notifications.id, id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -621,7 +622,7 @@ router.post('/api/tenant/notifications/read-all', authenticate, async (req: any,
       await db.update(schema.notifications).set({ isRead: true }).where(eq(schema.notifications.userId, req.user.userId));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -656,7 +657,7 @@ router.get('/api/tenant/device-requests', authenticate, async (req: any, res: an
 
       res.json({ requests });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });
 
@@ -704,6 +705,6 @@ router.post('/api/tenant/device-requests/action', authenticate, async (req: any,
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "tenant.routes.ts");
     }
   });

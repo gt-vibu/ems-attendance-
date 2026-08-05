@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { resolveEscalationAssignee, resolveNextEscalation } from '../services/escalation';
@@ -67,7 +68,7 @@ router.post('/api/tickets', authenticate, async (req: any, res: any) => {
 
     res.status(201).json({ ticket });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "tickets.routes.ts");
   }
 });
 
@@ -76,7 +77,7 @@ router.get('/api/tickets/mine', authenticate, async (req: any, res: any) => {
     const rows = await db.select().from(schema.tickets).where(eq(schema.tickets.raisedByUserId, req.user.userId)).orderBy(desc(schema.tickets.createdAt));
     res.json({ tickets: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "tickets.routes.ts");
   }
 });
 
@@ -102,7 +103,7 @@ router.get('/api/tenant/tickets', authenticate, async (req: any, res: any) => {
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "tickets.routes.ts");
   }
 });
 
@@ -209,6 +210,6 @@ router.post('/api/tenant/tickets/:id/action', authenticate, async (req: any, res
 
     res.json({ success: true, ticket: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "tickets.routes.ts");
   }
 });

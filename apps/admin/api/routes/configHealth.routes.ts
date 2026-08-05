@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, gte } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 
@@ -138,6 +139,6 @@ router.get('/api/tenant/config-health', authenticate, async (req: any, res: any)
 
     res.json({ score, checks });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "configHealth.routes.ts");
   }
 });

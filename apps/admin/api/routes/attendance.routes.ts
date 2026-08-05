@@ -4,6 +4,7 @@ import { eq, and, asc, desc, sql, inArray, gte, lte, lt } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { verifyToken } from '../../jwt';
@@ -191,7 +192,7 @@ router.get('/api/attendance/today', authenticate, async (req: any, res: any) => 
         currentShift: { name: 'General Shift', checkInTime: '09:00', checkOutTime: '18:00' }
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 router.get('/api/attendance/percentage', authenticate, async (req: any, res: any) => {
@@ -204,7 +205,7 @@ router.get('/api/attendance/percentage', authenticate, async (req: any, res: any
       const result = await computeAttendancePercent(req.user.userId, tenant);
       res.json({ ...result, threshold: tenant.minAttendancePercent ?? 75 });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -247,7 +248,7 @@ router.get('/api/attendance/mine', authenticate, async (req: any, res: any) => {
           .limit(Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30)));
       res.json({ logs });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -323,7 +324,7 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
       res.json({ success: true, log: log[0] });
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -366,7 +367,7 @@ router.post('/api/attendance/verify-location', authenticate, async (req: any, re
       }
       res.json({ passed: true, distanceMeters: distance });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -396,7 +397,7 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
       }
       res.json({ passed: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -826,8 +827,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       res.json({ success: true, log: log[0], pendingApproval });
       });
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -921,7 +921,7 @@ router.post('/api/attendance/heartbeat', authenticate, async (req: any, res: any
 
       res.json({ success: true, status: 'ok' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -971,7 +971,7 @@ router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: a
 
       res.json({ success: true, ...result });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -1027,7 +1027,7 @@ router.post('/api/tenant/attendance/freeze', authenticate, async (req: any, res:
 
     res.json({ freezePeriod: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "attendance.routes.ts");
   }
 });
 
@@ -1039,6 +1039,6 @@ router.get('/api/tenant/attendance/freeze', authenticate, async (req: any, res: 
     const periods = await db.select().from(schema.attendanceFreezePeriods).where(eq(schema.attendanceFreezePeriods.tenantId, req.user.tenantId));
     res.json({ periods });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "attendance.routes.ts");
   }
 });

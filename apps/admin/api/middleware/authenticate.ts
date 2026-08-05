@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { verifyToken } from '../../jwt';
 import { looksLikeApiKey, verifyServiceAccountKey } from '../auth/serviceAccounts';
 
@@ -82,7 +83,7 @@ export async function authenticate(req: any, res: any, next: any) {
           }
         }
       } catch (err: any) {
-        return res.status(500).json({ error: err.message });
+        return sendServerError(res, err, "authenticate middleware");
       }
     }
     req.user = decoded;

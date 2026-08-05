@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -98,7 +99,7 @@ router.post('/api/tenant/employees/:id/terminate', authenticate, async (req: any
 
     res.json({ success: true, pending: true, requestId: request.id });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "terminations.routes.ts");
   }
 });
 
@@ -130,7 +131,7 @@ router.get('/api/tenant/termination-requests', authenticate, async (req: any, re
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "terminations.routes.ts");
   }
 });
 
@@ -184,6 +185,6 @@ router.post('/api/tenant/termination-requests/action', authenticate, async (req:
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "terminations.routes.ts");
   }
 });

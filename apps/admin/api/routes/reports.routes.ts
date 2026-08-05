@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
@@ -320,7 +321,7 @@ router.get('/api/reports/saved-templates', authenticate, async (req: any, res: a
       .orderBy(desc(schema.reportSavedTemplates.createdAt));
     return res.json({ templates: list });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -337,7 +338,7 @@ router.post('/api/reports/saved-templates', authenticate, async (req: any, res: 
     }).returning();
     return res.json({ success: true, template: created });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -355,7 +356,7 @@ router.delete('/api/reports/saved-templates/:id', authenticate, async (req: any,
     await db.delete(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.id, id));
     return res.json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -375,7 +376,7 @@ router.get('/api/reports/schedules', authenticate, async (req: any, res: any) =>
     const list = await db.select().from(schema.reportSchedules).where(eq(schema.reportSchedules.tenantId, req.user.tenantId)).orderBy(desc(schema.reportSchedules.createdAt));
     return res.json({ schedules: list });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -414,7 +415,7 @@ router.post('/api/reports/schedules', authenticate, async (req: any, res: any) =
 
     return res.json({ success: true, schedule: created });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -429,7 +430,7 @@ router.delete('/api/reports/schedules/:id', authenticate, async (req: any, res: 
     await db.delete(schema.reportSchedules).where(eq(schema.reportSchedules.id, id));
     return res.json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 

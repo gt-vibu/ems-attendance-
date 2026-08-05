@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { computeEmployeeEarnings } from '../services/earnings';
 import { tenantParts } from '../services/tenantTime';
@@ -25,6 +26,6 @@ router.get('/api/earnings/mine', authenticate, async (req: any, res: any) => {
     const result = await computeEmployeeEarnings(req.user.userId, req.user.tenantId, year, month);
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "earnings.routes.ts");
   }
 });

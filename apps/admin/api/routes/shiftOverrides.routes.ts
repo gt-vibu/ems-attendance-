@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -108,7 +109,7 @@ router.post('/api/tenant/employees/:id/shift-override', authenticate, async (req
 
     res.json({ success: true, override: inserted });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });
 
@@ -150,7 +151,7 @@ router.get('/api/tenant/employees/:id/shift-overrides', authenticate, async (req
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });
 
@@ -214,6 +215,6 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });

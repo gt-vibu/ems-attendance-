@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -87,7 +88,7 @@ router.post('/api/tenant/documents', authenticate, async (req: any, res: any) =>
 
     res.json({ success: true, document: { id: doc.id, userId: doc.userId, category: doc.category, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize, createdAt: doc.createdAt } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -109,7 +110,7 @@ router.get('/api/tenant/documents', authenticate, async (req: any, res: any) => 
       documents: rows.map((d) => ({ id: d.id, category: d.category, fileName: d.fileName, mimeType: d.mimeType, fileSize: d.fileSize, createdAt: d.createdAt })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -132,7 +133,7 @@ router.get('/api/tenant/documents/:id/download', authenticate, async (req: any, 
     res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName.replace(/["\r\n]/g, '')}"`);
     res.send(buffer);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -166,6 +167,6 @@ router.delete('/api/tenant/documents/:id', authenticate, async (req: any, res: a
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });

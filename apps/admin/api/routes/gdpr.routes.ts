@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -65,7 +66,7 @@ router.get('/api/employees/me/data-export', authenticate, async (req: any, res: 
       leaveEncashmentRequests: encashmentRequests,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "gdpr.routes.ts");
   }
 });
 
@@ -127,6 +128,6 @@ router.post('/api/tenant/employees/:id/erase-data', authenticate, async (req: an
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "gdpr.routes.ts");
   }
 });

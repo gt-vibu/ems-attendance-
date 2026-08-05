@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -68,7 +69,7 @@ router.get('/api/tenant/employees', authenticate, async (req: any, res: any) => 
 
     res.json({ employees });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -107,7 +108,7 @@ router.get('/api/tenant/org-chart', authenticate, async (req: any, res: any) => 
 
     res.json({ nodes });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -168,7 +169,7 @@ router.get('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
       }
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -328,7 +329,7 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
 
     res.json({ success: true, employee: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -380,7 +381,7 @@ router.post('/api/tenant/employees/:id/reset-device', authenticate, async (req: 
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -412,7 +413,7 @@ router.get('/api/tenant/departments', authenticate, async (req: any, res: any) =
 
     res.json({ departments });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -452,7 +453,7 @@ router.get('/api/employees/my-team', authenticate, async (req: any, res: any) =>
       colleagues: colleagueRows.slice(0, 25).map((u) => ({ id: u.id, name: u.name, designation: u.designation || '', department: u.department || '' })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -466,7 +467,7 @@ router.get('/api/employees/me/notification-preferences', authenticate, async (re
     const prefs = (rows[0] as any)?.notificationChannelPrefs || { email: true, in_app: true };
     res.json({ preferences: prefs });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -477,7 +478,7 @@ router.put('/api/employees/me/notification-preferences', authenticate, async (re
     await db.update(schema.users).set({ notificationChannelPrefs: preferences } as any).where(eq(schema.users.id, req.user.userId));
     res.json({ preferences });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -526,7 +527,7 @@ router.get('/api/employees/my-team/today-summary', authenticate, async (req: any
       pendingCorrections: pendingCorrectionRows.length,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });
 
@@ -570,6 +571,6 @@ router.post('/api/tenant/departments', authenticate, async (req: any, res: any) 
 
     res.json({ success: true, department: inserted });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "employees.routes.ts");
   }
 });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { tenantParts } from '../services/tenantTime';
 
@@ -81,6 +82,6 @@ router.get('/api/tenant/business-calendar', authenticate, async (req: any, res: 
 
     res.json({ year, month, events });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "businessCalendar.routes.ts");
   }
 });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { signShortLivedToken } from '../../jwt';
 import { signToken } from '../../jwt';
 import { authenticate } from '../middleware/authenticate';
@@ -28,7 +29,7 @@ router.post('/api/webauthn/register/options', authenticate, async (req: any, res
     const options = await getRegistrationOptions({ id: user.id, uid: user.uid, name: user.name }, resolveRpFromOrigin(req.headers.origin));
     res.json(options);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webauthn.routes.ts");
   }
 });
 
@@ -89,7 +90,7 @@ router.post('/api/webauthn/register/verify', authenticate, async (req: any, res:
 
     res.json({ success: true, token, user: updatedUser });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webauthn.routes.ts");
   }
 });
 
@@ -108,7 +109,7 @@ router.post('/api/webauthn/authenticate/options', authenticate, async (req: any,
     if (result.error) return res.status(400).json({ error: result.error });
     res.json(result.options);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webauthn.routes.ts");
   }
 });
 
@@ -143,7 +144,7 @@ router.post('/api/webauthn/authenticate/verify', authenticate, async (req: any, 
 
     res.json({ passed: true, token });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webauthn.routes.ts");
   }
 });
 
@@ -160,6 +161,6 @@ router.get('/api/webauthn/credentials', authenticate, async (req: any, res: any)
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webauthn.routes.ts");
   }
 });

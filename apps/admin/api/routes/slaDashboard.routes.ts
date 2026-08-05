@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 
@@ -88,6 +89,6 @@ router.get('/api/tenant/sla-dashboard', authenticate, async (req: any, res: any)
 
     res.json({ summary, items, thresholds: { warnHours: WARN_HOURS, breachHours: BREACH_HOURS } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to load SLA dashboard' });
+    sendServerError(res, err, "slaDashboard.routes.ts");
   }
 });

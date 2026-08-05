@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -18,7 +19,7 @@ router.get('/api/branches/:branchId/shifts', authenticate, async (req: any, res:
       .where(and(eq(schema.shifts.branchId, branchId), eq(schema.shifts.status, 'active')));
     res.json({ shifts: shiftList });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shift.routes.ts");
   }
 });
 
@@ -63,7 +64,7 @@ router.post('/api/branches/:branchId/shifts', authenticate, async (req: any, res
 
     res.json({ success: true, shift });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shift.routes.ts");
   }
 });
 
@@ -104,7 +105,7 @@ router.patch('/api/shifts/:id', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, shift: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shift.routes.ts");
   }
 });
 
@@ -121,6 +122,6 @@ router.get('/api/shifts/:id/history', authenticate, async (req: any, res: any) =
       .orderBy(desc(schema.shiftHistory.createdAt));
     res.json({ history });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shift.routes.ts");
   }
 });

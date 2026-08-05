@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { signToken, signShortLivedToken } from '../../jwt';
 import { authenticate } from '../middleware/authenticate';
 import { isFaceIdEnabledForTenantId } from '../auth/rbac';
@@ -116,7 +117,7 @@ router.post('/api/face/enroll', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, token, user: updatedUser });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "face.routes.ts");
   }
 });
 
@@ -155,7 +156,7 @@ router.post('/api/face/verify-step', authenticate, async (req: any, res: any) =>
       actionLog: enrollResult.actionLog?.[action] || null,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "face.routes.ts");
   }
 });
 
@@ -187,7 +188,7 @@ router.get('/api/face/challenge', authenticate, async (req: any, res: any) => {
     pendingChallenges.set(req.user.userId, { actions: selected, issuedAt: Date.now() });
     res.json({ challenge: selected });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "face.routes.ts");
   }
 });
 
@@ -355,6 +356,6 @@ router.post('/api/face/verify', authenticate, async (req: any, res: any) => {
 
     res.json({ passed: true, token: mintIdentityPass(), faceMatchScore: bestSimilarity, livenessScore });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "face.routes.ts");
   }
 });

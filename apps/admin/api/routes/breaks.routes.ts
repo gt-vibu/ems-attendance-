@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -36,7 +37,7 @@ router.get('/api/breaks/active', authenticate, async (req: any, res: any) => {
       );
       res.json({ active: active.length > 0 ? active[0] : null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "breaks.routes.ts");
     }
   });
 
@@ -69,7 +70,7 @@ router.get('/api/breaks/today', authenticate, async (req: any, res: any) => {
 
       res.json({ sessions, budgetMins, usedMins, remainingMins: Math.max(0, budgetMins - usedMins) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "breaks.routes.ts");
     }
   });
 
@@ -116,7 +117,7 @@ router.post('/api/breaks/start', authenticate, async (req: any, res: any) => {
 
       res.json({ session: session[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "breaks.routes.ts");
     }
   });
 
@@ -274,6 +275,6 @@ router.post('/api/breaks/end', authenticate, async (req: any, res: any) => {
 
       res.json({ success: true, elapsedMins, isViolation, unpaidDuration, outsideGeofence });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "breaks.routes.ts");
     }
   });

@@ -46,7 +46,7 @@ router.post('/api/attendance/heartbeat', authenticate, async (req: any, res: any
     });
   } catch (err: any) {
     logger.error('POST /api/attendance/heartbeat error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -95,7 +95,7 @@ router.post('/api/attendance/presence/confirm-working', authenticate, async (req
     });
   } catch (err: any) {
     logger.error('POST /api/attendance/presence/confirm-working error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -120,6 +120,6 @@ router.get('/api/attendance/presence/status', authenticate, async (req: any, res
     });
   } catch (err: any) {
     logger.error('GET /api/attendance/presence/status error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });

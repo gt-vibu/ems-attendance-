@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, or, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getEffectivePrivileges } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -67,7 +68,7 @@ router.post('/api/tenant/delegations', authenticate, async (req: any, res: any) 
 
     res.json({ delegation: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });
 
@@ -99,7 +100,7 @@ router.get('/api/tenant/delegations', authenticate, async (req: any, res: any) =
 
     res.json({ delegations: enriched });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });
 
@@ -129,6 +130,6 @@ router.post('/api/tenant/delegations/:id/revoke', authenticate, async (req: any,
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });

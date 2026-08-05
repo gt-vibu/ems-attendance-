@@ -4,6 +4,7 @@ import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -57,7 +58,7 @@ router.post('/api/tenancy/request', authLimiter, async (req, res) => {
 
       res.json({ success: true, request: request[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -70,7 +71,7 @@ router.get('/api/super/requests', authenticate, async (req: any, res: any) => {
       const requests = await db.select().from(schema.tenancyRequests).orderBy(desc(schema.tenancyRequests.createdAt));
       res.json({ requests });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -82,7 +83,7 @@ router.get('/api/super/notifications', authenticate, async (req: any, res: any) 
       const notifyList = await db.select().from(schema.notifications).where(sql`user_id IS NULL`).orderBy(desc(schema.notifications.createdAt));
       res.json({ notifications: notifyList });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -188,7 +189,7 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
       // level as everything else on this endpoint.
       res.json({ success: true, activationLink, emailDelivered: emailResult.delivered });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -223,7 +224,7 @@ router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
 
       res.json({ tenants: withCounts });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -259,7 +260,7 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -298,7 +299,7 @@ router.post('/api/super/tenants/features', authenticate, async (req: any, res: a
 
       res.json({ success: true, featuresAllowed: cleaned });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -437,7 +438,7 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -473,7 +474,7 @@ router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) 
         recentJobs: rows.slice(0, 50).map((j: any) => ({ id: j.id, jobType: j.jobType, tenantId: j.tenantId, status: j.status, attempts: j.attempts, createdAt: j.createdAt, completedAt: j.completedAt })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -551,7 +552,7 @@ router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any,
       const admins = await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, 'tenant_admin')));
       res.json({ admins: admins.map(a => ({ id: a.id, name: a.name, email: a.email, createdAt: a.createdAt })) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -634,7 +635,7 @@ router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, re
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -691,7 +692,7 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
         }, {})
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -755,6 +756,6 @@ router.get('/api/super/feature-usage', authenticate, async (req: any, res: any) 
 
       res.json({ features, totalTenants: tenantsList.length, windowDays: 30 });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });

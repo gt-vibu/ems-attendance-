@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { generateServiceAccountKey } from '../auth/serviceAccounts';
@@ -39,7 +40,7 @@ router.get('/api/tenant/service-accounts', authenticate, async (req: any, res: a
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "serviceAccounts.routes.ts");
   }
 });
 
@@ -98,7 +99,7 @@ router.post('/api/tenant/service-accounts', authenticate, async (req: any, res: 
       apiKey: rawKey,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "serviceAccounts.routes.ts");
   }
 });
 
@@ -128,6 +129,6 @@ router.delete('/api/tenant/service-accounts/:id', authenticate, async (req: any,
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "serviceAccounts.routes.ts");
   }
 });
