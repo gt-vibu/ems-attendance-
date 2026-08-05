@@ -1,5 +1,23 @@
 # Smart Teams / AEMS — Attendance, Leave & Payroll Architecture Audit
 
+## Fix status (updated 2026-08-05, branch `audit-fixes`)
+
+| # | Finding | Status |
+|---|---|---|
+| 1.1 | No transaction around payroll lock / adjustment-apply (TOCTOU race) | ✅ Fixed — `db.transaction()` + status-guarded UPDATE in `payroll.routes.ts` |
+| 1.2 | Zero secondary indexes across schema | ✅ Fixed — composite indexes added on all tenant-scoped hot paths (`schema.ts`, hand-written migration `0008_add_hot_path_indexes.sql`, boot-time sync) |
+| 1.3 | Unbounded list endpoints, no pagination | ✅ Fixed — capped default + `limit`/`offset` on leave requests, payroll adjustments, reimbursements, advances |
+| 5 (perf) | N+1 name lookup in payroll adjustments list | ✅ Fixed — batched `inArray` query |
+| 2.3 | Negative net-pay edge case (unfloored) | ✅ Fixed — `preStatutoryNet`/`monthlyNet` now floored at 0 |
+| 8 (quality) | Raw internal error messages returned to clients | ✅ Fixed — `sendServerError()` helper, applied to all 59 occurrences across `payroll.routes.ts`, `leave.routes.ts`, `payrollExtras.routes.ts`, `webhooks.routes.ts` |
+| 4.5 | Unreviewed webhook SSRF surface | ✅ Fixed — `assertWebhookUrlIsSafe()` blocks loopback/private/link-local/cloud-metadata targets at creation + dispatch time |
+| 3.2 | Correction→adjustment auto-generation unverified | ✅ Verified correct, no change needed (`review.routes.ts:521-545`) |
+| 4.1 / 2.1 / 3.3 | Pervasive fetch-then-tenant-check pattern (~30+ endpoints) | ⏳ Not fixed — every sampled instance is currently correct; hardening this into a query-level-scoped repository helper is a larger, higher-risk refactor touching many call sites. Flagged, not started. |
+| 7 (arch) | Duplicated `notifyOrFallback` boilerplate not used everywhere | ⏳ Not fixed — code-quality/consolidation item, no bug. |
+| Everything else in sections 6–9 (scalability notes, architecture/code-quality suggestions, readiness scores) | Advisory — no code change applicable | — |
+
+---
+
 **Scope:** `apps/admin/api` (routes/services), `apps/admin/src`, `packages/database/src/schema.ts`, `apps/admin/jwt.ts`, `apps/admin/db.ts`
 **Branch audited:** `main` (post-merge from `fixedux`)
 **Method:** Static code review — Grep/Read of route handlers, services, and schema. Read-only, no code changed.
