@@ -1,29 +1,33 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
-import swaggerUi from 'swagger-ui-express';
-import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
-import { openApiSpec } from '../../openapi.js';
-import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
-import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
-import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail } from '../../mail.js';
-import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineMeters, evaluateWfhEligibility, evaluateWfhLocation, todayWeekdayName, WFH_PERMISSIONS } from '../../wfh.js';
-import { reverseGeocode } from '../../geocoding.js';
-import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
+import { hashPassword } from '../../password.js';
+import { sendEmail } from '../../mail.js';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES, PLATFORM_FEATURE_DEPENDENCIES, isPlatformFeatureAllowed } from '../auth/rbac';
 import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { haversineMeters, resolveActiveIp } from '../services/geo';
-import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
 export const router = Router();
 
+// companyName originates from the public, unauthenticated
+// /api/tenancy/request endpoint below (validated only for truthiness) and
+// is later interpolated into HTML email bodies and returned from
+// GET /api/super/tenants — escape it everywhere it lands in HTML so a
+// company name containing <script>/<img onerror=...> can't execute.
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
   // Tenancy Request Endpoint (Public onboarding submission)
 router.post('/api/tenancy/request', authLimiter, async (req, res) => {
@@ -53,7 +57,7 @@ router.post('/api/tenancy/request', authLimiter, async (req, res) => {
         to: email,
         subject: 'Smart Teams Tenancy Request Received',
         text: `Hello ${companyName},\n\nWe have received your request to join Smart Teams under the ${plan} Plan. Our Super Admin will review your application and onboard you shortly.\n\nBest Regards,\nSmart Teams Team`,
-        html: `<h3>Hello ${companyName},</h3><p>We have received your request to join Smart Teams under the <strong>${plan} Plan</strong>. Our Super Admin will review your application and onboard you shortly.</p><br/><p>Best Regards,<br/>Smart Teams Team</p>`
+        html: `<h3>Hello ${escapeHtml(companyName)},</h3><p>We have received your request to join Smart Teams under the <strong>${escapeHtml(plan)} Plan</strong>. Our Super Admin will review your application and onboard you shortly.</p><br/><p>Best Regards,<br/>Smart Teams Team</p>`
       });
 
       res.json({ success: true, request: request[0] });
@@ -165,7 +169,7 @@ router.post('/api/super/approve', authenticate, requireRole('super_admin'), asyn
         to: request.email,
         subject: 'Welcome to Smart Teams - Access Granted',
         text: `Hello ${request.companyName} Admin,\n\nYour tenancy has been approved by the Super Admin under the ${tenant[0].plan} plan.\n\nYour credentials:\nUsername: ${request.email}\nTemporary Password: ${userCredentialsTemplate(tempPassword)}\n\nLogin and set your permanent password here: ${activationLink}\n\nBest Regards,\nSmart Teams Onboarding`,
-        html: `<h3>Hello ${request.companyName} Admin,</h3><p>Your tenancy has been approved by the Super Admin under the <strong>${tenant[0].plan} plan</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${request.email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#7B5CFA;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Activate Your Account</a></p><br/><p>Best Regards,<br/>Smart Teams Onboarding</p>`
+        html: `<h3>Hello ${escapeHtml(request.companyName)} Admin,</h3><p>Your tenancy has been approved by the Super Admin under the <strong>${escapeHtml(tenant[0].plan)} plan</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${escapeHtml(request.email)}</code><br/>Temporary Password: <code>${escapeHtml(tempPassword)}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#7B5CFA;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Activate Your Account</a></p><br/><p>Best Regards,<br/>Smart Teams Onboarding</p>`
       });
 
       // Email is the ONLY channel this credential ever went out through

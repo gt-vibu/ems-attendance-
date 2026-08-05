@@ -98,7 +98,14 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
 
-  app.use(express.json({ limit: '50mb' }));
+  // Was 50mb — a generous global limit on every JSON endpoint, not just the
+  // one route that actually needs headroom. Document uploads
+  // (documents.routes.ts) go over this same global parser as base64-in-JSON
+  // and cap the underlying file at 15MB (MAX_FILE_BYTES), which base64-
+  // inflates to ~20.1MB of JSON — 25mb keeps real headroom for that one
+  // legitimate case while cutting the effective DoS/memory-pressure surface
+  // on every other endpoint roughly in half.
+  app.use(express.json({ limit: '25mb' }));
 
   // Versioned API surface for external integrations: /api/v1/* is a plain
   // rewrite to the existing /api/* routes below, not a duplicate route

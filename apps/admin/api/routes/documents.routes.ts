@@ -11,6 +11,19 @@ export const router = Router();
 
 const CATEGORIES = ['offer_letter', 'contract', 'id_proof', 'certificate', 'attendance_correction', 'other'];
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB — plenty for a scanned ID/contract PDF, small enough to keep base64-in-JSON upload practical
+// Defense-in-depth allowlist — the client-declared mimeType was previously
+// stored and later replayed verbatim as the download's Content-Type with no
+// validation. Content-Disposition: attachment (see the download route
+// below) already forces a download rather than inline rendering, so this
+// isn't closing an active stored-XSS hole, but an arbitrary/spoofed MIME
+// type has no legitimate reason to be accepted for what's meant to be
+// scanned IDs/contracts/certificates.
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/heic',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 
 // Gated two ways: the tenant admin's own on/off switch (documentsEnabled),
 // AND the platform layer above it (isPlatformFeatureAllowed 'documents') —
@@ -42,12 +55,15 @@ router.post('/api/tenant/documents', authenticate, async (req: any, res: any) =>
     if (!fileName || !mimeType || !fileBase64) {
       return res.status(400).json({ error: 'fileName, mimeType, and fileBase64 are required.' });
     }
+    if (!ALLOWED_MIME_TYPES.has(String(mimeType).toLowerCase())) {
+      return res.status(400).json({ error: `Unsupported file type: ${mimeType}. Allowed: PDF, PNG, JPEG, WEBP, HEIC, DOC, DOCX.` });
+    }
     if (!(await canAccessEmployeeDocuments(req, targetUserId))) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
 
-    const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
-    if (targetRows.length === 0 || targetRows[0].tenantId !== tenantId) {
+    const targetRows = await db.select().from(schema.users).where(and(eq(schema.users.id, targetUserId), eq(schema.users.tenantId, tenantId))).limit(1);
+    if (targetRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const scopedBranchIds = await getScopedBranchIds(req.user);
