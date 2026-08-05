@@ -91,7 +91,7 @@ export default function NotificationBell() {
       <button
         type="button"
         aria-label="Notifications"
-        onClick={navigateToNotifications}
+        onClick={() => setOpen((o) => !o)}
         className="relative p-2 rounded-full text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)] cursor-pointer"
       >
         <Bell size={18} />

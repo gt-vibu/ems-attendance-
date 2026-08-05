@@ -99,10 +99,16 @@ function isPaidLeaveRequest(request: any, policies: any[]) {
 // filter on req.user.userId server-side.
 export default function EmployeeDashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
   const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'overview';
-  const [tab, setTab] = useState(initialTab);
+  const urlTab = searchParams.get('tab');
+  const [tab, setTab] = useState(urlTab || 'overview');
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (urlTab && urlTab !== tab) {
+      setTab(urlTab);
+    }
+  }, [urlTab]);
 
   const fetchNotifications = async () => {
     try {

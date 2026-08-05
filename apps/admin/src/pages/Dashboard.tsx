@@ -565,17 +565,18 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
   // effect previously reset activeTab back to 'home' on every `user`
   // reference change, which could silently override a tab the user had
   // just clicked into if anything upstream ever re-issued the user object.
-  const hasInitializedTab = useRef(false);
+  const currentUrlTab = searchParams.get('tab');
   useEffect(() => {
-    if (!hasInitializedTab.current) {
-      hasInitializedTab.current = true;
-      const requestedTab = searchParams.get('tab');
-      if (requestedTab === 'administration') {
-        navigate('/tenant/admin', { replace: true });
-      } else {
-        setActiveTab(requestedTab || 'home');
-      }
+    if (currentUrlTab === 'administration') {
+      navigate('/tenant/admin', { replace: true });
+    } else if (currentUrlTab) {
+      setActiveTab(currentUrlTab);
+    } else if (!activeTab) {
+      setActiveTab('home');
     }
+  }, [currentUrlTab]);
+
+  useEffect(() => {
     if (user.role === 'super_admin') {
       fetchSuperAdminData();
     } else {
