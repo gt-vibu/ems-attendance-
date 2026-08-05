@@ -48,12 +48,33 @@ async function startServer() {
   // the chain so it times the whole request. JSON lines in production.
   app.use(requestLogger);
 
+  // CSP is only enabled in production: dev mode runs behind Vite's own
+  // middleware (HMR client injection, inline React-refresh preamble), which
+  // a CSP would break — see the NODE_ENV branch below that swaps in Vite
+  // vs. the static production build. Scoped to what this app's frontend
+  // actually loads: same-origin scripts/API calls (the JWT-in-localStorage
+  // exposure this closes a backstop for), Tailwind's runtime inline styles,
+  // the OpenStreetMap tile layer (LocationPicker.tsx) and data:/blob: image
+  // sources (QR codes, document downloads), and the PWA service worker
+  // (main.tsx / public/sw.js). No remote script sources are allowed — that's
+  // the actual XSS backstop this exists for.
+  const isProd = process.env.NODE_ENV === 'production';
   app.use(helmet({
-    // Disabled: this app is served together with a Vite dev server / inline
-    // scripts in some environments, which a strict default CSP would break.
-    // Consider enabling a tailored CSP once the production asset pipeline
-    // is finalized.
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProd ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        workerSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    } : false,
     crossOriginEmbedderPolicy: false,
   }));
 
