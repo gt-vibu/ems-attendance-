@@ -343,7 +343,20 @@ router.get('/api/tenant/leave/requests', authenticate, async (req: any, res: any
       ? await db.select().from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId))
       : await db.select().from(schema.users).where(and(eq(schema.users.tenantId, req.user.tenantId), inArray(schema.users.branchId, scopedBranchIds)));
     const userById = new Map(users.map((user: any) => [user.id, user]));
-    const requests = (await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, req.user.tenantId)).orderBy(desc(schema.leaveRequests.createdAt)))
+    // Pagination: optional `limit`/`offset` query params for callers that
+    // want to page through history; existing callers (which read `requests`
+    // as a flat array with no params) keep working unchanged, but are now
+    // capped at DEFAULT_LIST_LIMIT instead of an unbounded tenant-wide scan.
+    const DEFAULT_LIST_LIMIT = 500;
+    const MAX_LIST_LIMIT = 2000;
+    const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIST_LIMIT));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const rows = await db.select().from(schema.leaveRequests)
+      .where(eq(schema.leaveRequests.tenantId, req.user.tenantId))
+      .orderBy(desc(schema.leaveRequests.createdAt))
+      .limit(limit)
+      .offset(offset);
+    const requests = rows
       .filter((request: any) => userById.has(request.userId))
       .map((request: any) => {
         const employee: any = userById.get(request.userId);
@@ -355,7 +368,7 @@ router.get('/api/tenant/leave/requests', authenticate, async (req: any, res: any
           department: employee?.department || '',
         };
       });
-    res.json({ requests });
+    res.json({ requests, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

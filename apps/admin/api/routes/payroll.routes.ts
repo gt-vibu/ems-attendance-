@@ -233,14 +233,32 @@ router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, re
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const runId = Number(req.params.runId);
-    const [run] = await db.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.id, runId)).limit(1);
-    if (!run || run.tenantId !== req.user.tenantId) {
+    const locked = await db.transaction(async (tx: any) => {
+      const [run] = await tx.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.id, runId)).limit(1);
+      if (!run || run.tenantId !== req.user.tenantId) {
+        return { notFound: true } as const;
+      }
+      if (run.status === 'locked') {
+        return { alreadyLocked: true } as const;
+      }
+      // Guard the UPDATE itself on status='generated' so a concurrent lock
+      // request racing this one is a no-op instead of a double-apply — the
+      // SELECT above is just for the friendly error message, not the safety.
+      const result = await tx.update(schema.payrollRuns)
+        .set({ status: 'locked' })
+        .where(and(eq(schema.payrollRuns.id, runId), eq(schema.payrollRuns.status, run.status)))
+        .returning({ id: schema.payrollRuns.id });
+      if (result.length === 0) {
+        return { alreadyLocked: true } as const;
+      }
+      return { ok: true } as const;
+    });
+    if ('notFound' in locked && locked.notFound) {
       return res.status(404).json({ error: 'Payroll run not found.' });
     }
-    if (run.status === 'locked') {
+    if ('alreadyLocked' in locked && locked.alreadyLocked) {
       return res.status(400).json({ error: 'This payroll run is already locked.' });
     }
-    await db.update(schema.payrollRuns).set({ status: 'locked' }).where(eq(schema.payrollRuns.id, runId));
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -257,12 +275,24 @@ router.get('/api/tenant/payroll/adjustments', authenticate, async (req: any, res
     if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
-    const rows = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdjustments.createdAt));
-    const withNames = await Promise.all(rows.map(async (r: any) => {
-      const u = await db.select({ name: schema.users.name }).from(schema.users).where(eq(schema.users.id, r.userId)).limit(1);
-      return { ...r, userName: u[0]?.name || 'Unknown' };
-    }));
-    res.json({ adjustments: withNames });
+    const DEFAULT_LIST_LIMIT = 500;
+    const MAX_LIST_LIMIT = 2000;
+    const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIST_LIMIT));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const rows = await db.select().from(schema.payrollAdjustments)
+      .where(eq(schema.payrollAdjustments.tenantId, req.user.tenantId))
+      .orderBy(desc(schema.payrollAdjustments.createdAt))
+      .limit(limit)
+      .offset(offset);
+    // Batched name lookup instead of one query per row (N+1) — a single
+    // IN(...) query for every distinct userId on this page.
+    const userIds: number[] = Array.from(new Set<number>(rows.map((r: any) => r.userId as number)));
+    const nameRows = userIds.length > 0
+      ? await db.select({ id: schema.users.id, name: schema.users.name }).from(schema.users).where(inArray(schema.users.id, userIds))
+      : [];
+    const nameById = new Map(nameRows.map((u: any) => [u.id, u.name]));
+    const withNames = rows.map((r: any) => ({ ...r, userName: nameById.get(r.userId) || 'Unknown' }));
+    res.json({ adjustments: withNames, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -281,49 +311,69 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = Number(req.params.id);
-    const [adjustment] = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.id, id)).limit(1);
-    if (!adjustment || adjustment.tenantId !== req.user.tenantId) {
+    const applyToNextCycle = !!req.body?.applyToNextCycle;
+
+    const outcome = await db.transaction(async (tx: any) => {
+      const [adjustment] = await tx.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.id, id)).limit(1);
+      if (!adjustment || adjustment.tenantId !== req.user.tenantId) {
+        return { notFound: true } as const;
+      }
+      if (adjustment.status === 'applied') {
+        return { alreadyApplied: true } as const;
+      }
+      // Guard the UPDATE on status='pending' so a concurrent apply request
+      // for the same adjustment can't both pass the check above and both
+      // insert a superseding payroll run version below.
+      const claimed = await tx.update(schema.payrollAdjustments).set({
+        status: 'applied',
+        appliedToNextCycle: applyToNextCycle,
+        appliedAt: new Date(),
+      }).where(and(eq(schema.payrollAdjustments.id, id), eq(schema.payrollAdjustments.status, adjustment.status)))
+        .returning({ id: schema.payrollAdjustments.id });
+      if (claimed.length === 0) {
+        return { alreadyApplied: true } as const;
+      }
+
+      // Versioned Payslips: applying an adjustment against an already-
+      // released/locked period never overwrites the original payslip row —
+      // it inserts a new version pointing back at the one it supersedes, so
+      // both the original and the revised payslip stay downloadable (see
+      // GET /api/payroll/history/:runId/pdf, which is keyed by runId and
+      // therefore already works unchanged for either version). Skipped
+      // entirely when applyToNextCycle is true — that path intentionally
+      // folds into the NEXT period's calculation instead of revising this one.
+      if (!applyToNextCycle) {
+        const latestVersions = await tx.select().from(schema.payrollRuns)
+          .where(eq(schema.payrollRuns.id, adjustment.payrollRunId))
+          .limit(1);
+        const originalRun = latestVersions[0];
+        if (originalRun) {
+          const allVersions = await tx.select().from(schema.payrollRuns).where(
+            and(eq(schema.payrollRuns.userId, originalRun.userId), eq(schema.payrollRuns.year, originalRun.year), eq(schema.payrollRuns.month, originalRun.month))
+          ).orderBy(desc(schema.payrollRuns.version));
+          const latest = allVersions[0] || originalRun;
+          const newBreakdown = [...(Array.isArray(latest.breakdown) ? latest.breakdown : []), { type: 'adjustment', amount: adjustment.amountDelta, reason: adjustment.reason }];
+          await tx.insert(schema.payrollRuns).values({
+            tenantId: latest.tenantId, userId: latest.userId, profileId: latest.profileId, year: latest.year, month: latest.month,
+            batchId: latest.batchId, version: latest.version + 1, supersedesRunId: latest.id,
+            workingDays: latest.workingDays, approvedLeaveDays: latest.approvedLeaveDays, unpaidAbsenceDays: latest.unpaidAbsenceDays,
+            lopDeduction: latest.lopDeduction, overtimeHours: latest.overtimeHours, grossPay: latest.grossPay,
+            leaveDeduction: latest.leaveDeduction, overtimePay: latest.overtimePay,
+            netPay: latest.netPay + adjustment.amountDelta, breakdown: newBreakdown, status: latest.status,
+          });
+        }
+      }
+
+      return { ok: true, adjustment } as const;
+    });
+
+    if ('notFound' in outcome && outcome.notFound) {
       return res.status(404).json({ error: 'Adjustment not found.' });
     }
-    if (adjustment.status === 'applied') {
+    if ('alreadyApplied' in outcome && outcome.alreadyApplied) {
       return res.status(400).json({ error: 'This adjustment has already been applied.' });
     }
-    const applyToNextCycle = !!req.body?.applyToNextCycle;
-    await db.update(schema.payrollAdjustments).set({
-      status: 'applied',
-      appliedToNextCycle: applyToNextCycle,
-      appliedAt: new Date(),
-    }).where(eq(schema.payrollAdjustments.id, id));
-
-    // Versioned Payslips: applying an adjustment against an already-
-    // released/locked period never overwrites the original payslip row —
-    // it inserts a new version pointing back at the one it supersedes, so
-    // both the original and the revised payslip stay downloadable (see
-    // GET /api/payroll/history/:runId/pdf, which is keyed by runId and
-    // therefore already works unchanged for either version). Skipped
-    // entirely when applyToNextCycle is true — that path intentionally
-    // folds into the NEXT period's calculation instead of revising this one.
-    if (!applyToNextCycle) {
-      const latestVersions = await db.select().from(schema.payrollRuns)
-        .where(eq(schema.payrollRuns.id, adjustment.payrollRunId))
-        .limit(1);
-      const originalRun = latestVersions[0];
-      if (originalRun) {
-        const allVersions = await db.select().from(schema.payrollRuns).where(
-          and(eq(schema.payrollRuns.userId, originalRun.userId), eq(schema.payrollRuns.year, originalRun.year), eq(schema.payrollRuns.month, originalRun.month))
-        ).orderBy(desc(schema.payrollRuns.version));
-        const latest = allVersions[0] || originalRun;
-        const newBreakdown = [...(Array.isArray(latest.breakdown) ? latest.breakdown : []), { type: 'adjustment', amount: adjustment.amountDelta, reason: adjustment.reason }];
-        await db.insert(schema.payrollRuns).values({
-          tenantId: latest.tenantId, userId: latest.userId, profileId: latest.profileId, year: latest.year, month: latest.month,
-          batchId: latest.batchId, version: latest.version + 1, supersedesRunId: latest.id,
-          workingDays: latest.workingDays, approvedLeaveDays: latest.approvedLeaveDays, unpaidAbsenceDays: latest.unpaidAbsenceDays,
-          lopDeduction: latest.lopDeduction, overtimeHours: latest.overtimeHours, grossPay: latest.grossPay,
-          leaveDeduction: latest.leaveDeduction, overtimePay: latest.overtimePay,
-          netPay: latest.netPay + adjustment.amountDelta, breakdown: newBreakdown, status: latest.status,
-        });
-      }
-    }
+    const adjustment = outcome.adjustment;
 
     await logToAuditLedger({
       tenantId: req.user.tenantId,

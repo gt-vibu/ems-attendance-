@@ -17,6 +17,15 @@ import { computeLeaveBalancesForUser } from './leave.routes';
 
 export const router = Router();
 
+// Shared pagination-param parsing for the tenant-wide list endpoints below —
+// default cap prevents an unbounded full-table scan/response while leaving
+// existing callers (which pass no params) working unchanged.
+function parsePagination(req: any, defaultLimit = 500, maxLimit = 2000) {
+  const limit = Math.min(maxLimit, Math.max(1, Number(req.query.limit) || defaultLimit));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  return { limit, offset };
+}
+
 async function notifyOrFallback(tenantId: number, eventType: string, subjectUserId: number, subjectName: string, data: Record<string, any>, fallbackTitle: string, fallbackMessage: string) {
   const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
   if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
@@ -92,8 +101,9 @@ router.get('/api/tenant/payroll/advances', authenticate, async (req: any, res: a
     if (!await hasPrivilege(req.user, 'payroll.loans.manage') && !await hasPrivilege(req.user, 'payroll.read')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const rows = await db.select().from(schema.payrollAdvances).where(eq(schema.payrollAdvances.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdvances.createdAt));
-    res.json({ advances: rows });
+    const { limit, offset } = parsePagination(req);
+    const rows = await db.select().from(schema.payrollAdvances).where(eq(schema.payrollAdvances.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdvances.createdAt)).limit(limit).offset(offset);
+    res.json({ advances: rows, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -132,10 +142,11 @@ router.post('/api/tenant/payroll/advances', authenticate, async (req: any, res: 
 router.get('/api/tenant/payroll/reimbursements', authenticate, async (req: any, res: any) => {
   try {
     const canManage = await hasPrivilege(req.user, 'payroll.reimbursements.manage');
+    const { limit, offset } = parsePagination(req);
     const rows = canManage
-      ? await db.select().from(schema.payrollReimbursements).where(eq(schema.payrollReimbursements.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollReimbursements.createdAt))
-      : await db.select().from(schema.payrollReimbursements).where(and(eq(schema.payrollReimbursements.tenantId, req.user.tenantId), eq(schema.payrollReimbursements.userId, req.user.userId))).orderBy(desc(schema.payrollReimbursements.createdAt));
-    res.json({ reimbursements: rows });
+      ? await db.select().from(schema.payrollReimbursements).where(eq(schema.payrollReimbursements.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollReimbursements.createdAt)).limit(limit).offset(offset)
+      : await db.select().from(schema.payrollReimbursements).where(and(eq(schema.payrollReimbursements.tenantId, req.user.tenantId), eq(schema.payrollReimbursements.userId, req.user.userId))).orderBy(desc(schema.payrollReimbursements.createdAt)).limit(limit).offset(offset);
+    res.json({ reimbursements: rows, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -1543,6 +1543,24 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
+    // Hot-path composite indexes (architecture audit, 2026-08-05) — Postgres
+    // does not auto-index FK columns, and every list/lookup query above
+    // filters by (tenant_id, ...), so without these the attendance/leave/
+    // payroll endpoints degrade to sequential scans as tenants grow. Each
+    // is wrapped individually, same as the ALTER TABLE statements above, so
+    // one failing (e.g. table not yet created on a fresh boot ordering
+    // issue) never blocks the rest of sync.
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS attendance_logs_tenant_user_created_idx ON attendance_logs (tenant_id, user_id, created_at);`); } catch (e) { console.error('Index sync failed (attendance_logs_tenant_user_created_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS attendance_logs_tenant_created_idx ON attendance_logs (tenant_id, created_at);`); } catch (e) { console.error('Index sync failed (attendance_logs_tenant_created_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS leave_requests_tenant_status_idx ON leave_requests (tenant_id, status);`); } catch (e) { console.error('Index sync failed (leave_requests_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS leave_requests_tenant_user_idx ON leave_requests (tenant_id, user_id);`); } catch (e) { console.error('Index sync failed (leave_requests_tenant_user_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_runs_tenant_year_month_idx ON payroll_runs (tenant_id, year, month);`); } catch (e) { console.error('Index sync failed (payroll_runs_tenant_year_month_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_adjustments_tenant_status_idx ON payroll_adjustments (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_adjustments_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_loans_tenant_status_idx ON payroll_loans (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_loans_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_advances_tenant_status_idx ON payroll_advances (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_advances_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_reimbursements_tenant_status_idx ON payroll_reimbursements (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_reimbursements_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_ledger_entries_tenant_year_month_idx ON payroll_ledger_entries (tenant_id, year, month);`); } catch (e) { console.error('Index sync failed (payroll_ledger_entries_tenant_year_month_idx):', e); }
+
     console.log('Database tables verified and synchronized successfully.');
   } catch (err) {
     console.error('Failed to synchronize database tables:', err);

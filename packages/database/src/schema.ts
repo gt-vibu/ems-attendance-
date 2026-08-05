@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex, index } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
@@ -433,7 +433,14 @@ export const attendanceLogs = pgTable('attendance_logs', {
   // services/attendanceDayStatus.ts's 'pending_checkout_verification' status.
   pendingVerification: boolean('pending_verification').default(false),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  // Hot path for day-status resolution and payroll input computation:
+  // "give me this employee's logs in this tenant within a date range"
+  // (attendanceDayStatus.ts loadMonthInputs). Postgres doesn't auto-index
+  // FK columns, so without this every such lookup is a sequential scan.
+  tenantUserCreatedIdx: index('attendance_logs_tenant_user_created_idx').on(table.tenantId, table.userId, table.createdAt),
+  tenantCreatedIdx: index('attendance_logs_tenant_created_idx').on(table.tenantId, table.createdAt),
+}));
 
 // Relationships
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -1153,7 +1160,12 @@ export const leaveRequests = pgTable('leave_requests', {
   // something.
   escalationLevel: integer('escalation_level').notNull().default(0),
   lastEscalatedAt: timestamp('last_escalated_at'),
-});
+}, (table) => ({
+  // Tenant-wide "list pending/approved requests" and per-employee history
+  // both filter on these columns (leave.routes.ts GET /api/tenant/leave/requests).
+  tenantStatusIdx: index('leave_requests_tenant_status_idx').on(table.tenantId, table.status),
+  tenantUserIdx: index('leave_requests_tenant_user_idx').on(table.tenantId, table.userId),
+}));
 
 export const payrollSettings = pgTable('payroll_settings', {
   id: serial('id').primaryKey(),
@@ -1299,6 +1311,9 @@ export const payrollRuns = pgTable('payroll_runs', {
   // always targets version 1 explicitly — this is additive, not a
   // behavior change for either of them.
   userPeriodVersionUnique: uniqueIndex('payroll_runs_user_period_version_unique').on(table.userId, table.year, table.month, table.version),
+  // Tenant-wide batch/period lookups (payroll.routes.ts generate/history)
+  // filter on exactly this triple.
+  tenantYearMonthIdx: index('payroll_runs_tenant_year_month_idx').on(table.tenantId, table.year, table.month),
 }));
 
 // Once a payroll_runs row is locked (status = 'locked'), it is never
@@ -1327,7 +1342,12 @@ export const payrollAdjustments = pgTable('payroll_adjustments', {
   appliedToNextCycle: boolean('applied_to_next_cycle').notNull().default(false),
   appliedAt: timestamp('applied_at'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  // GET /api/tenant/payroll/adjustments lists by tenantId (unbounded scan
+  // today, see the pagination fix) — this at least makes the scan an
+  // index-only lookup instead of a full table scan once paginated.
+  tenantStatusIdx: index('payroll_adjustments_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 // A tenant-configurable payroll calendar for one (year, month) period —
 // freeze/calculation/review/release/credit dates. Batch lifecycle routes
@@ -1403,7 +1423,9 @@ export const payrollLoans = pgTable('payroll_loans', {
   reason: text('reason'),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_loans_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollAdvances = pgTable('payroll_advances', {
   id: serial('id').primaryKey(),
@@ -1419,7 +1441,9 @@ export const payrollAdvances = pgTable('payroll_advances', {
   reason: text('reason'),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_advances_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollReimbursements = pgTable('payroll_reimbursements', {
   id: serial('id').primaryKey(),
@@ -1434,7 +1458,9 @@ export const payrollReimbursements = pgTable('payroll_reimbursements', {
   approvedAt: timestamp('approved_at'),
   payrollBatchId: integer('payroll_batch_id'), // set once actually paid out in a batch
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_reimbursements_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollBonuses = pgTable('payroll_bonuses', {
   id: serial('id').primaryKey(),
@@ -1493,7 +1519,9 @@ export const payrollLedgerEntries = pgTable('payroll_ledger_entries', {
   year: integer('year').notNull(),
   month: integer('month').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantYearMonthIdx: index('payroll_ledger_entries_tenant_year_month_idx').on(table.tenantId, table.year, table.month),
+}));
 
 // Generated once an employee's termination has been approved
 // (terminationRequests.status = 'approved') — never automatic, an HR/
