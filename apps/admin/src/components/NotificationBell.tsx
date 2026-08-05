@@ -75,7 +75,11 @@ export default function NotificationBell() {
   const handleViewAll = async () => {
     await markAllRead();
     setOpen(false);
-    navigate('/dashboard?tab=notifications');
+    if (window.location.pathname.startsWith('/employee')) {
+      navigate('/employee/dashboard?tab=notifications');
+    } else {
+      navigate('/dashboard?tab=notifications');
+    }
   };
 
   return (

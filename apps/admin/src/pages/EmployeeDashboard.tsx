@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, Plus, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, Plus, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket, Bell } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -16,6 +16,7 @@ import ShiftSwapWidget from '../components/ShiftSwapWidget';
 import MyActivityPanel from '../components/MyActivityPanel';
 import TicketsPanel from '../components/TicketsPanel';
 import PushNotificationToggle from '../components/PushNotificationToggle';
+import NotificationsTab from './dashboard/NotificationsTab';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
 import ProfilePage from './ProfilePage';
@@ -97,8 +98,21 @@ function isPaidLeaveRequest(request: any, policies: any[]) {
 // breaks, requests) lives here. All data is self-scoped via endpoints that
 // filter on req.user.userId server-side.
 export default function EmployeeDashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
-  const [tab, setTab] = useState('overview');
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'overview';
+  const [tab, setTab] = useState(initialTab);
   const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('/api/tenant/notifications', { headers: authHeaders });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const [todayState, setTodayState] = useState<'not_started' | 'checked_in' | 'on_break' | 'checked_out'>('not_started');
   const [todayPending, setTodayPending] = useState(false);
@@ -435,7 +449,8 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
   useEffect(() => {
     loadDashboardData();
-    const handleSync = () => loadDashboardData();
+    fetchNotifications();
+    const handleSync = () => { loadDashboardData(); fetchNotifications(); };
     window.addEventListener('attendance-session-updated', handleSync);
     return () => window.removeEventListener('attendance-session-updated', handleSync);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -853,6 +868,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
     { id: 'tickets', label: 'Tickets', icon: Ticket },
     { id: 'team', label: 'Team', icon: Users },
     { id: 'announcements', label: 'Announcements', icon: Megaphone },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'activity', label: 'Activity', icon: History },
     { id: 'profile', label: 'Profile', icon: Fingerprint },
   ];
@@ -2036,6 +2052,13 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
 
       {/* TICKETS */}
       {tab === 'tickets' && <TicketsPanel user={user} />}
+
+      {/* NOTIFICATIONS */}
+      {tab === 'notifications' && (
+        <div className="space-y-6">
+          <NotificationsTab notifications={notifications} />
+        </div>
+      )}
 
       {/* Correction request modal */}
       {showCorrectionModal && (
