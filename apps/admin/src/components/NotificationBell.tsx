@@ -72,8 +72,7 @@ export default function NotificationBell() {
     }
   };
 
-  const handleViewAll = async () => {
-    await markAllRead();
+  const navigateToNotifications = () => {
     setOpen(false);
     if (window.location.pathname.startsWith('/employee')) {
       navigate('/employee/dashboard?tab=notifications');
@@ -82,13 +81,18 @@ export default function NotificationBell() {
     }
   };
 
+  const handleViewAll = async () => {
+    await markAllRead();
+    navigateToNotifications();
+  };
+
   return (
     <div className="relative" ref={containerRef}>
       <button
         type="button"
         aria-label="Notifications"
-        onClick={() => setOpen((o) => !o)}
-        className="relative p-2 rounded-full text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)]"
+        onClick={navigateToNotifications}
+        className="relative p-2 rounded-full text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)] cursor-pointer"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
@@ -116,8 +120,11 @@ export default function NotificationBell() {
                 <button
                   type="button"
                   key={n.id}
-                  onClick={() => markRead(n.id)}
-                  className="w-full text-left px-4 py-3 hover:bg-[var(--color-nexus-surface-alt)] transition-colors bg-[var(--color-nexus-primary-fixed)]/30"
+                  onClick={() => {
+                    markRead(n.id);
+                    navigateToNotifications();
+                  }}
+                  className="w-full text-left px-4 py-3 hover:bg-[var(--color-nexus-surface-alt)] transition-colors bg-[var(--color-nexus-primary-fixed)]/30 cursor-pointer"
                 >
                   <div className="flex items-start gap-2">
                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--color-nexus-primary)] shrink-0" />
@@ -135,7 +142,7 @@ export default function NotificationBell() {
             <button
               type="button"
               onClick={handleViewAll}
-              className="text-xs font-bold text-[var(--color-nexus-primary)] hover:underline"
+              className="text-xs font-bold text-[var(--color-nexus-primary)] hover:underline cursor-pointer"
             >
               View All Notifications →
             </button>
