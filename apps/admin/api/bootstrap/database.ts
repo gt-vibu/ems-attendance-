@@ -559,6 +559,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_holidays BOOLEAN DEFAULT true;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_weekends BOOLEAN DEFAULT true;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_approved_paid_leave BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS payroll_locking_enabled BOOLEAN NOT NULL DEFAULT true;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_compensation_profiles (
@@ -1497,6 +1498,7 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_face_evaluation BOOLEAN DEFAULT true;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS ignore_gps_during_break BOOLEAN DEFAULT true;`); } catch(e){}
     try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS overtime_threshold_mins INTEGER DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS allow_manual_attendance_freeze BOOLEAN DEFAULT true;`); } catch(e){}
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_preference_history (

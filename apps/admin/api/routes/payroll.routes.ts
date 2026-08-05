@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
-import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
+import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
 import { notify } from '../services/notificationService';
 import {
@@ -232,6 +232,13 @@ router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, re
   try {
     if (!await hasPrivilege(req.user, 'payroll.lock')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments')) {
+      return res.status(403).json({ error: 'Payroll Lock & Adjustments is not included in your organization\'s plan.' });
+    }
+    const lockSettings = await getOrCreatePayrollSettings(req.user.tenantId);
+    if (!lockSettings.payrollLockingEnabled) {
+      return res.status(400).json({ error: 'Payroll locking is turned off for this organization. Enable it in Payroll Settings first.' });
     }
     const runId = Number(req.params.runId);
     const locked = await db.transaction(async (tx: any) => {
@@ -462,7 +469,8 @@ router.get('/api/tenant/payroll/settings', authenticate, async (req: any, res: a
       return res.status(403).json({ error: 'Access denied.' });
     }
     const settings = await getOrCreatePayrollSettings(req.user.tenantId);
-    res.json({ settings });
+    const lockingFeatureAllowed = await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments');
+    res.json({ settings, lockingFeatureAllowed });
   } catch (err: any) {
     sendServerError(res, err, "payroll.routes.ts");
   }
@@ -475,6 +483,7 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
     }
     const current = await getOrCreatePayrollSettings(req.user.tenantId);
     const patch = {
+      payrollLockingEnabled: req.body?.payrollLockingEnabled !== undefined ? !!req.body.payrollLockingEnabled : (current.payrollLockingEnabled ?? true),
       workingDaysPerMonth: Number(req.body?.workingDaysPerMonth || current.workingDaysPerMonth),
       lopCalculationPolicy: ['fixed_26', 'calendar_days', 'working_days'].includes(req.body?.lopCalculationPolicy) ? req.body.lopCalculationPolicy : (current.lopCalculationPolicy || 'fixed_26'),
       monthlySalaryBasis: ['30_days', 'actual_calendar_days', 'working_days'].includes(req.body?.monthlySalaryBasis) ? req.body.monthlySalaryBasis : (current.monthlySalaryBasis || 'actual_calendar_days'),
@@ -1294,6 +1303,16 @@ function makeTransitionRoute(opts: {
 
       if (opts.path === 'release') {
         await finalizePayrollBatchFinancials(batch.id);
+      }
+
+      if (opts.path === 'lock') {
+        if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments')) {
+          return res.status(403).json({ error: 'Payroll Lock & Adjustments is not included in your organization\'s plan.' });
+        }
+        const lockSettings = await getOrCreatePayrollSettings(req.user.tenantId);
+        if (!lockSettings.payrollLockingEnabled) {
+          return res.status(400).json({ error: 'Payroll locking is turned off for this organization. Enable it in Payroll Settings first.' });
+        }
       }
 
       const updateSet: Record<string, any> = { status: opts.toStatus };

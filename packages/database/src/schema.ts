@@ -1176,6 +1176,14 @@ export const payrollSettings = pgTable('payroll_settings', {
   // behavior, unchanged) — a tenant explicitly opts into the stricter
   // "block release" policy.
   blockPayrollReleaseOnPendingAdjustments: boolean('block_payroll_release_on_pending_adjustments').default(false),
+  // Tenant-admin-facing on/off switch for the payroll lock workflow
+  // (POST /api/tenant/payroll/:runId/lock — see payroll.routes.ts). Sits
+  // BELOW the super-admin platform feature 'payroll_lock_adjustments' in
+  // the gating chain: a tenant only sees/can use this at all if the
+  // platform allows it for their plan, and this flag is then their own
+  // choice of whether to actually turn the enforcement on. Defaults true
+  // so existing behavior for tenants already using locking is unchanged.
+  payrollLockingEnabled: boolean('payroll_locking_enabled').notNull().default(true),
   workingDaysPerMonth: integer('working_days_per_month').notNull().default(26),
   lopCalculationPolicy: text('lop_calculation_policy').default('fixed_26'), // 'fixed_26' | 'calendar_days' | 'working_days'
   monthlySalaryBasis: text('monthly_salary_basis').default('actual_calendar_days'), // '30_days' | 'actual_calendar_days' | 'working_days'
@@ -2054,6 +2062,14 @@ export const attendancePreferences = pgTable('attendance_preferences', {
   showAttendanceTimeline: boolean('show_attendance_timeline').default(true),
   allowEmployeeNotes: boolean('allow_employee_notes').default(true),
   allowAttendanceRegularization: boolean('allow_attendance_regularization').default(true),
+  // Tenant-admin-facing on/off switch for the manual "close the books"
+  // attendance freeze workflow (POST /api/tenant/attendance/freeze — see
+  // attendance.routes.ts). Sits BELOW the super-admin platform feature
+  // 'attendance_freeze': a tenant only sees/can use this at all if the
+  // platform allows it for their plan, and this flag is then their own
+  // choice of whether the workflow is actually turned on. Defaults true so
+  // existing behavior for tenants already using freeze is unchanged.
+  allowManualAttendanceFreeze: boolean('allow_manual_attendance_freeze').default(true),
   allowBreakTracking: boolean('allow_break_tracking').default(true),
   allowManualCheckout: boolean('allow_manual_checkout').default(true),
   requireCheckoutReason: boolean('require_checkout_reason').default(false),

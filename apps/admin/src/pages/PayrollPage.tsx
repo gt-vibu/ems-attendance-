@@ -18,6 +18,8 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [payrollSettings, setPayrollSettings] = useState<any>(null);
+  const [lockingFeatureAllowed, setLockingFeatureAllowed] = useState(true);
+  const [savingLockToggle, setSavingLockToggle] = useState(false);
   const [payrollOverview, setPayrollOverview] = useState<any>(null);
   const [employees, setEmployees] = useState<any[]>([]);
 
@@ -39,6 +41,7 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
         throw new Error(settingsData.error || overviewData.error || 'Could not load payroll data.');
       }
       setPayrollSettings(settingsData.settings || null);
+      setLockingFeatureAllowed(settingsData.lockingFeatureAllowed !== false);
       setPayrollOverview(overviewRes.ok ? overviewData : null);
       setEmployees(Array.isArray(usersData.users) ? usersData.users.filter((row: any) => row.role !== 'tenant_admin') : []);
     } catch (err: any) {
@@ -51,6 +54,25 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   useEffect(() => {
     refresh();
   }, []);
+
+  const togglePayrollLocking = async (enabled: boolean) => {
+    setSavingLockToggle(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/payroll/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payrollLockingEnabled: enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not update payroll locking setting.');
+      setPayrollSettings(data.settings || payrollSettings);
+    } catch (err: any) {
+      setError(err.message || 'Could not update payroll locking setting.');
+    } finally {
+      setSavingLockToggle(false);
+    }
+  };
 
   const metrics = useMemo(() => ({
     annualCtc: payrollOverview?.totals?.totalAnnualCtc || 0,
@@ -256,16 +278,45 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
       )}
 
       {activeTab === 'policy_settings' && (
-        <div className="space-y-4 text-xs">
-          <h4 className="font-bold text-sm text-[var(--color-nexus-ink)]">Statutory Compliance & Deduction Rules</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]">
-              <span className="font-bold text-[var(--color-nexus-ink)] block">Provident Fund (PF) Rate</span>
-              <span className="text-[11px] text-[var(--color-nexus-muted)]">Standard employee/employer contribution percentage (12%)</span>
-            </div>
-            <div className="p-4 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]">
-              <span className="font-bold text-[var(--color-nexus-ink)] block">ESI Contribution</span>
-              <span className="text-[11px] text-[var(--color-nexus-muted)]">Statutory employee health insurance deduction</span>
+        <div className="space-y-5 text-xs">
+          <div>
+            <h4 className="font-bold text-sm text-[var(--color-nexus-ink)] mb-2">Payroll Locking</h4>
+            {lockingFeatureAllowed ? (
+              <label className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] cursor-pointer">
+                <div>
+                  <span className="font-bold text-[var(--color-nexus-ink)] block">Enable Payroll Run Locking</span>
+                  <span className="text-[11px] text-[var(--color-nexus-muted)]">
+                    Once a payroll run is locked it can never be silently recalculated — corrections after that point
+                    are issued as a separate Payroll Adjustment instead. Turning this off hides the Lock action; it
+                    does not affect runs already locked.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!payrollSettings?.payrollLockingEnabled}
+                  disabled={savingLockToggle}
+                  onChange={(e) => togglePayrollLocking(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 ml-4 shrink-0"
+                />
+              </label>
+            ) : (
+              <div className="p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-muted)]">
+                Payroll Lock & Adjustments is not included in your organization's plan. Contact your platform administrator to enable it.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h4 className="font-bold text-sm text-[var(--color-nexus-ink)] mb-2">Statutory Compliance & Deduction Rules</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]">
+                <span className="font-bold text-[var(--color-nexus-ink)] block">Provident Fund (PF) Rate</span>
+                <span className="text-[11px] text-[var(--color-nexus-muted)]">Standard employee/employer contribution percentage (12%)</span>
+              </div>
+              <div className="p-3.5 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]">
+                <span className="font-bold text-[var(--color-nexus-ink)] block">ESI Contribution</span>
+                <span className="text-[11px] text-[var(--color-nexus-muted)]">Statutory employee health insurance deduction</span>
+              </div>
             </div>
           </div>
         </div>

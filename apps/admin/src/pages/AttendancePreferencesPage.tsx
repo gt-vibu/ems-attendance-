@@ -255,6 +255,22 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
               className="w-4 h-4 rounded text-blue-600"
             />
           </div>
+
+          <div className="pt-4 border-t border-[var(--color-nexus-border)] flex items-center justify-between">
+            <div>
+              <span className="font-bold text-[var(--color-nexus-ink)] block">Allow Manual Attendance Freeze</span>
+              <span className="text-[11px] text-[var(--color-nexus-muted)]">
+                Lets HR manually close a month's attendance ("freeze" it) so it feeds locked payroll. Once frozen, a
+                period is never reopened — corrections after that point go through the payroll adjustment flow instead.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={prefs.allowManualAttendanceFreeze !== false}
+              onChange={(e) => updatePref('allowManualAttendanceFreeze', e.target.checked)}
+              className="w-4 h-4 rounded text-blue-600"
+            />
+          </div>
         </div>
       ),
     },

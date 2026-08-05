@@ -61,6 +61,7 @@ export interface AttendancePrefs {
   showAttendanceTimeline: boolean;
   allowEmployeeNotes: boolean;
   allowAttendanceRegularization: boolean;
+  allowManualAttendanceFreeze: boolean;
   allowBreakTracking: boolean;
   allowManualCheckout: boolean;
   requireCheckoutReason: boolean;
@@ -123,6 +124,7 @@ export const SYSTEM_DEFAULTS: AttendancePrefs = {
   showAttendanceTimeline: true,
   allowEmployeeNotes: true,
   allowAttendanceRegularization: true,
+  allowManualAttendanceFreeze: true,
   allowBreakTracking: true,
   allowManualCheckout: true,
   requireCheckoutReason: false,
@@ -380,6 +382,7 @@ export const FIELD_LABELS: Record<string, string> = {
   showAttendanceTimeline: 'Show Attendance Timeline',
   allowEmployeeNotes: 'Allow Employee Notes',
   allowAttendanceRegularization: 'Allow Attendance Regularization',
+  allowManualAttendanceFreeze: 'Allow Manual Attendance Freeze',
   allowBreakTracking: 'Allow Break Tracking',
   allowManualCheckout: 'Allow Manual Checkout',
   requireCheckoutReason: 'Require Checkout Reason',

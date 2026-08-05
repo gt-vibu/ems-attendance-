@@ -110,6 +110,7 @@ router.put('/api/attendance-preferences', authenticate, async (req: any, res: an
       showAttendanceTimeline: 'showAttendanceTimeline',
       allowEmployeeNotes: 'allowEmployeeNotes',
       allowAttendanceRegularization: 'allowAttendanceRegularization',
+      allowManualAttendanceFreeze: 'allowManualAttendanceFreeze',
       allowBreakTracking: 'allowBreakTracking',
       allowManualCheckout: 'allowManualCheckout',
       requireCheckoutReason: 'requireCheckoutReason',

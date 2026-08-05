@@ -18,6 +18,7 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, getScopedBranchIds } from '../auth/rbac';
 import { notify } from '../services/notificationService';
 import { editAttendanceDay } from '../services/recordEdits';
+import { resolveAttendancePreferences } from '../services/attendancePreferencesService';
 import { raiseAttendanceAlert } from '../services/alerts';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
@@ -986,6 +987,12 @@ router.post('/api/tenant/attendance/freeze', authenticate, async (req: any, res:
     }
     if (!await isPlatformFeatureAllowed({ featuresAllowed: (await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0]?.featuresAllowed }, 'attendance_freeze')) {
       return res.status(403).json({ error: 'Attendance Freeze is not included in your organization\'s plan.' });
+    }
+    {
+      const freezePrefs = await resolveAttendancePreferences(req.user.tenantId);
+      if (!freezePrefs.allowManualAttendanceFreeze) {
+        return res.status(400).json({ error: 'Manual attendance freeze is turned off for this organization. Enable it in Attendance Preferences first.' });
+      }
     }
 
     const year = parseInt(req.body?.year, 10);
