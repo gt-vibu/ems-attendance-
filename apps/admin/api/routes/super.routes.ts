@@ -217,10 +217,10 @@ router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
       }
       const tenantsList = await db.select().from(schema.tenants).orderBy(desc(schema.tenants.createdAt));
 
-      const withCounts = await Promise.all(tenantsList.map(async (t: any) => {
-        const employees = await db.select().from(schema.users).where(eq(schema.users.tenantId, t.id));
-        return { ...t, employeeCount: employees.length };
-      }));
+      // Single grouped count instead of one query per tenant (N+1).
+      const countRows = await db.select({ tenantId: schema.users.tenantId, count: sql<number>`count(*)` }).from(schema.users).groupBy(schema.users.tenantId);
+      const countByTenant = new Map(countRows.map((r: any) => [r.tenantId, Number(r.count)]));
+      const withCounts = tenantsList.map((t: any) => ({ ...t, employeeCount: countByTenant.get(t.id) || 0 }));
 
       res.json({ tenants: withCounts });
     } catch (err: any) {

@@ -206,10 +206,13 @@ router.get('/api/tenant/wfh/location-change-requests', authenticate, async (req:
         )
         .orderBy(desc(schema.wfhLocationChangeRequests.createdAt));
 
-      const withNames = await Promise.all(list.map(async (r: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, r.userId));
-        return { ...r, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
-      }));
+      // Batched lookup instead of one query per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((r: any) => r.userId as number)));
+      const userRows = userIds.length > 0
+        ? await db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds))
+        : [];
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const withNames = list.map((r: any) => ({ ...r, userName: userById.get(r.userId)?.name || 'Unknown', userRole: userById.get(r.userId)?.role || '' }));
 
       res.json({ requests: withNames });
     } catch (err: any) {

@@ -390,11 +390,13 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
       const list = await db.select().from(schema.attendanceCorrections)
         .where(eq(schema.attendanceCorrections.userId, req.user.userId))
         .orderBy(desc(schema.attendanceCorrections.createdAt));
-      const withAttachments = await Promise.all(list.map(async (c: any) => {
-        if (c.documentId == null) return { ...c, attachmentFileName: null };
-        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
-        return { ...c, attachmentFileName: docRows[0]?.fileName || null };
-      }));
+      // Batched lookup instead of one query per correction (N+1).
+      const documentIds: number[] = Array.from(new Set<number>(list.filter((c: any) => c.documentId != null).map((c: any) => c.documentId as number)));
+      const docRows = documentIds.length > 0
+        ? await db.select({ id: schema.employeeDocuments.id, fileName: schema.employeeDocuments.fileName }).from(schema.employeeDocuments).where(inArray(schema.employeeDocuments.id, documentIds))
+        : [];
+      const fileNameById = new Map(docRows.map((d: any) => [d.id, d.fileName]));
+      const withAttachments = list.map((c: any) => ({ ...c, attachmentFileName: c.documentId != null ? (fileNameById.get(c.documentId) || null) : null }));
       res.json({ corrections: withAttachments });
     } catch (err: any) {
       sendServerError(res, err, "review.routes.ts");
@@ -438,21 +440,32 @@ router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) =
       if (!await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
+      const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 500));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
       const list = await db.select().from(schema.attendanceCorrections)
         .where(eq(schema.attendanceCorrections.tenantId, req.user.tenantId))
-        .orderBy(desc(schema.attendanceCorrections.createdAt));
+        .orderBy(desc(schema.attendanceCorrections.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-      const withNames = await Promise.all(list.map(async (c: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, c.userId));
-        let attachmentFileName: string | null = null;
-        if (c.documentId != null) {
-          const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
-          attachmentFileName = docRows[0]?.fileName || null;
-        }
-        return { ...c, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '', attachmentFileName };
+      // Batched lookups instead of two queries per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((c: any) => c.userId as number)));
+      const documentIds: number[] = Array.from(new Set<number>(list.filter((c: any) => c.documentId != null).map((c: any) => c.documentId as number)));
+      const [userRows, docRows] = await Promise.all([
+        userIds.length > 0 ? db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds)) : Promise.resolve([] as { id: number; name: string; role: string }[]),
+        documentIds.length > 0 ? db.select({ id: schema.employeeDocuments.id, fileName: schema.employeeDocuments.fileName }).from(schema.employeeDocuments).where(inArray(schema.employeeDocuments.id, documentIds)) : Promise.resolve([] as { id: number; fileName: string }[]),
+      ]);
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const fileNameById = new Map<number, any>(docRows.map((d: any) => [d.id, d.fileName]));
+
+      const withNames = list.map((c: any) => ({
+        ...c,
+        userName: userById.get(c.userId)?.name || 'Unknown',
+        userRole: userById.get(c.userId)?.role || '',
+        attachmentFileName: c.documentId != null ? (fileNameById.get(c.documentId) || null) : null,
       }));
 
-      res.json({ corrections: withNames });
+      res.json({ corrections: withNames, pagination: { limit, offset, returned: list.length } });
     } catch (err: any) {
       sendServerError(res, err, "review.routes.ts");
     }
@@ -600,10 +613,13 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
         )
         .orderBy(desc(schema.attendanceLogs.createdAt));
 
-      const withNames = await Promise.all(list.map(async (l: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, l.userId));
-        return { ...l, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
-      }));
+      // Batched lookup instead of one query per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((l: any) => l.userId as number)));
+      const userRows = userIds.length > 0
+        ? await db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds))
+        : [];
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const withNames = list.map((l: any) => ({ ...l, userName: userById.get(l.userId)?.name || 'Unknown', userRole: userById.get(l.userId)?.role || '' }));
 
       res.json({ logs: withNames });
     } catch (err: any) {
