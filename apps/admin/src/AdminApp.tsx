@@ -182,8 +182,8 @@ export default function AdminApp() {
           <Route path="/super/plan-features/:tenantId" element={user && user.role === 'super_admin' ? <PlanFeaturesPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/admin" element={user && canSeeDashboard(user.role) ? <AdminOverviewPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/directory" element={user && canSeeDashboard(user.role) ? <EmployeeDirectory user={user} onLogout={logout} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/teams" element={user && canManageTeams(user.role) ? <TeamsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/directory" element={<Navigate to="/dashboard?tab=directory" replace />} />
+          <Route path="/tenant/teams" element={<Navigate to="/dashboard?tab=teams" replace />} />
           <Route path="/tenant/workspace-boundaries" element={user && canSeeDashboard(user.role) ? <WorkspaceBoundariesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/settings" element={<Navigate to="/tenant/workspace-boundaries" replace />} />
           <Route path="/tenant/attendance-preferences" element={
