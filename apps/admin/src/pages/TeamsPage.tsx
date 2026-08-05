@@ -231,14 +231,20 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
   const content = (
     <div className="space-y-6">
+      {loading && (
+        <div className="p-8 text-center text-xs font-mono text-[var(--color-nexus-muted)]">
+          Loading team workspace…
+        </div>
+      )}
+
       {/* Alert Notices */}
-      {error && (
+      {!loading && error && (
         <div className="p-4 rounded-xl bg-[var(--color-nexus-error-soft)] border border-[var(--color-nexus-error)]/20 text-[var(--color-nexus-error)] text-xs font-semibold flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError('')} className="p-1 hover:opacity-80"><X size={14} /></button>
         </div>
       )}
-      {success && (
+      {!loading && success && (
         <div className="p-4 rounded-xl bg-[var(--color-nexus-secondary-container)] border border-[var(--color-nexus-secondary)]/30 text-[var(--color-nexus-secondary)] text-xs font-semibold flex items-center justify-between">
           <span>{success}</span>
           <button onClick={() => setSuccess('')} className="p-1 hover:opacity-80"><X size={14} /></button>
@@ -246,6 +252,8 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       )}
 
       {/* Main Single Workspace Header */}
+      {!loading && (
+      <>
       <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -591,6 +599,8 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
             </div>
           )}
         </>
+      )}
+      </>
       )}
 
       {/* CREATE TEAM MODAL */}

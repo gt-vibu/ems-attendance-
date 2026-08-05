@@ -537,9 +537,14 @@ router.get('/api/super/system-health', authenticate, async (req: any, res: any) 
 
       res.json({ checks, checkedAt: new Date().toISOString() });
     } catch (err: any) {
-      // If we got here, the database check itself is what failed —
-      // report that directly instead of a generic 500.
-      res.status(500).json({ error: err.message, checks: [{ id: 'database', label: 'Database', status: 'unhealthy', detail: err.message }] });
+      // If we got here, the database check itself is what failed. Logged
+      // server-side (with full detail) via logger.error inside
+      // sendServerError below rather than echoing the raw error text back
+      // in the response — this is still an authenticated response body,
+      // not a server log, so it follows the same sanitization convention
+      // as every other endpoint even though the audience is super_admin only.
+      logger.error('super.routes.ts (system-health) check failed', { error: err?.message, stack: err?.stack });
+      res.status(500).json({ error: 'Health check failed to run.', checks: [{ id: 'database', label: 'Database', status: 'unhealthy', detail: 'Health check failed to run — see server logs.' }] });
     }
   });
 

@@ -194,7 +194,8 @@ router.get('/api/reports/data', authenticate, async (req: any, res: any) => {
     return res.json(data);
   } catch (err: any) {
     logger.error('Error generating report data:', err);
-    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to generate report data: ' + err.message });
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return sendServerError(res, err, 'reports.routes.ts (generate)');
   }
 });
 
@@ -305,7 +306,8 @@ router.get('/api/reports/export', authenticate, async (req: any, res: any) => {
     return res.send(buffer);
   } catch (err: any) {
     logger.error('Error exporting report:', err);
-    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to export report: ' + err.message });
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return sendServerError(res, err, 'reports.routes.ts (export)');
   }
 });
 
@@ -476,7 +478,6 @@ router.post('/api/reports/export-email', authenticate, async (req: any, res: any
 
     return res.json({ success: true, message: `Report sent to ${emailTo}`, recordCount: data.rows.length });
   } catch (err: any) {
-    logger.error('Failed to email report:', err);
-    return res.status(500).json({ error: 'Failed to email report: ' + err.message });
+    return sendServerError(res, err, 'reports.routes.ts (email)');
   }
 });
