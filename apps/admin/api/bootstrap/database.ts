@@ -288,6 +288,35 @@ export async function verifyAndSyncDatabase() {
     try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS is_violation BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS outside_geofence BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS note TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    // Backfill any pre-existing null tenant_id from the owning user's
+    // tenant before tightening the column to NOT NULL below — every user
+    // row has a tenant_id, so this always has something to backfill from.
+    try { await db.execute(sql`UPDATE break_sessions bs SET tenant_id = u.tenant_id FROM users u WHERE bs.user_id = u.id AND bs.tenant_id IS NULL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ALTER COLUMN tenant_id SET NOT NULL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    // departments.head_user_id / users.manager_id were plain integer
+    // columns with only a comment claiming the FK relationship, never
+    // actually enforced at the DB level (schema.ts now declares both as
+    // real deferred references). Add the constraints if not already
+    // present; ON DELETE SET NULL so deleting a manager/department-head
+    // user doesn't get blocked by their own subordinates/department row.
+    try {
+      await db.execute(sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'departments_head_user_id_users_id_fk') THEN
+            ALTER TABLE departments ADD CONSTRAINT departments_head_user_id_users_id_fk FOREIGN KEY (head_user_id) REFERENCES users(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try {
+      await db.execute(sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_manager_id_users_id_fk') THEN
+            ALTER TABLE users ADD CONSTRAINT users_manager_id_users_id_fk FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_alerts (

@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex, index, type AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
@@ -135,7 +135,12 @@ export const departments = pgTable('departments', {
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   name: text('name').notNull(),
   description: text('description'),
-  headUserId: integer('head_user_id'), // references users.id — FK defined after users table
+  // Deferred reference (users is declared later in this file) — was a
+  // plain integer column with only a comment claiming the FK relationship
+  // for a long time, so the DB never actually enforced it. set null on
+  // delete: a department shouldn't be blocked from ever deleting its head
+  // just because they left the company.
+  headUserId: integer('head_user_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -252,7 +257,11 @@ export const users = pgTable('users', {
   department: text('department'), // free-text dept name, mirrors departments.name for fast reads
   designation: text('designation'), // job title e.g. 'Senior Engineer', 'HR Manager'
   employmentType: text('employment_type').default('full_time'), // 'full_time' | 'part_time' | 'contract' | 'intern'
-  managerId: integer('manager_id'), // direct reporting manager — references users.id
+  // Self-referential deferred FK — was a plain integer column with only a
+  // comment claiming the relationship, never actually enforced at the DB
+  // level. set null on delete: a departing manager shouldn't block
+  // deleting their own row (also matches headUserId's rule above).
+  managerId: integer('manager_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   dateOfJoining: text('date_of_joining'), // ISO date string 'YYYY-MM-DD'
   dateOfExit: text('date_of_exit'), // ISO date string 'YYYY-MM-DD'
   phone: text('phone'), // mobile phone
@@ -335,7 +344,12 @@ export const deviceChangeRequests = pgTable('device_change_requests', {
 export const breakSessions = pgTable('break_sessions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),
-  tenantId: integer('tenant_id').references(() => tenants.id),
+  // NOT NULL — was nullable while every other tenant-scoped child table in
+  // this schema requires it, which meant a break session could exist
+  // outside the tenant-filter pattern every other query relies on. Backfilled
+  // from users.tenant_id (see bootstrap/database.ts) before this constraint
+  // is applied at the DB level, so existing null rows don't break the ALTER.
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   breakType: text('break_type').default('General'), // 'Lunch' | 'Tea' | 'Personal' | 'Meeting' | 'General' | custom
   startTime: timestamp('start_time').defaultNow(),
   endTime: timestamp('end_time'),
