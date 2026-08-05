@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
 import { Quote, ShieldCheck } from 'lucide-react';
 
@@ -14,7 +14,11 @@ import { attendanceEngine } from './state/attendanceMachine';
 import HeroPreview from './components/HeroPreview';
 import StateFlowStrip from './components/StateFlowStrip';
 import ProcessSteps from './components/ProcessSteps';
-import DemoPanel from './components/DemoPanel';
+// Lazy-loaded: pulls in @react-three/fiber + three, a several-hundred-KB 3D
+// dependency that shouldn't be in the initial bundle of the public,
+// least-authenticated landing page. Same pattern Dashboard.tsx already uses
+// for Leaflet.
+const DemoPanel = lazy(() => import('./components/DemoPanel'));
 import PricingSection from './components/PricingSection';
 import FeatureGrid from './components/FeatureGrid';
 import ProductShowcase from './components/ProductShowcase';
@@ -242,7 +246,9 @@ export default function App() {
           people click through at their own pace, and an auto-advancing
           scroll transition would risk yanking it away mid-interaction. */}
       <section className="py-12">
-        <DemoPanel />
+        <Suspense fallback={<div className="h-96" />}>
+          <DemoPanel />
+        </Suspense>
       </section>
 
       {/* TESTIMONIAL */}

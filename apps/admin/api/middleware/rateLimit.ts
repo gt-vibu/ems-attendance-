@@ -60,6 +60,17 @@ function buildSharedStore(prefix: string) {
   });
 }
 
+// Loud, once-per-boot warning (not a hard crash — a misconfigured Redis is
+// still a much smaller problem than the whole app refusing to start) when
+// running in production without REDIS_URL: the documented brute-force
+// limits (e.g. 10 login attempts / 15 min) silently become
+// (10 * replica count) per window once this falls back to per-process
+// in-memory counting on a horizontally-scaled deployment — a config
+// omission that previously degraded security with zero signal anywhere.
+if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) {
+  logger.warn('[rateLimit] REDIS_URL is not set in production — rate limits are being counted per-process, not shared across replicas. On more than one instance, effective limits are silently multiplied by the replica count. Set REDIS_URL to fix this.');
+}
+
   // Generous general-purpose limiter — a safety net against abuse/DoS
   // without getting in the way of normal use (e.g. dashboards polling data,
   // or many different employees behind one office IP all checking in
