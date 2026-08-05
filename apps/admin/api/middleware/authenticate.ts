@@ -89,3 +89,18 @@ export async function authenticate(req: any, res: any, next: any) {
     req.user = decoded;
     next();
   }
+
+// Structural role gate — use as router.get(path, authenticate, requireRole('super_admin'), handler).
+// Previously super.routes.ts repeated `if (req.user.role !== 'super_admin') return res.status(403)...`
+// inline at 14 separate handlers; a new route that forgot the line would
+// be a full privilege-escalation bug with nothing to catch it. Centralizing
+// the check into middleware makes it a structural property of the route
+// registration instead of per-handler developer discipline.
+export function requireRole(...allowedRoles: string[]) {
+  return function (req: any, res: any, next: any) {
+    if (!allowedRoles.includes(req.user?.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    next();
+  };
+}

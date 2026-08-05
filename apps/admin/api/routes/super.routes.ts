@@ -13,7 +13,7 @@ import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendB
 import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineMeters, evaluateWfhEligibility, evaluateWfhLocation, todayWeekdayName, WFH_PERMISSIONS } from '../../wfh.js';
 import { reverseGeocode } from '../../geocoding.js';
 import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
-import { authenticate } from '../middleware/authenticate';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES, PLATFORM_FEATURE_DEPENDENCIES, isPlatformFeatureAllowed } from '../auth/rbac';
 import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
@@ -63,11 +63,8 @@ router.post('/api/tenancy/request', authLimiter, async (req, res) => {
   });
 
   // SUPER ADMIN API: Get Requests & Notifications
-router.get('/api/super/requests', authenticate, async (req: any, res: any) => {
+router.get('/api/super/requests', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const requests = await db.select().from(schema.tenancyRequests).orderBy(desc(schema.tenancyRequests.createdAt));
       res.json({ requests });
     } catch (err: any) {
@@ -75,11 +72,8 @@ router.get('/api/super/requests', authenticate, async (req: any, res: any) => {
     }
   });
 
-router.get('/api/super/notifications', authenticate, async (req: any, res: any) => {
+router.get('/api/super/notifications', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const notifyList = await db.select().from(schema.notifications).where(sql`user_id IS NULL`).orderBy(desc(schema.notifications.createdAt));
       res.json({ notifications: notifyList });
     } catch (err: any) {
@@ -88,11 +82,8 @@ router.get('/api/super/notifications', authenticate, async (req: any, res: any) 
   });
 
   // SUPER ADMIN API: Approve Tenancy & Onboard Tenant
-router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
+router.post('/api/super/approve', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { requestId, featuresAllowed, plan } = req.body;
       
       const reqDetails = await db.select().from(schema.tenancyRequests).where(eq(schema.tenancyRequests.id, requestId));
@@ -203,18 +194,12 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
   // The server-driven list of platform-level module keys — same list used
   // to validate /api/super/approve and /api/super/tenants/features, exposed
   // so the frontend never hardcodes its own copy.
-router.get('/api/super/platform-features', authenticate, async (req: any, res: any) => {
-    if (req.user.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+router.get('/api/super/platform-features', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     res.json({ features: PLATFORM_FEATURES, dependencies: PLATFORM_FEATURE_DEPENDENCIES });
   });
 
-router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
+router.get('/api/super/tenants', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const tenantsList = await db.select().from(schema.tenants).orderBy(desc(schema.tenants.createdAt));
 
       // Single grouped count instead of one query per tenant (N+1).
@@ -231,11 +216,8 @@ router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
   // SUPER ADMIN API: Suspend or reactivate a tenant. Suspending immediately
   // blocks that tenant's users from logging in or logging attendance —
   // enforced in /api/auth/login and /api/attendance below.
-router.post('/api/super/tenants/status', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/status', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId, status } = req.body;
       if (!tenantId || !['active', 'suspended'].includes(status)) {
         return res.status(400).json({ error: 'tenantId and a valid status (active|suspended) are required' });
@@ -269,11 +251,8 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
   // /api/super/approve. This is the top layer of the toggle cascade:
   // whatever a tenant admin can turn on/delegate is bounded by what's in
   // this list (see isPlatformFeatureAllowed() in rbac.ts).
-router.post('/api/super/tenants/features', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/features', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId, featuresAllowed } = req.body;
       if (!tenantId || !Array.isArray(featuresAllowed) || featuresAllowed.some((f: any) => typeof f !== 'string')) {
         return res.status(400).json({ error: 'tenantId and featuresAllowed (a string array) are required' });
@@ -313,11 +292,8 @@ router.post('/api/super/tenants/features', authenticate, async (req: any, res: a
   // Deletion runs in a single transaction, deleting child rows in FK-safe
   // order; audit-ledger entries are detached (tenantId/actorId set to null)
   // rather than deleted, preserving the hash chain's integrity.
-router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId } = req.body;
       if (!tenantId) {
         return res.status(400).json({ error: 'tenantId is required' });
@@ -449,11 +425,8 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
 // table the Postgres-backed queue (services/queue/postgresQueue.ts)
 // already reads/writes. This adds visibility, not new state: no job here
 // is created or mutated by this route, only summarized and listed.
-router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) => {
+router.get('/api/super/job-scheduler', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const rows = await db.select().from(schema.backgroundJobs).orderBy(desc(schema.backgroundJobs.createdAt)).limit(500);
 
       const byStatus: Record<string, number> = { pending: 0, running: 0, done: 0, failed: 0 };
@@ -489,11 +462,8 @@ router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) 
 // Healthy" line — this deployment doesn't use Redis for anything but the
 // optional rate limiter, which already degrades to in-memory without it,
 // so there's no real Redis health signal to report.
-router.get('/api/super/system-health', authenticate, async (req: any, res: any) => {
+router.get('/api/super/system-health', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const now = Date.now();
       const dbStart = now;
@@ -548,11 +518,8 @@ router.get('/api/super/system-health', authenticate, async (req: any, res: any) 
     }
   });
 
-router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any, res: any) => {
+router.get('/api/super/tenants/:tenantId/admins', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const tenantId = parseInt(req.params.tenantId, 10);
       const admins = await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, 'tenant_admin')));
       res.json({ admins: admins.map(a => ({ id: a.id, name: a.name, email: a.email, createdAt: a.createdAt })) });
@@ -575,11 +542,8 @@ router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any,
   // payroll adjustment), Postgres rejects the delete with a foreign-key
   // error and the whole transaction rolls back — reported back as a 409
   // rather than silently destroying that data.
-router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenant-admins/delete', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { userId } = req.body;
       if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
@@ -645,11 +609,8 @@ router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, re
   });
 
   // SUPER ADMIN API: Organization-wide analytics dashboard.
-router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
+router.get('/api/super/analytics', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const tenantsList = await db.select().from(schema.tenants);
       const allUsers = await db.select().from(schema.users);
@@ -708,11 +669,8 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
 // through it (real usage, read from the tables that module actually
 // writes to). A feature can be "enabled" with zero real usage — that gap is
 // the whole point of building this, not something to paper over.
-router.get('/api/super/feature-usage', authenticate, async (req: any, res: any) => {
+router.get('/api/super/feature-usage', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const tenantsList = await db.select().from(schema.tenants);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
