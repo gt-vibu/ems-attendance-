@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 
 type Notification = {
@@ -16,6 +17,7 @@ type Notification = {
 // polls for new ones, and lets the user mark them read. Dropped into
 // PortalShell's header so it's available on every authenticated page.
 export default function NotificationBell() {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,6 +26,7 @@ export default function NotificationBell() {
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadNotifications = notifications.filter((n) => !n.isRead);
 
   const fetchNotifications = async () => {
     try {
@@ -69,6 +72,12 @@ export default function NotificationBell() {
     }
   };
 
+  const handleViewAll = async () => {
+    await markAllRead();
+    setOpen(false);
+    navigate('/dashboard?tab=notifications');
+  };
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -95,19 +104,19 @@ export default function NotificationBell() {
               </button>
             )}
           </div>
-          {notifications.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-[var(--color-nexus-muted)]">No notifications yet.</div>
+          {unreadNotifications.length === 0 ? (
+            <div className="px-4 py-8 text-center text-xs text-[var(--color-nexus-muted)]">No unread notifications.</div>
           ) : (
             <div className="divide-y divide-[var(--color-nexus-border)]">
-              {notifications.map((n) => (
+              {unreadNotifications.map((n) => (
                 <button
                   type="button"
                   key={n.id}
-                  onClick={() => !n.isRead && markRead(n.id)}
-                  className={`w-full text-left px-4 py-3 hover:bg-[var(--color-nexus-surface-alt)] transition-colors ${!n.isRead ? 'bg-[var(--color-nexus-primary-fixed)]/40' : ''}`}
+                  onClick={() => markRead(n.id)}
+                  className="w-full text-left px-4 py-3 hover:bg-[var(--color-nexus-surface-alt)] transition-colors bg-[var(--color-nexus-primary-fixed)]/30"
                 >
                   <div className="flex items-start gap-2">
-                    {!n.isRead && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--color-nexus-primary)] shrink-0" />}
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--color-nexus-primary)] shrink-0" />
                     <div className="min-w-0">
                       <span className="block text-xs font-bold text-[var(--color-nexus-ink)]">{n.title}</span>
                       <span className="block text-[11px] text-[var(--color-nexus-muted)] mt-0.5">{n.message}</span>
@@ -118,6 +127,15 @@ export default function NotificationBell() {
               ))}
             </div>
           )}
+          <div className="p-2.5 border-t border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]/80 text-center sticky bottom-0">
+            <button
+              type="button"
+              onClick={handleViewAll}
+              className="text-xs font-bold text-[var(--color-nexus-primary)] hover:underline"
+            >
+              View All Notifications →
+            </button>
+          </div>
         </div>
       )}
     </div>

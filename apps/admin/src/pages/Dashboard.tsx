@@ -705,9 +705,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     // Administration, so it's deliberately excluded here even though
     // hasAnyPrivilege('team.manage') is always true for them.
     { id: 'teams', label: 'Teams', icon: Users2, description: 'Build your own team from your department and track their stats.', visible: hasAnyPrivilege('team.manage') },
-    // Administration bundles several sub-screens (branches, roles, settings,
-    // devices, audit ledger) — visible if the user holds any
-    // one of the privileges those sub-screens actually check.
+    { id: 'notifications', label: 'Notifications', icon: Bell, description: 'View system notifications, alerts, and policies.', visible: true },
     { id: 'administration', label: 'Administration', icon: ShieldCheck, description: 'Workspace config, branches, roles, staff management, audit ledger, device approvals.', visible: hasAnyPrivilege('settings.edit', 'branch.manage', 'shift.manage', 'holiday.manage', 'employee.create', 'roles.manage') },
   ];
   const tenantAdminNav = tenantAdminNavAll.filter((item) => item.visible).map(({ visible, ...item }) => item);
@@ -725,6 +723,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     payroll: 'Salary structures, payslips, and deductions',
     directory: 'Browse and search the organization',
     recruitment: 'Recruit new team members and manage the hiring queue',
+    notifications: 'System notifications and alerts',
     administration: 'Workspace configuration and staff management',
   };
 
@@ -769,18 +768,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       title={activeNavLabel}
       subtitle={activeNavSubtitle[activeTab]}
       fallbackHref="/login"
-      headerActions={
-        <button
-          onClick={() => { if (user.role === 'super_admin') { setActiveTab('notifications'); } else { setActiveTab('administration'); setAdminSubTab('notifications'); } }}
-          className="relative text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-primary)] transition-colors"
-          title="Notifications"
-        >
-          <Bell size={19} />
-          {notifications.filter((n: any) => !n.isRead).length > 0 && (
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-[var(--color-nexus-error)] rounded-full pulse-ring" />
-          )}
-        </button>
-      }
     >
         {/* Alerts */}
         {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
@@ -1101,14 +1088,31 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                 <div className="space-y-6">
                   {(() => {
                     const hour = new Date().getHours();
-                    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-                    const firstName = (user.name || '').split(' ')[0];
+                    const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+                    const firstName = (user.name || '').split(' ')[0] || 'Team';
+                    const companyName = localStorage.getItem('company_name') || user.tenantName || 'Smart Teams EMS';
+                    const companyTagline = localStorage.getItem('company_tagline') || 'People First. Excellence Always.';
+                    const todayStr = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
                     return (
-                      <div>
-                        <h2 className="text-[20px] font-bold text-[var(--color-nexus-ink)] tracking-tight">
-                          {greeting}{firstName ? `, ${firstName}` : ''} <span aria-hidden="true">👋</span>
-                        </h2>
-                        <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Here's what's happening across your organization today.</p>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] shadow-xs">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-mono uppercase font-bold tracking-widest text-[var(--color-nexus-primary)] bg-[var(--color-nexus-primary-fixed)] px-2.5 py-0.5 rounded-full border border-[var(--color-nexus-primary)]/20">
+                              Welcome to {companyName}
+                            </span>
+                            <span className="text-[10px] text-[var(--color-nexus-muted)] italic hidden sm:inline">
+                              "{companyTagline}"
+                            </span>
+                          </div>
+                          <h2 className="text-xl md:text-2xl font-extrabold text-[var(--color-nexus-ink)] tracking-tight mt-1.5">
+                            {greeting}, {firstName} <span aria-hidden="true">👋</span>
+                          </h2>
+                          <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">Here's today's workforce overview and real-time operational status.</p>
+                        </div>
+                        <div className="text-left md:text-right shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-[var(--color-nexus-border)]">
+                          <span className="text-xs font-bold text-[var(--color-nexus-ink)] block font-mono">{todayStr}</span>
+                          <span className="text-[10px] text-[var(--color-nexus-muted)] block mt-0.5">System Status: <span className="text-emerald-600 font-bold">100% Operational</span></span>
+                        </div>
                       </div>
                     );
                   })()}
@@ -3936,10 +3940,8 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
           </div>
         )}
 
-        {/* Unified Notifications Tab — super_admin reaches it directly via
-            its own 'notifications' nav item; everyone else reaches it as an
-            Administration sub-section. */}
-        {((user.role === 'super_admin' && activeTab === 'notifications') || (activeTab === 'administration' && adminSubTab === 'notifications')) && (
+        {/* Unified Notifications Tab — displays system notifications inline */}
+        {(activeTab === 'notifications' || (activeTab === 'administration' && adminSubTab === 'notifications')) && (
           <NotificationsTab notifications={notifications} />
         )}
 

@@ -68,6 +68,8 @@ const TerminationsPage = safeLazy(() => import('./pages/TerminationsPage'));
 const ShiftSwapsPage = safeLazy(() => import('./pages/ShiftSwapsPage'));
 const TicketsPage = safeLazy(() => import('./pages/TicketsPage'));
 const OrgChartPage = safeLazy(() => import('./pages/OrgChartPage'));
+const UserProfilePage = safeLazy(() => import('./pages/UserProfilePage'));
+const CompanyProfilePage = safeLazy(() => import('./pages/CompanyProfilePage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
 // and register a device — Employee, Manager, HR, GM, Intern, or any
@@ -194,6 +196,8 @@ export default function AdminApp() {
           <Route path="/tenant/shift-swaps" element={user && canSeeDashboard(user.role) ? <ShiftSwapsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/tickets" element={user && canSeeDashboard(user.role) ? <TicketsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/org-chart" element={user && canSeeDashboard(user.role) ? <OrgChartPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/profile" element={user ? <UserProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/company-profile" element={user && canSeeDashboard(user.role) ? <CompanyProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
 
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />

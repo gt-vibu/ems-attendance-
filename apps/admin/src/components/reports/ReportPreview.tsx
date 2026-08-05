@@ -2,6 +2,7 @@ import React from 'react';
 import { Users, CheckCircle2, XCircle, Clock, Star, ShieldCheck, Building2, Mail, Phone } from 'lucide-react';
 import { ENHANCED_REPORT_THEMES } from './reportMetadata';
 import { formatCell, formatSummary, statusBadgeStyle, type CellFormat, type SummaryFormat } from './formatValue';
+import { getCompanyIdentity } from '../../lib/companyIdentity';
 
 export interface ReportPreviewColumn {
   key: string;
@@ -417,51 +418,64 @@ export const ReportPreview: React.FC<ReportPreviewProps> = ({ themeId, layoutId,
           scope ("prepared for"), and who/when generated as its own
           secondary line rather than one crammed sentence. */}
       {/* Branded header matching user design: logo, company title, centered report header, right company info */}
-      <div className="bg-white border-b border-slate-200 px-6 py-5 relative" style={{ zIndex: 2 }}>
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {meta.logoUrl ? (
-              <img src={meta.logoUrl} alt="" className="w-11 h-11 rounded-xl object-contain shrink-0 border border-slate-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            ) : (
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-purple-600 p-2.5 text-white shadow-md flex items-center justify-center shrink-0">
-                <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-                </svg>
+      {(() => {
+        const identity = getCompanyIdentity();
+        const effectiveLogo = meta.logoUrl || identity.logo;
+        const effectiveName = meta.tenantName || identity.companyName || 'Smart Teams EMS';
+        const effectiveTagline = identity.tagline || 'Enterprise Management Suite';
+        const effectiveAddress = meta.tenantAddress || [identity.address, identity.city, identity.state, identity.country].filter(Boolean).join(', ');
+        return (
+          <div className="bg-white border-b border-slate-200 px-6 py-5 relative" style={{ zIndex: 2 }}>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                {effectiveLogo ? (
+                  <img src={effectiveLogo} alt="" className="w-11 h-11 rounded-xl object-contain shrink-0 border border-slate-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                ) : (
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-purple-600 p-2.5 text-white shadow-md flex items-center justify-center shrink-0">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                  </div>
+                )}
+                <div>
+                  <div className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
+                    {effectiveName}
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-500">
+                    {effectiveTagline}
+                  </div>
+                </div>
               </div>
-            )}
-            <div>
-              <div className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
-                {meta.tenantName || 'Smart Teams EMS'}
-              </div>
-              <div className="text-[11px] font-semibold text-slate-500">
-                Enterprise Management Suite
-              </div>
-            </div>
-          </div>
 
-          <div className="text-center">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              {meta.title || 'Attendance Summary Report'}
-            </h1>
-            <div className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200 shadow-2xs">
-              <span>📅</span> {meta.periodLabel || meta.filtersDescription || '01 Aug 2026 - 07 Aug 2026'}
-            </div>
-          </div>
+              <div className="text-center">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                  {meta.title || 'Attendance Summary Report'}
+                </h1>
+                <div className="mt-1 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200 shadow-2xs">
+                  <span>📅</span> {meta.periodLabel || meta.filtersDescription || '01 Aug 2026 - 07 Aug 2026'}
+                </div>
+              </div>
 
-          <div className="text-right text-xs space-y-0.5 text-slate-600 hidden md:block">
-            <div className="font-bold text-slate-900 flex items-center justify-end gap-1.5">
-              <span>🏢</span> Smart Teams Technologies Pvt. Ltd.
-            </div>
-            <div className="text-[11px] text-slate-500">Bangalore, Karnataka, India</div>
-            <div className="text-[10px] text-slate-500 flex items-center justify-end gap-1">
-              <span>✉️</span> contact@smartteams.com
-            </div>
-            <div className="text-[10px] text-slate-500 flex items-center justify-end gap-1">
-              <span>📞</span> +91 80 1234 5678
+              <div className="text-right text-xs space-y-0.5 text-slate-600 hidden md:block">
+                <div className="font-bold text-slate-900 flex items-center justify-end gap-1.5">
+                  <span>🏢</span> {identity.legalName || effectiveName}
+                </div>
+                {effectiveAddress && <div className="text-[11px] text-slate-500">{effectiveAddress}</div>}
+                {identity.supportEmail && (
+                  <div className="text-[10px] text-slate-500 flex items-center justify-end gap-1">
+                    <span>✉️</span> {identity.supportEmail}
+                  </div>
+                )}
+                {identity.supportPhone && (
+                  <div className="text-[10px] text-slate-500 flex items-center justify-end gap-1">
+                    <span>📞</span> {identity.supportPhone}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
       <div className="px-6 py-3 border-b border-slate-100 relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-[11px] text-slate-500" style={{ zIndex: 2 }}>
         <span>Prepared for: <span className="font-semibold text-slate-700">{meta.scopeLabel || 'Entire Company'}</span></span>
         <span>Generated by {meta.generatedByName} on {meta.generatedAt.toLocaleString()} ({meta.timezone})</span>

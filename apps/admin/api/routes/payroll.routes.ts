@@ -743,13 +743,18 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       const summary = buildPayrollSummary(profile, componentsByUser.get(profile.userId) || [], settings, leaveDaysByUser(profile.userId), 0);
       return {
         userId: profile.userId,
+        employeeId: profile.userId,
         name: user?.name || 'Unknown',
+        employeeName: user?.name || 'Unknown',
+        email: user?.email || '',
+        employeeEmail: user?.email || '',
         role: user?.role || '',
         department: user?.department || 'Unassigned',
         annualCtc: summary.annualCtc,
         monthlyGross: summary.monthlyGross,
         monthlyNet: summary.monthlyNet,
         leaveDeduction: summary.leaveDeduction,
+        totalDeductions: summary.leaveDeduction,
         annualBreakdown: summary.annualBreakdown,
         source: 'individual' as const,
       };
@@ -784,13 +789,18 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
         const summary = buildPayrollSummary({ annualCtc: roleDefault.annualCtc }, roleComponentsByDefaultId.get(roleDefault.id) || [], settings, leaveDaysByUser(user.id), 0);
         return {
           userId: user.id,
+          employeeId: user.id,
           name: user.name || 'Unknown',
+          employeeName: user.name || 'Unknown',
+          email: user.email || '',
+          employeeEmail: user.email || '',
           role: user.role || '',
           department: user.department || 'Unassigned',
           annualCtc: summary.annualCtc,
           monthlyGross: summary.monthlyGross,
           monthlyNet: summary.monthlyNet,
           leaveDeduction: summary.leaveDeduction,
+          totalDeductions: summary.leaveDeduction,
           annualBreakdown: summary.annualBreakdown,
           source: 'role_default' as const,
         };

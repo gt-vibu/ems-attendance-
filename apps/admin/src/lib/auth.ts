@@ -28,6 +28,8 @@ export interface User {
   // Super-admin-controlled: whether this tenant's admin can reset an
   // employee's registered device / see the Device Approvals queue.
   deviceChangeEnabled?: boolean;
+  tenantName?: string;
+  department?: string;
 }
 
 export function useAuth() {

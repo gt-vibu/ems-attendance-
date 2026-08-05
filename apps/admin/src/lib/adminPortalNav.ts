@@ -32,6 +32,7 @@ const allAdminPortalNavItems: AdminPortalNavItem[] = [
   { id: 'directory', label: 'Directory', icon: Users },
   { id: 'recruitment', label: 'Recruitment', icon: ClipboardCheck },
   { id: 'teams', label: 'Teams', icon: Users2 },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'administration', label: 'Administration', icon: ShieldCheck },
 ];
 
@@ -50,6 +51,7 @@ export function routeForAdminNav(id: string): string {
   if (id === 'payroll') return '/tenant/payroll';
   if (id === 'directory') return '/tenant/directory';
   if (id === 'teams') return '/tenant/teams';
+  if (id === 'notifications') return '/dashboard?tab=notifications';
   if (id === 'administration') return '/tenant/admin';
   return `/dashboard?tab=${encodeURIComponent(id)}`;
 }

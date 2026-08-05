@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, LogOut, Building2, Search, MoreHorizontal, User as UserIcon, Settings, ChevronDown, type LucideIcon } from 'lucide-react';
 import PageChrome from './PageChrome';
 import NotificationBell from './NotificationBell';
+import { getCompanyIdentity } from '../lib/companyIdentity';
 
 export interface PortalNavItem {
   id: string;
@@ -18,7 +19,7 @@ export interface PortalNavItem {
 const BOTTOM_NAV_VISIBLE_COUNT = 4;
 
 interface PortalShellProps {
-  user: { name?: string; email?: string; role?: string };
+  user: { name?: string; email?: string; role?: string; id?: number; tenantName?: string };
   roleLabel?: string;
   navItems: PortalNavItem[];
   activeTab: string;
@@ -47,8 +48,22 @@ export default function PortalShell({
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    navigate(`/tenant/directory?q=${encodeURIComponent(searchQuery.trim())}`);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return;
+
+    if (['gps', 'geofence', 'face', 'verification', 'liveness', 'presence', 'auto checkout', 'shift'].some(k => q.includes(k))) {
+      navigate('/tenant/attendance-preferences');
+    } else if (['payroll', 'salary', 'pf', 'esi', 'tax', 'payslip'].some(k => q.includes(k))) {
+      navigate('/tenant/payroll');
+    } else if (['branch', 'location', 'geofence', 'office'].some(k => q.includes(k))) {
+      navigate('/tenant/branches');
+    } else if (['leave', 'holiday', 'vacation', 'time off'].some(k => q.includes(k))) {
+      navigate('/tenant/leave');
+    } else if (['report', 'analytics', 'audit', 'chart'].some(k => q.includes(k))) {
+      navigate('/tenant/reports');
+    } else {
+      navigate(`/tenant/directory?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
   };
 
   // Close profile dropdown when clicking outside
@@ -70,70 +85,54 @@ export default function PortalShell({
 
   const userInitial = (user.name || user.email || '?').charAt(0).toUpperCase();
 
-  const SidebarContent = () => (
-    <>
-      <div className="px-4 py-4 flex items-center gap-2.5 border-b border-[var(--color-nexus-border)]">
-        <div className="w-8 h-8 rounded-lg bg-[var(--color-nexus-primary)] flex items-center justify-center shrink-0">
-          <Building2 className="w-4 h-4 text-white" size={15} />
-        </div>
-        <div className="min-w-0">
-          <span className="font-sans font-bold text-[13px] text-[var(--color-nexus-ink)] tracking-tight block truncate leading-tight">Smart Teams EMS</span>
-          <span className="text-[10.5px] text-[var(--color-nexus-muted)] tracking-wide block leading-tight mt-0.5">Enterprise Management Suite</span>
-        </div>
-      </div>
-
-      <nav className="flex-1 px-2.5 py-3 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
-          const isActive = activeTab === item.id;
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              onClick={() => { onTabChange(item.id); setMobileOpen(false); }}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-[var(--radius-nexus-control)] text-[13px] font-medium transition-colors ${
-                isActive
-                  ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] font-semibold'
-                  : 'text-[var(--color-nexus-secondary)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)]'
-              }`}
-            >
-              <Icon size={16} strokeWidth={2} className="shrink-0" />
-              <span className="flex-1 text-left truncate">{item.label}</span>
-              {typeof item.count === 'number' && item.count > 0 && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/70 text-[var(--color-nexus-primary)]' : 'bg-[var(--color-nexus-surface-sunken)] text-[var(--color-nexus-muted)]'}`}>
-                  {item.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="px-2.5 py-2.5 border-t border-[var(--color-nexus-border)]">
-        <div className="flex items-center gap-2.5 px-1.5 py-1.5 mb-1">
-          <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary)] flex items-center justify-center text-xs font-bold text-white shrink-0">
-            {userInitial}
-          </div>
-          <div className="min-w-0">
-            <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate leading-tight">{user.name || 'Account'}</span>
-            <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate leading-tight mt-0.5">{roleLabel || user.role || user.email}</span>
-          </div>
-        </div>
-        <button
-          onClick={onLogout}
-          className="w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-[var(--radius-nexus-control)] text-[12.5px] font-medium text-[var(--color-nexus-muted)] hover:bg-[var(--color-nexus-error-soft)] hover:text-[var(--color-nexus-error)] transition-colors"
-        >
-          <LogOut size={15} />
-          Sign Out
-        </button>
-      </div>
-    </>
-  );
-
   return (
     <div className="min-h-dvh bg-[var(--color-nexus-bg)] font-sans text-[var(--color-nexus-ink)] flex flex-col md:flex-row">
-      {/* Desktop fixed sidebar */}
+      {/* Desktop fixed sidebar — DOM node identity preserved to eliminate hover flickering */}
       <aside className="hidden md:flex md:flex-col w-[236px] shrink-0 bg-[var(--color-nexus-surface)] border-r border-[var(--color-nexus-border)] sticky top-0 h-screen z-30">
-        <SidebarContent />
+        <div className="px-4 py-3.5 flex items-center gap-3 border-b border-[var(--color-nexus-border)] min-h-[64px]">
+          <img
+            src="/smart-teams-icon.png"
+            alt="Smart Teams"
+            className="w-10 h-10 object-contain shrink-0"
+            onError={(e) => { (e.target as HTMLImageElement).src = '/smart-teams-icon.png'; }}
+          />
+          <div className="min-w-0">
+            <span className="font-sans font-black text-[14px] text-[var(--color-nexus-ink)] tracking-tight block truncate leading-tight">Smart Teams EMS</span>
+            <span className="text-[10.5px] text-[var(--color-nexus-muted)] font-semibold tracking-wide block leading-tight mt-0.5">Enterprise Management Suite</span>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-2.5 py-3 space-y-0.5 overflow-y-auto select-none">
+          {navItems.map((item) => {
+            const isActive = activeTab === item.id;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => { onTabChange(item.id); setMobileOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-[var(--radius-nexus-control)] text-[13px] font-semibold transition-colors duration-150 cursor-pointer ${
+                  isActive
+                    ? 'bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)]'
+                    : 'text-[var(--color-nexus-secondary)] hover:bg-[var(--color-nexus-surface-alt)] hover:text-[var(--color-nexus-ink)]'
+                }`}
+              >
+                <Icon size={16} strokeWidth={2} className="shrink-0" />
+                <span className="flex-1 text-left truncate">{item.label}</span>
+                {typeof item.count === 'number' && item.count > 0 && (
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/70 text-[var(--color-nexus-primary)]' : 'bg-[var(--color-nexus-surface-sunken)] text-[var(--color-nexus-muted)]'}`}>
+                    {item.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Navigation Footer links or info */}
+        <div className="px-3 py-2 border-t border-[var(--color-nexus-border)] text-center text-[10px] text-[var(--color-nexus-muted)] font-mono">
+          Smart Teams EMS v2.4
+        </div>
       </aside>
 
       {/* Mobile Bottom Sheet Modal — Slack/Teams/Linear style */}
@@ -201,63 +200,95 @@ export default function PortalShell({
               <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[var(--color-nexus-muted)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded px-1.5 py-0.5">⌘K</kbd>
             </form>
             <NotificationBell />
-            {/* Back + Landing buttons: desktop only */}
-            <div className="hidden md:block">
-              <PageChrome fallbackHref={fallbackHref} variant="compact" />
-            </div>
             {headerActions}
 
-            {/* Desktop: inline user info */}
-            <div className="hidden md:flex items-center gap-2.5 pl-3 border-l border-[var(--color-nexus-border)]">
-              <div className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center text-xs font-bold text-[var(--color-nexus-primary)] shrink-0" title={user.email}>
-                {userInitial}
-              </div>
-              <div className="min-w-0 leading-tight">
-                <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate max-w-[120px]">{user.name || 'Account'}</span>
-                <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate max-w-[120px]">{roleLabel || user.role}</span>
-              </div>
-            </div>
+            {/* Desktop & Mobile: Unified Top Header Profile Dropdown */}
+            {(() => {
+              const identityLogo = getCompanyIdentity().logo;
+              return (
+                <div className="relative" ref={profileDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                    className="flex items-center gap-2.5 p-1 rounded-full hover:bg-[var(--color-nexus-surface-alt)] transition-colors cursor-pointer"
+                    aria-label="Account menu"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-xs font-bold text-[var(--color-nexus-primary)] shrink-0 border border-[var(--color-nexus-border)] overflow-hidden shadow-2xs" title={user.email}>
+                      {identityLogo ? (
+                        <img src={identityLogo} alt="Avatar" className="w-full h-full object-contain p-0.5" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <span>{userInitial}</span>
+                      )}
+                    </div>
+                    <div className="hidden md:block min-w-0 text-left leading-tight pr-1">
+                      <span className="text-[12.5px] font-semibold text-[var(--color-nexus-ink)] block truncate max-w-[120px]">{user.name || 'Account'}</span>
+                      <span className="text-[10.5px] text-[var(--color-nexus-muted)] block truncate max-w-[120px]">{roleLabel || user.role}</span>
+                    </div>
+                  </button>
 
-            {/* Mobile: profile avatar button → dropdown with Sign Out */}
-            <div className="md:hidden relative" ref={profileDropdownRef}>
-              <button
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="w-8 h-8 rounded-full bg-[var(--color-nexus-primary)] flex items-center justify-center text-[11px] font-bold text-white shrink-0 active:scale-95 transition-transform"
-                aria-label="Account menu"
-              >
-                {userInitial}
-              </button>
-              {profileDropdownOpen && (
-                <div className="absolute right-0 top-[calc(100%+8px)] w-56 max-w-[calc(100vw-2rem)] bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* User info */}
-                  <div className="px-4 py-3 border-b border-[var(--color-nexus-border)]">
-                    <p className="text-[13px] font-semibold text-[var(--color-nexus-ink)] truncate">{user.name || 'Account'}</p>
-                    <p className="text-[11px] text-[var(--color-nexus-muted)] truncate mt-0.5">{roleLabel || user.role}</p>
-                    {user.email && <p className="text-[10px] text-[var(--color-nexus-muted)] truncate mt-0.5">{user.email}</p>}
-                  </div>
-                  {/* Actions */}
-                  <div className="py-1">
-                    <button
-                      onClick={() => { setProfileDropdownOpen(false); onTabChange('profile'); }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors"
-                    >
-                      <UserIcon size={14} className="text-[var(--color-nexus-muted)]" />
-                      Profile
-                    </button>
-                  </div>
-                  {/* Sign Out */}
-                  <div className="border-t border-[var(--color-nexus-border)] py-1">
-                    <button
-                      onClick={() => { setProfileDropdownOpen(false); onLogout(); }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium text-[var(--color-nexus-error)] hover:bg-[var(--color-nexus-error-soft)] transition-colors"
-                    >
-                      <LogOut size={14} />
-                      Sign Out
-                    </button>
-                  </div>
+                  {profileDropdownOpen && (
+                    <div className="absolute right-0 top-[calc(100%+8px)] w-64 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                      {/* Detailed User & Company Header Info */}
+                      <div className="p-4 border-b border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)]/50">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-white border border-[var(--color-nexus-border)] flex items-center justify-center shrink-0 shadow-xs overflow-hidden">
+                            {identityLogo ? (
+                              <img src={identityLogo} alt="Avatar" className="w-full h-full object-contain p-1" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            ) : (
+                              <span className="text-sm font-extrabold text-[var(--color-nexus-primary)]">{userInitial}</span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-extrabold text-[var(--color-nexus-ink)] truncate leading-tight">{user.name || 'Account'}</p>
+                            <p className="text-[11px] font-semibold text-[var(--color-nexus-primary)] truncate mt-0.5">{roleLabel || user.role}</p>
+                            {(user.role !== 'tenant_admin' && user.role !== 'super_admin') && (
+                              <p className="text-[10px] text-[var(--color-nexus-muted)] truncate mt-0.5 font-mono">ID: EMP-10{user.id || '1'}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-2.5 border-t border-[var(--color-nexus-border)]/60 space-y-1">
+                          <p className="text-[11px] text-[var(--color-nexus-muted)] flex items-center gap-1.5 truncate">
+                            <span className="font-semibold text-[var(--color-nexus-ink)]">Organization:</span> {localStorage.getItem('company_name') || user.tenantName || 'Smart Teams EMS'}
+                          </p>
+                          {user.email && (
+                            <p className="text-[11px] text-[var(--color-nexus-muted)] flex items-center gap-1.5 truncate">
+                              <span className="font-semibold text-[var(--color-nexus-ink)]">Email:</span> {user.email}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Primary Profile Action */}
+                      <div className="p-2">
+                        <button
+                          type="button"
+                          onClick={() => { setProfileDropdownOpen(false); navigate('/tenant/profile'); }}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12.5px] font-semibold text-[var(--color-nexus-ink)] bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-primary-fixed)] hover:text-[var(--color-nexus-primary)] border border-[var(--color-nexus-border)] transition-all group cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            <UserIcon size={15} />
+                            View Profile
+                          </span>
+                          <span className="text-xs group-hover:translate-x-0.5 transition-transform text-[var(--color-nexus-muted)] group-hover:text-[var(--color-nexus-primary)]">→</span>
+                        </button>
+                      </div>
+
+                      {/* Divider & Danger Sign Out */}
+                      <div className="border-t border-[var(--color-nexus-border)] p-2">
+                        <button
+                          type="button"
+                          onClick={() => { setProfileDropdownOpen(false); onLogout(); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[12.5px] font-bold text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          <LogOut size={15} />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
         </header>
 
