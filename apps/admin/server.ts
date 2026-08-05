@@ -64,9 +64,14 @@ async function startServer() {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        // fonts.googleapis.com: index.css @imports the Google Fonts
+        // stylesheet directly (Vite leaves external @import URLs as-is,
+        // so the browser fetches it at page-load) — found by an actual
+        // browser console CSP violation during verification, not visible
+        // from a static grep of the source.
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-        fontSrc: ["'self'", 'data:'],
+        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
         connectSrc: ["'self'"],
         workerSrc: ["'self'"],
         objectSrc: ["'none'"],
