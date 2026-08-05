@@ -571,7 +571,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       navigate('/tenant/admin', { replace: true });
     } else if (currentUrlTab) {
       setActiveTab(currentUrlTab);
-    } else if (!activeTab) {
+    } else {
       setActiveTab('home');
     }
   }, [currentUrlTab]);

@@ -98,15 +98,22 @@ function isPaidLeaveRequest(request: any, policies: any[]) {
 // breaks, requests) lives here. All data is self-scoped via endpoints that
 // filter on req.user.userId server-side.
 export default function EmployeeDashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab');
   const [tab, setTab] = useState(urlTab || 'overview');
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  const handleTabChange = (newTab: string) => {
+    setTab(newTab);
+    setSearchParams(newTab === 'overview' ? {} : { tab: newTab }, { replace: true });
+  };
+
   useEffect(() => {
-    if (urlTab && urlTab !== tab) {
+    if (urlTab) {
       setTab(urlTab);
+    } else {
+      setTab('overview');
     }
   }, [urlTab]);
 
@@ -938,7 +945,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       roleLabel={user.role}
       navItems={navItems}
       activeTab={tab}
-      onTabChange={setTab}
+      onTabChange={handleTabChange}
       onLogout={onLogout}
       title={titleFor}
       fallbackHref="/"
