@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts",
+    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts requireRole.test.ts",
     "cap:sync:android": "cap sync android",
     "cap:open:android": "cap open android",
     "cap:sync:ios": "cap sync ios",
