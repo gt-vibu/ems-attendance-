@@ -50,7 +50,7 @@ export function routeForAdminNav(id: string): string {
   if (id === 'leave-management') return '/tenant/leave';
   if (id === 'payroll') return '/tenant/payroll';
   if (id === 'directory') return '/tenant/directory';
-  if (id === 'teams') return '/tenant/teams';
+  if (id === 'teams') return '/dashboard?tab=teams';
   if (id === 'notifications') return '/dashboard?tab=notifications';
   if (id === 'administration') return '/tenant/admin';
   return `/dashboard?tab=${encodeURIComponent(id)}`;

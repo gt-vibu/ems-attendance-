@@ -36,24 +36,68 @@ router.get('/api/tenant/teams/mine', authenticate, async (req: any, res: any) =>
     if (!await canManageTeams(req.user)) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
-    const { team } = await loadManagerAndTeam(req);
+    const { team, manager } = await loadManagerAndTeam(req);
+    
+    // Fetch all tenant users for manager name lookups
+    const allTenantUsers = await db.select().from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId));
+    const userMap = new Map(allTenantUsers.map((u: any) => [u.id, u]));
+
     if (!team) {
-      return res.json({ team: null, members: [] });
+      return res.json({ team: null, members: [], availableManagers: allTenantUsers.map((u: any) => ({ id: u.id, name: u.name, role: u.role, department: u.department })) });
     }
 
     const memberRows = await db.select().from(schema.teamMembers).where(eq(schema.teamMembers.teamId, team.id));
     const memberIds = memberRows.map((m: any) => m.userId);
-    const members = memberIds.length > 0
-      ? await db.select().from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId))
-      : [];
     const memberIdSet = new Set(memberIds);
 
+    const members = allTenantUsers
+      .filter((u: any) => memberIdSet.has(u.id))
+      .map((u: any) => {
+        const mgr = u.managerId ? userMap.get(u.managerId) : null;
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          department: u.department,
+          designation: u.designation,
+          managerId: u.managerId || null,
+          reportsToName: mgr ? (mgr as any).name : (manager ? (manager as any).name : 'Unassigned'),
+          employeeStatus: u.employeeStatus || 'active',
+          employmentType: u.employmentType || 'full_time',
+        };
+      });
+
     res.json({
-      team: { id: team.id, name: team.name, createdAt: team.createdAt },
-      members: members
-        .filter((u: any) => memberIdSet.has(u.id))
-        .map((u: any) => ({ id: u.id, name: u.name, email: u.email, role: u.role, department: u.department, designation: u.designation })),
+      team: {
+        id: team.id,
+        name: team.name,
+        managerId: team.managerId,
+        managerName: manager ? (manager as any).name : 'Unassigned',
+        department: (manager as any)?.department || 'Engineering',
+        createdAt: team.createdAt,
+      },
+      members,
+      availableManagers: allTenantUsers.map((u: any) => ({ id: u.id, name: u.name, role: u.role, department: u.department })),
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/tenant/teams/assign-manager', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await canManageTeams(req.user)) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const { memberId, managerId } = req.body;
+    if (!memberId) return res.status(400).json({ error: 'memberId is required.' });
+
+    await db.update(schema.users)
+      .set({ managerId: managerId ? Number(managerId) : null })
+      .where(and(eq(schema.users.id, Number(memberId)), eq(schema.users.tenantId, req.user.tenantId)));
+
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
