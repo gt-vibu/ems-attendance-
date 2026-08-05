@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -651,7 +651,15 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     }
   };
 
-  const directoryRoleOptions = [...new Set(recruitedUsers.map((u: any) => u.role))].sort() as string[];
+  // Memoized: recomputing this Set-dedupe-map-sort chain over the full
+  // employee roster on every keystroke/state update elsewhere on the page
+  // (this component has 27 useState hooks) is wasted work once the roster
+  // is in the thousands — only actually needs to change when the roster
+  // itself changes.
+  const directoryRoleOptions = useMemo(
+    () => [...new Set(recruitedUsers.map((u: any) => u.role))].sort() as string[],
+    [recruitedUsers]
+  );
 
   // DataTable column definitions — see apps/admin/src/pages/dashboard/columns.tsx
   const directoryColumns = createDirectoryColumns(openAccessEditor);
