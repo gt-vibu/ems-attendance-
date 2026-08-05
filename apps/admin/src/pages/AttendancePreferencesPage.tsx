@@ -209,41 +209,41 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       icon: Clock,
       badge: 'Core Policy',
       content: (
-        <div className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="space-y-5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <div>
-              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1">Standard Workday (Hours)</label>
+              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1.5">Standard Workday (Hours)</label>
               <input
                 type="number"
                 value={prefs.workdayHours || 8}
                 onChange={(e) => updatePref('workdayHours', parseFloat(e.target.value))}
-                className="w-full p-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
+                className="w-full p-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
               />
               {fieldError('workdayHours') && <p className="text-[10px] text-red-600 mt-1">{fieldError('workdayHours')}</p>}
             </div>
 
             <div>
-              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1">Grace Period (Minutes)</label>
+              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1.5">Grace Period (Minutes)</label>
               <input
                 type="number"
                 value={prefs.gracePeriodMinutes || 15}
                 onChange={(e) => updatePref('gracePeriodMinutes', parseInt(e.target.value, 10))}
-                className="w-full p-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
+                className="w-full p-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
               />
             </div>
 
             <div>
-              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1">Half-Day Threshold (Hours)</label>
+              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1.5">Half-Day Threshold (Hours)</label>
               <input
                 type="number"
                 value={prefs.halfDayHours || 4}
                 onChange={(e) => updatePref('halfDayHours', parseFloat(e.target.value))}
-                className="w-full p-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
+                className="w-full p-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
               />
             </div>
           </div>
 
-          <div className="pt-3 border-t border-[var(--color-nexus-border)] flex items-center justify-between">
+          <div className="pt-4 border-t border-[var(--color-nexus-border)] flex items-center justify-between">
             <div>
               <span className="font-bold text-[var(--color-nexus-ink)] block">Allow Flexible Shift Check-In</span>
               <span className="text-[11px] text-[var(--color-nexus-muted)]">Employees can check in without rigid shift start adherence</span>
@@ -265,10 +265,10 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       icon: Shield,
       badge: 'Security',
       content: (
-        <div className="space-y-4 text-xs">
+        <div className="space-y-5 text-xs">
           <div>
-            <label className="font-bold text-[var(--color-nexus-ink)] block mb-2">Enabled Clock-in Methods</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <label className="font-bold text-[var(--color-nexus-ink)] block mb-2.5">Enabled Clock-in Methods</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {methods.map((m) => {
                 const isEnabled = (prefs.enabledMethods || []).includes(m.key);
                 const IconComp = METHOD_ICONS[m.icon] || CircleDot;
@@ -277,7 +277,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
                     key={m.key}
                     type="button"
                     onClick={() => toggleMethod(m.key)}
-                    className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
+                    className={`p-3 rounded-lg border text-left flex items-center gap-2.5 transition-all cursor-pointer ${
                       isEnabled
                         ? 'bg-blue-50 border-blue-300 text-blue-800 font-bold'
                         : 'bg-[var(--color-nexus-surface-alt)] border-[var(--color-nexus-border)] text-[var(--color-nexus-muted)]'
@@ -291,8 +291,8 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-[var(--color-nexus-border)]">
-            <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-[var(--color-nexus-border)]">
+            <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
               <div>
                 <span className="font-bold text-[var(--color-nexus-ink)] block">Require Facial Recognition</span>
                 <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Match employee face embedding at check-in</span>
@@ -305,7 +305,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+            <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
               <div>
                 <span className="font-bold text-[var(--color-nexus-ink)] block">Liveness Active Detection</span>
                 <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Prevent photo/screen spoofing attempts</span>
@@ -318,7 +318,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+            <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
               <div>
                 <span className="font-bold text-[var(--color-nexus-ink)] block">Require GPS Geofence</span>
                 <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Verify location inside branch radius</span>
@@ -331,7 +331,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
               />
             </label>
 
-            <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+            <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
               <div>
                 <span className="font-bold text-[var(--color-nexus-ink)] block">Require Office Wi-Fi</span>
                 <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Verify BSSID/IP matching designated office network</span>
@@ -354,8 +354,8 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       icon: Activity,
       badge: 'Automation',
       content: (
-        <div className="space-y-4 text-xs">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50/50 border border-blue-200">
+        <div className="space-y-5 text-xs">
+          <div className="flex items-center justify-between p-3.5 rounded-lg bg-blue-50/50 border border-blue-200">
             <div>
               <span className="font-bold text-blue-950 block">Enable Multi-Signal Presence Engine</span>
               <span className="text-[11px] text-blue-800">Continuously verifies presence via web & mobile telemetry</span>
@@ -368,24 +368,24 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1">Heartbeat Pulse Interval (Minutes)</label>
+              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1.5">Heartbeat Pulse Interval (Minutes)</label>
               <input
                 type="number"
                 value={prefs.heartbeatIntervalMinutes || 15}
                 onChange={(e) => updatePref('heartbeatIntervalMinutes', parseInt(e.target.value, 10))}
-                className="w-full p-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
+                className="w-full p-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
               />
             </div>
 
             <div>
-              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1">Auto Checkout Threshold (Hours)</label>
+              <label className="font-bold text-[var(--color-nexus-ink)] block mb-1.5">Auto Checkout Threshold (Hours)</label>
               <input
                 type="number"
                 value={prefs.autoCheckoutHours || 12}
                 onChange={(e) => updatePref('autoCheckoutHours', parseFloat(e.target.value))}
-                className="w-full p-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
+                className="w-full p-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg font-semibold text-[var(--color-nexus-ink)]"
               />
             </div>
           </div>
@@ -399,8 +399,8 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       icon: Smartphone,
       badge: 'Mobile',
       content: (
-        <div className="space-y-3 text-xs">
-          <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+        <div className="space-y-4 text-xs">
+          <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
             <div>
               <span className="font-bold text-[var(--color-nexus-ink)] block">Lock Employee to Registered Device</span>
               <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Prevent clocking in from unauthorized secondary phones</span>
@@ -413,7 +413,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
             />
           </label>
 
-          <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
+          <label className="flex items-center justify-between p-3.5 rounded-lg bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] cursor-pointer">
             <div>
               <span className="font-bold text-[var(--color-nexus-ink)] block">Allow Offline Check-In Caching</span>
               <span className="text-[10.5px] text-[var(--color-nexus-muted)]">Store encrypted check-ins locally when internet drops</span>
@@ -432,8 +432,8 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
 
   // Live Flow Preview Panel
   const previewPanel = (
-    <div className="space-y-2.5 text-xs">
-      <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-2">
+    <div className="space-y-3 text-xs">
+      <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-2">
         <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
         <div>
           <span className="font-bold block">1. Employee initiates check-in</span>
@@ -442,7 +442,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       </div>
 
       {prefs.requireGps && (
-        <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 flex items-center gap-2">
+        <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 flex items-center gap-2">
           <MapPin size={16} className="text-blue-600 shrink-0" />
           <div>
             <span className="font-bold block">2. Geofence radius check</span>
@@ -452,7 +452,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
       )}
 
       {prefs.requireFaceMatch && (
-        <div className="p-2.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-800 flex items-center gap-2">
+        <div className="p-3 rounded-lg bg-purple-50 border border-purple-200 text-purple-800 flex items-center gap-2">
           <ScanFace size={16} className="text-purple-600 shrink-0" />
           <div>
             <span className="font-bold block">3. Biometric face verification</span>
@@ -463,7 +463,7 @@ export default function AttendancePreferencesPage({ user, onLogout }: { user: Us
         </div>
       )}
 
-      <div className="p-2.5 rounded-lg bg-slate-900 text-white flex items-center gap-2">
+      <div className="p-3 rounded-lg bg-slate-900 text-white flex items-center gap-2">
         <Shield size={16} className="text-blue-400 shrink-0" />
         <div>
           <span className="font-bold block text-white">4. Attendance Logged & Signed</span>
