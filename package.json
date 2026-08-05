@@ -21,7 +21,7 @@
     "db:migrate": "pnpm --filter @company/database db:migrate"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
+    "bcryptjs": "^2.4.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "firebase": "^12.16.0",
@@ -31,7 +31,7 @@
     "@types/node": "^26.1.1",
     "tsx": "^4.23.1",
     "turbo": "^2.10.6",
-    "typescript": "~7.0.2"
+    "typescript": "~5.8.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -47,7 +47,9 @@
       "brace-expansion": ">=5.0.9",
       "turbo-stream": ">=3.0.0",
       "react-router": ">=7.18.0",
-      "react-router-dom": ">=7.18.0"
+      "react-router-dom": ">=7.18.0",
+      "bcryptjs": "^2.4.3",
+      "typescript": "~5.8.2"
     }
   }
 }
