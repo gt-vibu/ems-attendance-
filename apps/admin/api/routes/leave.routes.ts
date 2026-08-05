@@ -4,7 +4,7 @@ import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
-import { notify } from '../services/notificationService';
+import { notify, notifyOrFallback } from '../services/notificationService';
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
@@ -721,19 +721,13 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, request.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      const tenantRowEncashDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRowEncashDecision, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'leave_encashment_decided', {
-          subjectUserId: employee.id,
-          subjectName: employee.name,
-          data: { days: request.days, amount: Math.round(amount || 0), status: action === 'approve' ? 'approved' : 'rejected' },
-        }).catch(() => undefined);
-      } else {
-        const message = action === 'approve'
-          ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
-          : 'Your leave encashment request was rejected.';
-        await notifyUser(employee.id, `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, message);
-      }
+      const fallbackMessage = action === 'approve'
+        ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
+        : 'Your leave encashment request was rejected.';
+      await notifyOrFallback(req.user.tenantId, 'leave_encashment_decided', employee.id, employee.name,
+        { days: request.days, amount: Math.round(amount || 0), status: action === 'approve' ? 'approved' : 'rejected' },
+        `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, fallbackMessage,
+      );
     }
 
     res.json({ success: true, request: updated });

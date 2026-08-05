@@ -7,7 +7,7 @@ import { hasPrivilege, getUsersWithPrivilege, isPlatformFeatureAllowed } from '.
 import { getEffectiveShiftId } from '../services/shiftOverrides';
 import { logToAuditLedger } from '../services/audit';
 import { notifyUser, notifyUsers } from '../services/notifications';
-import { notify } from '../services/notificationService';
+import { notify, notifyOrFallback } from '../services/notificationService';
 import { dispatchWebhookEvent } from '../services/webhooks';
 
 export const router = Router();
@@ -55,16 +55,8 @@ router.post('/api/tenant/shift-swap', authenticate, async (req: any, res: any) =
       reason: reason || null,
     }).returning();
 
-    const tenantRowSwap = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
-    if (isPlatformFeatureAllowed(tenantRowSwap, 'unified_notifications')) {
-      await notify(tenantId, 'shift_swap_requested', {
-        subjectUserId: target.id,
-        subjectName: target.name,
-        data: { requesterName: req.user.name, swapDate },
-      }).catch(() => undefined);
-    } else {
-      await notifyUser(target.id, 'Shift swap request', `${req.user.name} wants to swap shifts with you on ${swapDate}.`);
-    }
+    await notifyOrFallback(tenantId, 'shift_swap_requested', target.id, target.name, { requesterName: req.user.name, swapDate },
+      'Shift swap request', `${req.user.name} wants to swap shifts with you on ${swapDate}.`);
 
     res.json({ success: true, request });
   } catch (err: any) {

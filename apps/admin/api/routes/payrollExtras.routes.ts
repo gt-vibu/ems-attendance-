@@ -5,8 +5,8 @@ import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
-import { notify } from '../services/notificationService';
-import { getEffectiveDailyRate } from './leavePayrollShared';
+import { notify, notifyOrFallback } from '../services/notificationService';
+import { getEffectiveDailyRate, computeFinalSettlement } from './leavePayrollShared';
 import { computeLeaveBalancesForUser } from './leave.routes';
 
 // Loans, Advances, Reimbursements, Bonuses, and the Salary Revision
@@ -25,16 +25,6 @@ function parsePagination(req: any, defaultLimit = 500, maxLimit = 2000) {
   const limit = Math.min(maxLimit, Math.max(1, Number(req.query.limit) || defaultLimit));
   const offset = Math.max(0, Number(req.query.offset) || 0);
   return { limit, offset };
-}
-
-async function notifyOrFallback(tenantId: number, eventType: string, subjectUserId: number, subjectName: string, data: Record<string, any>, fallbackTitle: string, fallbackMessage: string) {
-  const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
-  if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
-    await notify(tenantId, eventType, { subjectUserId, subjectName, data }).catch(() => undefined);
-  } else {
-    const { notifyUser } = await import('../services/notifications');
-    await notifyUser(subjectUserId, fallbackTitle, fallbackMessage);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -390,14 +380,10 @@ router.post('/api/tenant/payroll/settlements/generate', authenticate, async (req
     if (existing.length > 0) return res.status(400).json({ error: 'A settlement has already been generated for this termination.' });
 
     const userId = termination.employeeId;
-    const [, , d] = lastWorkingDate.split('-').map(Number);
-    const daysWorkedInExitMonth = d;
     const dailyRate = await getEffectiveDailyRate(req.user.tenantId, userId);
-    const remainingSalaryAmount = dailyRate * daysWorkedInExitMonth;
 
     const { balances } = await computeLeaveBalancesForUser(userId, req.user.tenantId);
     const encashableDays = (balances as any[]).filter((b: any) => b.encashmentEnabled).reduce((sum: number, b: any) => sum + Math.max(0, b.remainingDays || 0), 0);
-    const leaveEncashmentAmount = dailyRate * encashableDays;
 
     const pendingBonuses = await db.select().from(schema.payrollBonuses).where(and(eq(schema.payrollBonuses.tenantId, req.user.tenantId), eq(schema.payrollBonuses.userId, userId), eq(schema.payrollBonuses.status, 'approved')));
     const pendingBonusAmount = pendingBonuses.reduce((sum: number, b: any) => sum + b.amount, 0);
@@ -406,25 +392,24 @@ router.post('/api/tenant/payroll/settlements/generate', authenticate, async (req
     const activeAdvances = await db.select().from(schema.payrollAdvances).where(and(eq(schema.payrollAdvances.tenantId, req.user.tenantId), eq(schema.payrollAdvances.userId, userId), eq(schema.payrollAdvances.status, 'active')));
     const loanAdvanceRecoveryAmount = activeLoans.reduce((sum: number, l: any) => sum + l.remainingBalance, 0) + activeAdvances.reduce((sum: number, a: any) => sum + a.remainingBalance, 0);
 
-    const noticeRecovery = Number(noticePeriodRecoveryAmount) || 0;
-    const grossSettlement = remainingSalaryAmount + leaveEncashmentAmount + pendingBonusAmount;
-    const netSettlement = grossSettlement - noticeRecovery - loanAdvanceRecoveryAmount;
+    const computed = computeFinalSettlement({
+      dailyRate,
+      lastWorkingDate,
+      encashableLeaveDays: encashableDays,
+      pendingBonusAmount,
+      loanAdvanceRecoveryAmount,
+      noticePeriodRecoveryAmount,
+    });
 
     const [settlement] = await db.insert(schema.payrollFinalSettlements).values({
       tenantId: req.user.tenantId, userId, terminationRequestId: termination.id, lastWorkingDate,
-      remainingSalaryAmount, leaveEncashmentDays: encashableDays, leaveEncashmentAmount, pendingBonusAmount,
-      noticePeriodRecoveryAmount: noticeRecovery, loanAdvanceRecoveryAmount, grossSettlement, netSettlement,
-      breakdown: [
-        { type: 'remaining_salary', amount: remainingSalaryAmount, days: daysWorkedInExitMonth },
-        { type: 'leave_encashment', amount: leaveEncashmentAmount, days: encashableDays },
-        { type: 'pending_bonus', amount: pendingBonusAmount },
-        { type: 'notice_period_recovery', amount: -noticeRecovery },
-        { type: 'loan_advance_recovery', amount: -loanAdvanceRecoveryAmount },
-      ],
+      remainingSalaryAmount: computed.remainingSalaryAmount, leaveEncashmentDays: encashableDays, leaveEncashmentAmount: computed.leaveEncashmentAmount, pendingBonusAmount,
+      noticePeriodRecoveryAmount: computed.noticeRecovery, loanAdvanceRecoveryAmount, grossSettlement: computed.grossSettlement, netSettlement: computed.netSettlement,
+      breakdown: computed.breakdown,
       generatedByUserId: req.user.userId,
     }).returning();
 
-    await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_FINAL_SETTLEMENT_GENERATED', details: { settlementId: settlement.id, userId, netSettlement } });
+    await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_FINAL_SETTLEMENT_GENERATED', details: { settlementId: settlement.id, userId, netSettlement: computed.netSettlement } });
     res.json({ settlement });
   } catch (err: any) {
     sendServerError(res, err, "payrollExtras.routes.ts");

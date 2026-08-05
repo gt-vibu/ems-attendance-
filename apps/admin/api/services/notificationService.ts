@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
-import { getUsersWithPrivilege } from '../auth/rbac';
+import { getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { resolveEscalationAssignee } from './escalation';
 import { renderNotificationTemplate } from './notificationTemplates';
 import { notifyUser } from './notifications';
@@ -277,6 +277,31 @@ export async function notify(tenantId: number, eventType: string, ctx: NotifyCon
         data: ctx.data || {},
       }, { tenantId });
     }
+  }
+}
+
+// Shared by every route that needs to notify one specific person about one
+// event and doesn't already know whether the tenant has the unified
+// notification policy engine ('unified_notifications' platform feature)
+// turned on. Previously hand-rolled near-identically (fetch tenant row,
+// branch on isPlatformFeatureAllowed) in at least 8 route files — this is
+// the one place that logic should live. Falls back to the plain
+// notifyUser() single-notification path when the tenant hasn't opted into
+// unified_notifications.
+export async function notifyOrFallback(
+  tenantId: number,
+  eventType: string,
+  subjectUserId: number,
+  subjectName: string,
+  data: Record<string, any>,
+  fallbackTitle: string,
+  fallbackMessage: string,
+): Promise<void> {
+  const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
+  if (isPlatformFeatureAllowed(tenantRow as any, 'unified_notifications')) {
+    await notify(tenantId, eventType, { subjectUserId, subjectName, data }).catch(() => undefined);
+  } else {
+    await notifyUser(subjectUserId, fallbackTitle, fallbackMessage);
   }
 }
 

@@ -429,6 +429,47 @@ export async function getEffectiveDailyRate(tenantId: number, userId: number): P
   return summary.dailyRate;
 }
 
+export interface FinalSettlementInputs {
+  dailyRate: number;
+  lastWorkingDate: string; // YYYY-MM-DD
+  encashableLeaveDays: number;
+  pendingBonusAmount: number;
+  loanAdvanceRecoveryAmount: number;
+  noticePeriodRecoveryAmount: number;
+}
+
+// Pure calculation, split out of the settlement-generation route handler
+// (previously ~40 lines of math inline in payrollExtras.routes.ts) so it
+// can be unit tested and read independently of the HTTP/persistence
+// concerns around it. All inputs are pre-fetched by the caller — this
+// function does no DB access itself.
+export function computeFinalSettlement(inputs: FinalSettlementInputs) {
+  const { dailyRate, lastWorkingDate, encashableLeaveDays, pendingBonusAmount, loanAdvanceRecoveryAmount, noticePeriodRecoveryAmount } = inputs;
+  const [, , d] = lastWorkingDate.split('-').map(Number);
+  const daysWorkedInExitMonth = d;
+  const remainingSalaryAmount = dailyRate * daysWorkedInExitMonth;
+  const leaveEncashmentAmount = dailyRate * encashableLeaveDays;
+  const noticeRecovery = Number(noticePeriodRecoveryAmount) || 0;
+  const grossSettlement = remainingSalaryAmount + leaveEncashmentAmount + pendingBonusAmount;
+  const netSettlement = grossSettlement - noticeRecovery - loanAdvanceRecoveryAmount;
+
+  return {
+    daysWorkedInExitMonth,
+    remainingSalaryAmount,
+    leaveEncashmentAmount,
+    noticeRecovery,
+    grossSettlement,
+    netSettlement,
+    breakdown: [
+      { type: 'remaining_salary', amount: remainingSalaryAmount, days: daysWorkedInExitMonth },
+      { type: 'leave_encashment', amount: leaveEncashmentAmount, days: encashableLeaveDays },
+      { type: 'pending_bonus', amount: pendingBonusAmount },
+      { type: 'notice_period_recovery', amount: -noticeRecovery },
+      { type: 'loan_advance_recovery', amount: -loanAdvanceRecoveryAmount },
+    ],
+  };
+}
+
 export async function getRoleCompensationDefault(tenantId: number, roleName: string) {
   if (!roleName) return null;
   const rows = await db.select().from(schema.roleCompensationDefaults).where(

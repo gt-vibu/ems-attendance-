@@ -6,7 +6,7 @@ import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
-import { notify } from '../services/notificationService';
+import { notify, notifyOrFallback } from '../services/notificationService';
 import {
   buildPayrollSummary,
   getOrCreatePayrollSettings,
@@ -393,16 +393,11 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
 
     const employeeRowsAdj = await db.select().from(schema.users).where(eq(schema.users.id, adjustment.userId)).limit(1);
     if (employeeRowsAdj.length > 0) {
-      const tenantRowAdj = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRowAdj, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'payroll_salary_changed', {
-          subjectUserId: adjustment.userId,
-          subjectName: employeeRowsAdj[0].name,
-          data: { amountDelta: adjustment.amountDelta, applyToNextCycle, reason: 'Payroll adjustment applied' },
-        }).catch(() => undefined);
-      } else {
-        await notifyUser(adjustment.userId, 'Payroll adjustment applied', `A payroll adjustment of ${adjustment.amountDelta} has been applied to your record${applyToNextCycle ? ' and will be reflected in your next payroll cycle' : ''}.`);
-      }
+      await notifyOrFallback(req.user.tenantId, 'payroll_salary_changed', adjustment.userId, employeeRowsAdj[0].name,
+        { amountDelta: adjustment.amountDelta, applyToNextCycle, reason: 'Payroll adjustment applied' },
+        'Payroll adjustment applied',
+        `A payroll adjustment of ${adjustment.amountDelta} has been applied to your record${applyToNextCycle ? ' and will be reflected in your next payroll cycle' : ''}.`,
+      );
     }
 
     res.json({ success: true });
@@ -602,16 +597,11 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       fieldChanges,
     });
 
-    const tenantForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-    if (isPlatformFeatureAllowed(tenantForNotify, 'unified_notifications')) {
-      await notify(req.user.tenantId, 'payroll_salary_changed', {
-        subjectUserId: userId,
-        subjectName: employeeRows[0].name,
-        data: { effectiveFrom: payload.effectiveFrom },
-      }).catch(() => undefined);
-    } else {
-      await notifyUser(userId, 'Your salary has been updated', `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`);
-    }
+    await notifyOrFallback(req.user.tenantId, 'payroll_salary_changed', userId, employeeRows[0].name,
+      { effectiveFrom: payload.effectiveFrom },
+      'Your salary has been updated',
+      `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`,
+    );
     res.json({ success: true, profile, components: freshComponents });
   } catch (err: any) {
     sendServerError(res, err, "payroll.routes.ts");
