@@ -738,14 +738,30 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       leaveCalendarByUser.get(userId)
     );
 
+    const [overtimeHoursMap, attendanceDrivenMap] = await Promise.all([
+      Promise.all(userIds.map(async (uId) => [uId, await resolveOvertimeHours(!!tenantRowOverview?.overtimePayrollEnabled, uId, tenantId, year, month)] as [number, number])),
+      Promise.all(userIds.map(async (uId) => [uId, await resolveAttendanceDrivenInputs(tenantRowOverview, uId, tenantId, year, month)] as [number, AttendanceDrivenInputs | null])),
+    ]);
+    const overtimeByUser = new Map<number, number>(overtimeHoursMap);
+    const attendanceDrivenByUser = new Map<number, AttendanceDrivenInputs | null>(attendanceDrivenMap);
+
     const individualRows = profiles.map((profile: any) => {
       const user = users.find((row: any) => row.id === profile.userId);
-      const summary = buildPayrollSummary(profile, componentsByUser.get(profile.userId) || [], settings, leaveDaysByUser(profile.userId), 0);
+      const summary = buildPayrollSummary(
+        profile,
+        componentsByUser.get(profile.userId) || [],
+        settings,
+        leaveDaysByUser(profile.userId),
+        overtimeByUser.get(profile.userId) || 0,
+        attendanceDrivenByUser.get(profile.userId) || null,
+        year,
+        month
+      );
       return {
         userId: profile.userId,
         employeeId: profile.userId,
-        name: user?.name || 'Unknown',
-        employeeName: user?.name || 'Unknown',
+        name: user?.name || 'Employee',
+        employeeName: user?.name || 'Employee',
         email: user?.email || '',
         employeeEmail: user?.email || '',
         role: user?.role || '',
@@ -782,32 +798,47 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
     });
     const roleDefaultByRoleName = new Map<string, any>(roleDefaultRows.map((r: any) => [r.roleName, r]));
 
-    const roleDefaultCoveredRows = usersWithoutProfile
-      .map((user: any) => {
-        const roleDefault = roleDefaultByRoleName.get(user.role);
-        if (!roleDefault) return null;
-        const summary = buildPayrollSummary({ annualCtc: roleDefault.annualCtc }, roleComponentsByDefaultId.get(roleDefault.id) || [], settings, leaveDaysByUser(user.id), 0);
-        return {
-          userId: user.id,
-          employeeId: user.id,
-          name: user.name || 'Unknown',
-          employeeName: user.name || 'Unknown',
-          email: user.email || '',
-          employeeEmail: user.email || '',
-          role: user.role || '',
-          department: user.department || 'Unassigned',
-          annualCtc: summary.annualCtc,
-          monthlyGross: summary.monthlyGross,
-          monthlyNet: summary.monthlyNet,
-          leaveDeduction: summary.leaveDeduction,
-          totalDeductions: summary.leaveDeduction,
-          annualBreakdown: summary.annualBreakdown,
-          source: 'role_default' as const,
-        };
-      })
-      .filter((row: any): row is NonNullable<typeof row> => row !== null);
+    const roleDefaultCoveredRows: any[] = [];
+    const unconfiguredRows: any[] = [];
 
-    const profileRows = [...individualRows, ...roleDefaultCoveredRows];
+    usersWithoutProfile.forEach((user: any) => {
+      const roleDefault = roleDefaultByRoleName.get(user.role);
+      const summary = buildPayrollSummary(
+        { annualCtc: roleDefault ? roleDefault.annualCtc : 0 },
+        roleDefault ? (roleComponentsByDefaultId.get(roleDefault.id) || []) : [],
+        settings,
+        leaveDaysByUser(user.id),
+        overtimeByUser.get(user.id) || 0,
+        attendanceDrivenByUser.get(user.id) || null,
+        year,
+        month
+      );
+      const row = {
+        userId: user.id,
+        employeeId: user.id,
+        name: user.name || 'Employee',
+        employeeName: user.name || 'Employee',
+        email: user.email || '',
+        employeeEmail: user.email || '',
+        role: user.role || '',
+        department: user.department || 'Unassigned',
+        annualCtc: summary.annualCtc,
+        monthlyGross: summary.monthlyGross,
+        monthlyNet: summary.monthlyNet,
+        leaveDeduction: summary.leaveDeduction,
+        totalDeductions: summary.leaveDeduction,
+        annualBreakdown: summary.annualBreakdown,
+        source: roleDefault ? 'role_default' : 'unconfigured',
+      };
+
+      if (roleDefault) {
+        roleDefaultCoveredRows.push(row);
+      } else {
+        unconfiguredRows.push(row);
+      }
+    });
+
+    const profileRows = [...individualRows, ...roleDefaultCoveredRows, ...unconfiguredRows];
 
     const totals = profileRows.reduce((acc: any, row: any) => {
       acc.totalAnnualCtc += row.annualCtc;
