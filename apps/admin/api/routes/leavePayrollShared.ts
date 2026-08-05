@@ -308,13 +308,19 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const overtimeRate = Number(profile?.overtimeHourlyRate ?? settings?.overtimeHourlyRate ?? 0);
   const overtimePay = overtimeHours * overtimeRate;
   const earnedGross = Math.max(0, Math.round((monthlyGross - leaveDeduction - lopDeduction) * 100) / 100);
-  const preStatutoryNet = monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay;
+  // Floored at 0, same as earnedGross above — a month with heavy LOP/leave
+  // deduction should never produce a negative pre-statutory figure that
+  // then feeds a negative statutory base downstream.
+  const preStatutoryNet = Math.max(0, Math.round((monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay) * 100) / 100);
 
   // Statutory deductions come out of pre-statutory net — they reduce actual
   // take-home pay, same as leave deductions do, so monthlyNet below is the
-  // real final figure an employee receives, not a subtotal.
+  // real final figure an employee receives, not a subtotal. Floored at 0:
+  // an employee should never be issued a payslip showing they owe the
+  // company money — a shortfall like that is a recovery/loan matter to
+  // handle explicitly, not something the payslip figure itself goes negative for.
   const statutory = computeStatutoryDeductions(monthlyGross, annualCtc, annualBreakdown, settings);
-  const monthlyNet = preStatutoryNet - statutory.totalEmployeeStatutory;
+  const monthlyNet = Math.max(0, Math.round((preStatutoryNet - statutory.totalEmployeeStatutory) * 100) / 100);
 
   return {
     annualCtc,

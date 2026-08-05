@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { notify } from '../services/notificationService';
@@ -113,7 +114,7 @@ router.get('/api/leave/mine', authenticate, async (req: any, res: any) => {
       selectedOptionalHolidayCount: holidayChoices.length,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -139,7 +140,7 @@ router.get('/api/tenant/employees/:id/leave-balance', authenticate, async (req: 
     const remainingDays = balances.reduce((sum: number, b: any) => sum + Number(b.remainingDays || 0), 0);
     res.json({ balances, remainingDays });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -251,7 +252,7 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, request: inserted });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -263,7 +264,7 @@ router.get('/api/tenant/leave/policies', authenticate, async (req: any, res: any
     const policies = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.user.tenantId)).orderBy(schema.leavePolicies.name);
     res.json({ policies });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -290,7 +291,7 @@ router.post('/api/tenant/leave/policies', authenticate, async (req: any, res: an
     }).returning();
     res.json({ success: true, policy });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -329,7 +330,7 @@ router.post('/api/tenant/leave/policies/seed-defaults', authenticate, async (req
     ).returning();
     res.json({ success: true, policies });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -370,7 +371,7 @@ router.get('/api/tenant/leave/requests', authenticate, async (req: any, res: any
       });
     res.json({ requests, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -416,7 +417,7 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     });
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -484,7 +485,7 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
 
     res.json({ success: true, results, updated: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -528,7 +529,7 @@ router.patch('/api/tenant/leave/requests/:id/amend', authenticate, async (req: a
     const [updated] = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -565,7 +566,7 @@ router.get('/api/tenant/leave/adjustments', authenticate, async (req: any, res: 
 
     res.json({ adjustments: enriched });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -598,7 +599,7 @@ router.post('/api/tenant/leave/adjustments', authenticate, async (req: any, res:
 
     res.json({ success: true, adjustment });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -659,7 +660,7 @@ router.post('/api/leave/encashment', authenticate, async (req: any, res: any) =>
 
     res.json({ success: true, request });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -676,7 +677,7 @@ router.get('/api/tenant/leave/encashment-requests', authenticate, async (req: an
       requests: rows.map((r: any) => ({ ...r, employeeName: userById.get(r.userId)?.name || 'Unknown' })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -740,6 +741,6 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
 
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });

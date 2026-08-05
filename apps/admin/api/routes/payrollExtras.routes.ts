@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -47,7 +48,7 @@ router.get('/api/tenant/payroll/loans', authenticate, async (req: any, res: any)
     const rows = await db.select().from(schema.payrollLoans).where(eq(schema.payrollLoans.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollLoans.createdAt));
     res.json({ loans: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -74,7 +75,7 @@ router.post('/api/tenant/payroll/loans', authenticate, async (req: any, res: any
 
     res.json({ loan });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -89,7 +90,7 @@ router.post('/api/tenant/payroll/loans/:id/close', authenticate, async (req: any
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_LOAN_CLOSED', details: { loanId: rows[0].id } });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -105,7 +106,7 @@ router.get('/api/tenant/payroll/advances', authenticate, async (req: any, res: a
     const rows = await db.select().from(schema.payrollAdvances).where(eq(schema.payrollAdvances.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdvances.createdAt)).limit(limit).offset(offset);
     res.json({ advances: rows, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -132,7 +133,7 @@ router.post('/api/tenant/payroll/advances', authenticate, async (req: any, res: 
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_ADVANCE_CREATED', details: { advanceId: advance.id, userId, amount } });
     res.json({ advance });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -148,7 +149,7 @@ router.get('/api/tenant/payroll/reimbursements', authenticate, async (req: any, 
       : await db.select().from(schema.payrollReimbursements).where(and(eq(schema.payrollReimbursements.tenantId, req.user.tenantId), eq(schema.payrollReimbursements.userId, req.user.userId))).orderBy(desc(schema.payrollReimbursements.createdAt)).limit(limit).offset(offset);
     res.json({ reimbursements: rows, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -172,7 +173,7 @@ router.post('/api/tenant/payroll/reimbursements', authenticate, async (req: any,
 
     res.json({ reimbursement });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -199,7 +200,7 @@ router.post('/api/tenant/payroll/reimbursements/:id/action', authenticate, async
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_REIMBURSEMENT_' + action.toUpperCase() + 'D', details: { reimbursementId: rows[0].id } });
     res.json({ reimbursement: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -214,7 +215,7 @@ router.get('/api/tenant/payroll/bonuses', authenticate, async (req: any, res: an
       : await db.select().from(schema.payrollBonuses).where(and(eq(schema.payrollBonuses.tenantId, req.user.tenantId), eq(schema.payrollBonuses.userId, req.user.userId))).orderBy(desc(schema.payrollBonuses.createdAt));
     res.json({ bonuses: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -238,7 +239,7 @@ router.post('/api/tenant/payroll/bonuses', authenticate, async (req: any, res: a
 
     res.json({ bonus });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -256,7 +257,7 @@ router.get('/api/tenant/payroll/salary-revisions', authenticate, async (req: any
     const rows = await db.select().from(schema.salaryRevisionRequests).where(eq(schema.salaryRevisionRequests.tenantId, req.user.tenantId)).orderBy(desc(schema.salaryRevisionRequests.createdAt));
     res.json({ revisions: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -280,7 +281,7 @@ router.post('/api/tenant/payroll/salary-revisions', authenticate, async (req: an
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'SALARY_REVISION_REQUESTED', details: { revisionId: revision.id, userId, proposedAnnualCtc } });
     res.json({ revision });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -297,7 +298,7 @@ router.post('/api/tenant/payroll/salary-revisions/:id/hr-review', authenticate, 
     }).where(eq(schema.salaryRevisionRequests.id, rows[0].id)).returning();
     res.json({ revision: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -346,7 +347,7 @@ router.post('/api/tenant/payroll/salary-revisions/:id/finance-review', authentic
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'SALARY_REVISION_' + action.toUpperCase() + 'D', details: { revisionId: revision.id, userId: revision.userId, proposedAnnualCtc: revision.proposedAnnualCtc } });
     res.json({ revision: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -368,7 +369,7 @@ router.get('/api/tenant/payroll/settlements', authenticate, async (req: any, res
     const rows = await db.select().from(schema.payrollFinalSettlements).where(eq(schema.payrollFinalSettlements.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollFinalSettlements.createdAt));
     res.json({ settlements: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -426,7 +427,7 @@ router.post('/api/tenant/payroll/settlements/generate', authenticate, async (req
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_FINAL_SETTLEMENT_GENERATED', details: { settlementId: settlement.id, userId, netSettlement } });
     res.json({ settlement });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });
 
@@ -449,6 +450,6 @@ router.post('/api/tenant/payroll/settlements/:id/approve', authenticate, async (
 
     res.json({ settlement: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payrollExtras.routes.ts");
   }
 });

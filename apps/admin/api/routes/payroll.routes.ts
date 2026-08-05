@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
@@ -92,7 +93,7 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
     const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
     res.json({ profile, components: effectiveComponents, summary, settings, period: { year, month }, source });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -115,7 +116,7 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
 
     res.json({ history });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -219,7 +220,7 @@ router.post('/api/tenant/payroll/process', authenticate, async (req: any, res: a
 
     res.json({ success: true, processedCount, year: Number(year), month: Number(month) });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -261,7 +262,7 @@ router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, re
     }
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -294,7 +295,7 @@ router.get('/api/tenant/payroll/adjustments', authenticate, async (req: any, res
     const withNames = rows.map((r: any) => ({ ...r, userName: nameById.get(r.userId) || 'Unknown' }));
     res.json({ adjustments: withNames, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -399,7 +400,7 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -451,7 +452,7 @@ router.get('/api/payroll/history/:runId/pdf', authenticate, async (req: any, res
 
     doc.end();
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -463,7 +464,7 @@ router.get('/api/tenant/payroll/settings', authenticate, async (req: any, res: a
     const settings = await getOrCreatePayrollSettings(req.user.tenantId);
     res.json({ settings });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -508,7 +509,7 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
     const [updated] = await db.update(schema.payrollSettings).set(patch).where(eq(schema.payrollSettings.id, current.id)).returning();
     res.json({ success: true, settings: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -604,7 +605,7 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
     }
     res.json({ success: true, profile, components: freshComponents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -660,7 +661,7 @@ router.get('/api/tenant/payroll/employee/:userId/history', authenticate, async (
     if (!result) return res.status(404).json({ error: 'Employee not found.' });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -674,7 +675,7 @@ router.get('/api/payroll/compensation-history/mine', authenticate, async (req: a
     if (!result) return res.status(404).json({ error: 'User not found.' });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -738,7 +739,7 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     const dayStatuses = Object.fromEntries(await resolveMonthStatuses(req.user.tenantId, userId, year, month));
     res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, dayStatuses, period: { year, month }, source });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -931,7 +932,7 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       period: { year, month },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1008,7 +1009,7 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
 
     res.json({ roleDefaults, roles: roleNames });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1074,7 +1075,7 @@ router.post('/api/tenant/payroll/role-defaults/:roleName', authenticate, async (
 
     res.json({ success: true, roleDefault, components: freshComponents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1091,7 +1092,7 @@ router.delete('/api/tenant/payroll/role-defaults/:roleName', authenticate, async
     await db.delete(schema.roleCompensationDefaults).where(eq(schema.roleCompensationDefaults.id, existing[0].id));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1121,7 +1122,7 @@ router.get('/api/tenant/payroll/calendar', authenticate, async (req: any, res: a
     const rows = await db.select().from(schema.payrollCalendars).where(eq(schema.payrollCalendars.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollCalendars.year), desc(schema.payrollCalendars.month));
     res.json({ calendars: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1143,7 +1144,7 @@ router.post('/api/tenant/payroll/calendar', authenticate, async (req: any, res: 
     }
     res.json({ calendar: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1155,7 +1156,7 @@ router.get('/api/tenant/payroll/batches', authenticate, async (req: any, res: an
     const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollBatches.year), desc(schema.payrollBatches.month));
     res.json({ batches: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1186,7 +1187,7 @@ router.get('/api/tenant/payroll/batches/:id/exceptions', authenticate, async (re
 
     res.json({ exceptions, blockingCount: exceptions.filter((e) => e.blocking).length, pendingAdjustments: pendingAdjustments.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1209,7 +1210,7 @@ router.post('/api/tenant/payroll/batches', authenticate, async (req: any, res: a
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_BATCH_CREATED', details: { batchId: batch.id, year, month } });
     res.json({ batch });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1240,7 +1241,7 @@ router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (re
 
     res.json({ batch: { ...batch, status: 'calculating' }, queued: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1320,7 +1321,7 @@ function makeTransitionRoute(opts: {
 
       res.json({ batch: updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "payroll.routes.ts");
     }
   });
 }
