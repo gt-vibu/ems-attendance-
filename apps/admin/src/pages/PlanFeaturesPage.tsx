@@ -20,6 +20,7 @@ const PLATFORM_FEATURE_CATEGORIES: Record<string, string> = {
   payroll_lock_adjustments: 'Payroll',
   service_accounts: 'Integrations',
   webhooks: 'Integrations',
+  smartteams_federation: 'Integrations',
   custom_rbac: 'Organization',
   notification_routing: 'Organization',
   unified_notifications: 'Organization',

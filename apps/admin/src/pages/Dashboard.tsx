@@ -2175,6 +2175,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                                   Edit Features
                                 </button>
                                 <button
+                                  onClick={() => navigate(`/super/federation-clients/${t.id}`)}
+                                  className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
+                                >
+                                  Federation
+                                </button>
+                                <button
                                   onClick={() => handleToggleTenantStatus(t.id, t.status || 'active')}
                                   className={`font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors ${(t.status || 'active') === 'active' ? 'bg-[var(--color-nexus-error)] hover:brightness-110 text-white' : 'bg-[var(--color-nexus-success-text)] hover:brightness-110 text-white'}`}
                                 >
