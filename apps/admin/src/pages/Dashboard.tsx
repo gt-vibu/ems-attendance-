@@ -40,7 +40,7 @@ import NotificationsTab from './dashboard/NotificationsTab';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 import {
-  LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell, Plug,
+  LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell, Plug, Key,
   ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine, Activity, Power, Play, ExternalLink, TrendingUp, CalendarDays, Banknote,
   CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket, BarChart2,
@@ -682,6 +682,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     { id: 'requests', label: 'Tenancy Requests', icon: ClipboardCheck, count: tenancyRequests.length, description: 'Approve or reject new company sign-ups.' },
     { id: 'tenants', label: 'Manage Tenants', icon: Building2, count: allTenants.length, description: 'Suspend, reinstate, and inspect every workspace.' },
     { id: 'integration-hub', label: 'Integration Hub', icon: Plug, description: 'Manage platform OAuth applications and third-party integrations.' },
+    { id: 'platform-credentials', label: 'Platform Credentials', icon: Key, description: 'Create a credential a partner uses to integrate their app with SmartTeams.' },
     { id: 'notifications', label: 'Admin Inbox', icon: Bell, count: notifications.length, description: 'Platform-wide alerts and messages.' },
   ];
 
@@ -753,6 +754,14 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
       navigate('/tenant/admin');
       return;
     }
+    // Real route, not a Dashboard tab — deliberately bypasses the
+    // Integration Hub tab's own (much heavier, demo-data-laden) component
+    // entirely, so minting/sharing a real credential never depends on that
+    // page having loaded successfully.
+    if (id === 'platform-credentials') {
+      navigate('/super/platform-federation-clients');
+      return;
+    }
     // Leave Management, Payroll, and Directory all render inline via their
     // own `embedded` mode (see their tab render below) — no route change,
     // no sidebar/header remount, no Suspense flash.
@@ -804,7 +813,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
+                      onClick={() => handleTabChange(item.id)}
                       className="text-left nexus-card  rise-in rounded-xl p-5 group"
                       style={{ animationDelay: `${i * 60}ms` }}
                     >
@@ -2279,6 +2288,12 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                   </div>
                 )}
               </div>
+            )}
+            {/* Integration Hub Tab */}
+            {activeTab === 'integration-hub' && (
+              <Suspense fallback={<div className="p-8 text-center text-xs font-semibold text-slate-500">Loading Integration Hub & Developer Console...</div>}>
+                <IntegrationHubPage user={user} onLogout={onLogout} />
+              </Suspense>
             )}
           </div>
         )}
