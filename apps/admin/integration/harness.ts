@@ -110,9 +110,11 @@ export async function createTestTenantAndAdmin() {
     }
     await db.delete(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.tenantId, tenant.id));
     await db.delete(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.tenantId, tenant.id));
+    await db.delete(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, tenant.id));
     await db.delete(schema.attendanceLogs).where(eq(schema.attendanceLogs.tenantId, tenant.id));
     await db.delete(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.tenantId, tenant.id));
     await db.delete(schema.payrollRuns).where(eq(schema.payrollRuns.tenantId, tenant.id));
+    await db.delete(schema.employeeCompensationProfiles).where(eq(schema.employeeCompensationProfiles.tenantId, tenant.id));
     await db.delete(schema.attendanceFreezePeriods).where(eq(schema.attendanceFreezePeriods.tenantId, tenant.id));
     // getOrCreatePayrollSettings() (called by the payroll lock endpoint,
     // among others) lazily creates a payroll_settings row the first time
