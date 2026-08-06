@@ -1750,6 +1750,8 @@ async function runSchemaSync() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    try { await db.execute(sql`ALTER TABLE federation_webhook_outbox ADD COLUMN IF NOT EXISTS external_organization_id TEXT;`); } catch (e) { console.error('Column sync failed (federation_webhook_outbox.external_organization_id):', e); }
+    try { await db.execute(sql`ALTER TABLE federation_webhook_outbox ADD COLUMN IF NOT EXISTS external_branch_id TEXT;`); } catch (e) { console.error('Column sync failed (federation_webhook_outbox.external_branch_id):', e); }
     try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_status_idx ON federation_webhook_outbox (tenant_id, status);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_status_idx):', e); }
     try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_created_idx ON federation_webhook_outbox (tenant_id, created_at);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_created_idx):', e); }
 

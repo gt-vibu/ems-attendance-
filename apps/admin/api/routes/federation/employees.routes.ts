@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation } from '../../middleware/federationAuth';
+import { authenticateFederation, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { linkExternalId, resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
@@ -11,7 +11,7 @@ import { FEDERATION_GRANTABLE_CAPABILITIES } from '../../services/federation/cap
 import { writeOutboxEvent } from '../../services/federation/outbox';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter);
+router.use('/v1/federation', authenticateFederation, federationLimiter, resolveFederationTenantContext());
 
 // Placeholder-login-domain: this app's users.email column is NOT NULL +
 // UNIQUE, but the federation employee-upsert payload deliberately carries
@@ -35,39 +35,47 @@ router.put('/v1/federation/employees/:externalEmployeeId', requireIdempotencyKey
     const employeeStatus = ['active', 'inactive', 'terminated'].includes(status) ? status : undefined;
 
     let internalId: number;
-    if (existingInternalId !== null) {
-      const patch: any = { name };
-      if (employmentType !== undefined) patch.employmentType = employmentType;
-      if (dateOfJoining !== undefined) patch.dateOfJoining = dateOfJoining;
-      if (employeeStatus !== undefined) patch.employeeStatus = employeeStatus;
-      await db.update(schema.users).set(patch).where(and(eq(schema.users.id, existingInternalId), eq(schema.users.tenantId, tenantId)));
-      internalId = existingInternalId;
-    } else {
-      // No password is set — this shadow profile authenticates through
-      // BlizBooks, never through this app's own /api/auth/login. uid uses
-      // the externalEmployeeId itself since it's already a guaranteed-
-      // unique immutable UUID.
-      const [inserted] = await db.insert(schema.users).values({
-        uid: externalEmployeeId,
-        email: placeholderEmail(externalEmployeeId),
-        password: '',
-        name,
-        tenantId,
-        role: 'employee',
-        employmentType: employmentType || 'full_time',
-        dateOfJoining: dateOfJoining || null,
-        employeeStatus: employeeStatus || 'active',
-      }).returning();
-      internalId = inserted.id;
-      await linkExternalId(tenantId, 'employee', internalId, externalEmployeeId);
-    }
+    let branchId: number | null = null;
+    await db.transaction(async (tx: any) => {
+      if (existingInternalId !== null) {
+        const patch: any = { name };
+        if (employmentType !== undefined) patch.employmentType = employmentType;
+        if (dateOfJoining !== undefined) patch.dateOfJoining = dateOfJoining;
+        if (employeeStatus !== undefined) patch.employeeStatus = employeeStatus;
+        await tx.update(schema.users).set(patch).where(and(eq(schema.users.id, existingInternalId), eq(schema.users.tenantId, tenantId)));
+        internalId = existingInternalId;
+        const row = (await tx.select({ branchId: schema.users.branchId }).from(schema.users).where(eq(schema.users.id, existingInternalId)).limit(1))[0];
+        branchId = row?.branchId ?? null;
+      } else {
+        // No password is set — this shadow profile authenticates through
+        // BlizBooks, never through this app's own /api/auth/login. uid uses
+        // the externalEmployeeId itself since it's already a guaranteed-
+        // unique immutable UUID.
+        const [inserted] = await tx.insert(schema.users).values({
+          uid: externalEmployeeId,
+          email: placeholderEmail(externalEmployeeId),
+          password: '',
+          name,
+          tenantId,
+          role: 'employee',
+          employmentType: employmentType || 'full_time',
+          dateOfJoining: dateOfJoining || null,
+          employeeStatus: employeeStatus || 'active',
+        }).returning();
+        internalId = inserted.id;
+        branchId = inserted.branchId ?? null;
+        await linkExternalId(tenantId, 'employee', internalId, externalEmployeeId);
+      }
 
-    await writeOutboxEvent({
-      tenantId,
-      eventType: 'workforce.employee.changed',
-      aggregateType: 'employee',
-      aggregateId: externalEmployeeId,
-      data: { externalEmployeeId, name, employmentType, status: employeeStatus || 'active' },
+      const externalBranchId = branchId ? await resolveExternalId(tenantId, 'branch', branchId) : null;
+      await writeOutboxEvent({
+        tenantId,
+        eventType: 'workforce.employee.changed',
+        aggregateType: 'employee',
+        aggregateId: externalEmployeeId,
+        externalBranchId,
+        data: { externalEmployeeId, name, employmentType, status: employeeStatus || 'active' },
+      }, tx);
     });
 
     res.json({ externalEmployeeId, status: employeeStatus || 'active', aggregateVersion: 1 });

@@ -5,6 +5,7 @@ import { logger } from '../../../logger';
 import { queue } from '../queue';
 import { assertWebhookUrlIsSafe } from '../webhooks';
 import { getOrCreateActiveKey, signPayload } from './webhookSigning';
+import { getOrAssignExternalId } from './externalId';
 
 // Outbox pattern for the federation event families (workforce.*,
 // attendance.*, leave.*, payroll.*, federation.provider_admin_action) —
@@ -18,6 +19,15 @@ const OUTBOX_JOB_TYPE = 'federation_dispatch_outbox_event';
 const MAX_DELIVERY_ATTEMPTS = 20; // "72 hours or 20 attempts, whichever lasts longer" — see backoffDelayMs below
 const DELIVERY_TIMEOUT_MS = 10_000;
 
+// Minimal shape both the plain `db` export and a `db.transaction(async (tx)
+// => ...)` callback's `tx` satisfy — lets writeOutboxEvent() run either
+// standalone or as part of a caller's transaction. Typed loosely (matching
+// how the rest of this codebase's tenantScoped.ts/etc. already treat the
+// drizzle instance) rather than importing drizzle's own transaction type,
+// which differs slightly between the node-postgres driver and the JSON
+// fallback engine db.ts can fall back to locally.
+type DbExecutor = typeof db;
+
 export interface OutboxEventInput {
   tenantId: number;
   eventType: string;
@@ -26,6 +36,13 @@ export interface OutboxEventInput {
   aggregateVersion?: number;
   occurredAt?: Date;
   businessDate?: string | null;
+  // Real, resolved externalBranchId — pass this whenever the event has a
+  // specific branch (attendance, WFH, employee-branch-assignment). Left
+  // undefined/null for tenant-wide events (payroll run lifecycle spanning
+  // multiple branches) — per-branch context for those lives inside `data`
+  // instead (e.g. each payroll ledger line already carries its own
+  // externalEmployeeId/externalBranchId).
+  externalBranchId?: string | null;
   data: Record<string, any>;
 }
 
@@ -36,14 +53,31 @@ function backoffDelayMs(attempt: number): number {
   return Math.floor(Math.random() * base);
 }
 
-// Writes the outbox row (call this in the same request/transaction as the
-// operational domain write it documents) and kicks off a best-effort
-// immediate delivery attempt — a slow/unreachable BlizBooks callback never
-// blocks or fails the federation write itself, since delivery continues
-// via the queued retry job either way.
-export async function writeOutboxEvent(input: OutboxEventInput): Promise<string> {
+// Writes the outbox row and kicks off a best-effort immediate delivery
+// attempt — a slow/unreachable receiver callback never blocks or fails the
+// federation write itself, since delivery continues via the queued retry
+// job either way.
+//
+// Pass `executor` (a transaction's `tx`) when this is called from inside a
+// route handler's `db.transaction(async (tx) => { ...domain write via
+// tx...; await writeOutboxEvent(tx, {...}); })` — the domain write and this
+// outbox insert then commit or roll back together atomically, closing the
+// "crash between the two leaves one without the other" gap. Callers that
+// don't (yet) wrap their write in a transaction may omit it; it defaults
+// to the plain `db` export, same as before.
+//
+// externalOrganizationId is ALWAYS a real, previously-registered id —
+// resolved via the same federation_external_id_mappings table every
+// federation response payload already reads from (getOrAssignExternalId),
+// never a fabricated placeholder. A tenant that predates federation (no
+// external id ever registered for it) gets one minted and persisted here,
+// the same "assign on first need" behavior externalId.ts already documents
+// for legacy employees/branches.
+export async function writeOutboxEvent(input: OutboxEventInput, executor: DbExecutor = db): Promise<string> {
   const eventId = crypto.randomUUID();
-  await db.insert(schema.federationWebhookOutbox).values({
+  const externalOrganizationId = await getOrAssignExternalId(input.tenantId, 'tenant', input.tenantId);
+
+  await executor.insert(schema.federationWebhookOutbox).values({
     tenantId: input.tenantId,
     eventId,
     eventType: input.eventType,
@@ -52,6 +86,8 @@ export async function writeOutboxEvent(input: OutboxEventInput): Promise<string>
     aggregateVersion: input.aggregateVersion ?? 1,
     occurredAt: input.occurredAt ?? new Date(),
     businessDate: input.businessDate ?? null,
+    externalOrganizationId,
+    externalBranchId: input.externalBranchId ?? null,
     data: input.data,
   });
 
@@ -76,27 +112,25 @@ async function deliverOutboxEvent(eventId: string): Promise<void> {
   const eventTypes = subscription.eventTypes as string[] | null;
   if (Array.isArray(eventTypes) && eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return;
 
+  // correlationId is a fresh id for THIS delivery attempt (legitimate
+  // per-attempt tracing metadata, distinct from any identity claim) — not
+  // to be confused with the real externalOrganizationId/externalBranchId
+  // below, which are looked-up facts, not generated.
   const correlationId = `corr_${crypto.randomUUID().slice(0, 8)}`;
-  const traceId = `tr_${crypto.randomUUID().slice(0, 12)}`;
-  const externalOrgId = `org_ext_${event.tenantId}`;
-  const externalBranchId = event.data?.branchId ? `br_ext_${event.data.branchId}` : null;
-  const externalEmpId = event.data?.employeeId ? `emp_ext_${event.data.employeeId}` : null;
 
   const body = JSON.stringify({
     eventId: event.eventId,
     correlationId,
-    traceId,
     eventType: event.eventType,
-    version: event.schemaVersion || '1.0',
-    createdAt: event.occurredAt || new Date().toISOString(),
+    schemaVersion: event.schemaVersion || '1.0',
+    providerSequence: String(event.id),
+    aggregate: { type: event.aggregateType, id: event.aggregateId, version: event.aggregateVersion },
+    externalOrganizationId: event.externalOrganizationId,
+    externalBranchId: event.externalBranchId,
+    occurredAt: event.occurredAt,
+    businessDate: event.businessDate,
     retryCount: event.deliveryAttempts || 0,
-    organizationId: `org_${event.tenantId}`,
-    externalOrganizationId: externalOrgId,
-    branchId: event.data?.branchId ? `branch_${event.data.branchId}` : null,
-    externalBranchId,
-    employeeId: event.data?.employeeId ? `emp_${event.data.employeeId}` : null,
-    externalEmployeeId: externalEmpId,
-    payload: event.data,
+    data: event.data,
   });
   const timestamp = String(Math.floor(Date.now() / 1000));
 

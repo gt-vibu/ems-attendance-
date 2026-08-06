@@ -2376,6 +2376,20 @@ export const federationWebhookOutbox = pgTable('federation_webhook_outbox', {
   aggregateVersion: integer('aggregate_version').notNull().default(1),
   occurredAt: timestamp('occurred_at').notNull(),
   businessDate: text('business_date'), // tenant-local YYYY-MM-DD, when relevant (attendance/leave/payroll events)
+  // Real, resolved identities from federation_external_id_mappings — NOT
+  // fabricated. A prior "fix" here generated fake placeholder strings like
+  // `org_ext_${tenantId}` at delivery time instead of looking up the
+  // externalOrganizationId/externalBranchId the calling client actually
+  // registered via PUT /v1/federation/tenants/... — a receiver (e.g.
+  // BlizBooks) would get IDs it never assigned, making outlet/org routing
+  // impossible. Resolved once at WRITE time (see services/federation/
+  // outbox.ts's writeOutboxEvent) so the value is stable even if delivery
+  // happens much later via retry. externalOrganizationId is set on every
+  // event; externalBranchId only when the event has real branch context
+  // (payroll runs spanning multiple branches legitimately leave this null
+  // at the envelope level — per-branch context lives in each ledger line).
+  externalOrganizationId: text('external_organization_id'),
+  externalBranchId: text('external_branch_id'),
   data: jsonb('data').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'delivered' | 'failed'
   deliveryAttempts: integer('delivery_attempts').notNull().default(0),

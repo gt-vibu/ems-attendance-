@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and, gte, lte, gt, desc, asc } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation, requireFederationScope } from '../../middleware/federationAuth';
+import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
@@ -12,7 +12,7 @@ import { tenantDateKey, tenantStartOfDay } from '../../services/tenantTime';
 import { verifyFederationAssertion } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'), resolveFederationTenantContext());
 
 async function toFederationRecord(tenantId: number, log: any) {
   return {
@@ -118,24 +118,32 @@ async function recordAttendanceFact(req: any, res: any, type: 'check_in' | 'chec
     }
   }
 
-  const [log] = await db.insert(schema.attendanceLogs).values({
-    userId: employeeInternalId,
-    tenantId,
-    branchId: branchInternalId,
-    status: 'approved',
-    type,
-    clientTimestamp: new Date(occurredAt),
-    device: device?.deviceId || null,
-    reason: `Recorded via SmartTeams Federation API (${device?.kind || 'unknown device'})`,
-  }).returning();
+  // Domain write + outbox write commit or roll back together — a crash
+  // between the two (process killed, DB connection dropped) can no longer
+  // leave a real attendance row with no corresponding event, or vice versa.
+  const log = await db.transaction(async (tx: any) => {
+    const [inserted] = await tx.insert(schema.attendanceLogs).values({
+      userId: employeeInternalId,
+      tenantId,
+      branchId: branchInternalId,
+      status: 'approved',
+      type,
+      clientTimestamp: new Date(occurredAt),
+      device: device?.deviceId || null,
+      reason: `Recorded via SmartTeams Federation API (${device?.kind || 'unknown device'})`,
+    }).returning();
 
-  await writeOutboxEvent({
-    tenantId,
-    eventType: type === 'check_in' ? 'attendance.checked_in' : 'attendance.checked_out',
-    aggregateType: 'attendance',
-    aggregateId: String(log.id),
-    businessDate: tenantDateKey(null, log.clientTimestamp || log.createdAt),
-    data: { externalEmployeeId, externalBranchId, attendanceId: String(log.id), status: log.status },
+    await writeOutboxEvent({
+      tenantId,
+      eventType: type === 'check_in' ? 'attendance.checked_in' : 'attendance.checked_out',
+      aggregateType: 'attendance',
+      aggregateId: String(inserted.id),
+      businessDate: tenantDateKey(null, inserted.clientTimestamp || inserted.createdAt),
+      externalBranchId,
+      data: { externalEmployeeId, externalBranchId, attendanceId: String(inserted.id), status: inserted.status },
+    }, tx);
+
+    return inserted;
   });
 
   const record = await toFederationRecord(tenantId, log);
@@ -183,11 +191,15 @@ router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempoten
     if (rows.length === 0) return res.status(404).json({ error: 'Attendance record not found.' });
     if (rows[0].status !== 'pending') return res.status(400).json({ error: 'This record has already been decided.' });
 
-    const [updated] = await db.update(schema.attendanceLogs).set({ status: action === 'approve' ? 'approved' : 'rejected' }).where(eq(schema.attendanceLogs.id, attendanceId)).returning();
-
-    await writeOutboxEvent({
-      tenantId, eventType: 'attendance.corrected', aggregateType: 'attendance', aggregateId: String(attendanceId),
-      data: { attendanceId: String(attendanceId), status: updated.status },
+    const externalBranchId = rows[0].branchId ? await resolveExternalId(tenantId, 'branch', rows[0].branchId) : null;
+    const updated = await db.transaction(async (tx: any) => {
+      const [upd] = await tx.update(schema.attendanceLogs).set({ status: action === 'approve' ? 'approved' : 'rejected' }).where(eq(schema.attendanceLogs.id, attendanceId)).returning();
+      await writeOutboxEvent({
+        tenantId, eventType: 'attendance.corrected', aggregateType: 'attendance', aggregateId: String(attendanceId),
+        externalBranchId,
+        data: { attendanceId: String(attendanceId), status: upd.status },
+      }, tx);
+      return upd;
     });
 
     res.json({ attendanceId: String(attendanceId), status: updated.status, decidedAt: new Date().toISOString() });

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation, requireFederationScope } from '../../middleware/federationAuth';
+import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { resolveInternalId } from '../../services/federation/externalId';
 import {
@@ -15,7 +15,7 @@ import {
 import { issueFederationAssertionToken } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'), resolveFederationTenantContext());
 
 // SmartTeams must configure the approved BlizBooks origins (production,
 // staging, local dev) it will accept a WebAuthn ceremony against — this

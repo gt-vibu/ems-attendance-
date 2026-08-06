@@ -56,6 +56,26 @@ export async function linkExternalId(tenantId: number, entityType: FederationEnt
   return { ok: true };
 }
 
+// Tenant-agnostic lookup: given only an externalId (no tenantId known yet),
+// finds which tenant it belongs to. Used exclusively by platform-scoped
+// federation clients (federationClients.tenantId === null) — a per-tenant
+// client always knows its own tenantId from its token and should keep using
+// resolveInternalId() above; a platform client instead derives which
+// tenant a given request targets from the externalOrganizationId /
+// externalBranchId / externalEmployeeId already present in the request
+// itself. Safe because (entityType, externalId) is globally unique
+// (federation_ext_id_entity_external_unique), not just unique per tenant.
+export async function resolveMappingByExternalId(entityType: FederationEntityType, externalId: string): Promise<{ tenantId: number; internalId: number } | null> {
+  const rows = await db.select().from(schema.federationExternalIdMappings).where(
+    and(
+      eq(schema.federationExternalIdMappings.entityType, entityType),
+      eq(schema.federationExternalIdMappings.externalId, externalId),
+    )
+  ).limit(1);
+  if (!rows[0]) return null;
+  return { tenantId: rows[0].tenantId, internalId: rows[0].internalId };
+}
+
 // For entities that existed before this tenant ever federated (legacy
 // employees/branches created through the normal admin UI) — assigns and
 // persists a fresh external UUID the first time one is needed, so GET

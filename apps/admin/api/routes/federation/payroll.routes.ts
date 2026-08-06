@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and, gt, asc, desc } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation, requireFederationScope } from '../../middleware/federationAuth';
+import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
@@ -15,7 +15,7 @@ import { getOrCreatePayrollSettings, computeCompensationDiff } from '../leavePay
 import { isPlatformFeatureAllowedForTenant } from '../../auth/rbac';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('payroll'));
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('payroll'), resolveFederationTenantContext());
 
 const MINOR_UNIT_MULTIPLIER = 100; // this app stores rupees as a real number; the federation contract uses minor units (e.g. paise)
 
@@ -171,9 +171,11 @@ router.post('/v1/federation/payroll/runs/:runId/approve', requireIdempotencyKey,
     const validation = await validateBatchForApproval(batch);
     if (!validation.valid) return res.status(400).json({ error: 'Run failed validation.', failures: validation.failures });
 
-    const [updated] = await db.update(schema.payrollBatches).set({ status: 'approved', approvedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
-
-    await writeOutboxEvent({ tenantId, eventType: 'payroll.batch.approved', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1, data: { runId: String(batch.id), status: updated.status } });
+    const updated = await db.transaction(async (tx: any) => {
+      const [upd] = await tx.update(schema.payrollBatches).set({ status: 'approved', approvedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
+      await writeOutboxEvent({ tenantId, eventType: 'payroll.batch.approved', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1, data: { runId: String(batch.id), status: upd.status } }, tx);
+      return upd;
+    });
     res.json({ runId: String(batch.id), status: updated.status });
   } catch (err: any) {
     sendServerError(res, err, 'federation/payroll.routes.ts');
@@ -199,7 +201,6 @@ router.post('/v1/federation/payroll/runs/:runId/release', requireIdempotencyKey,
     }
 
     await finalizePayrollBatchFinancials(batch.id);
-    const [updated] = await db.update(schema.payrollBatches).set({ status: 'released', releasedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
 
     const lineItems = await db.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.batchId, batch.id));
     const employeeLedgerEntries = await Promise.all(lineItems.map(async (r: any) => ({
@@ -211,10 +212,14 @@ router.post('/v1/federation/payroll/runs/:runId/release', requireIdempotencyKey,
       netPayMinor: Math.round(r.netPay * MINOR_UNIT_MULTIPLIER),
     })));
 
-    await writeOutboxEvent({
-      tenantId, eventType: 'payroll.batch.released', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1,
-      businessDate: `${batch.year}-${String(batch.month).padStart(2, '0')}-01`,
-      data: { payrollRun: { periodStart: `${batch.year}-${String(batch.month).padStart(2, '0')}-01`, status: 'released' }, employeeLedgerEntries },
+    const updated = await db.transaction(async (tx: any) => {
+      const [upd] = await tx.update(schema.payrollBatches).set({ status: 'released', releasedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
+      await writeOutboxEvent({
+        tenantId, eventType: 'payroll.batch.released', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1,
+        businessDate: `${batch.year}-${String(batch.month).padStart(2, '0')}-01`,
+        data: { payrollRun: { periodStart: `${batch.year}-${String(batch.month).padStart(2, '0')}-01`, status: 'released' }, employeeLedgerEntries },
+      }, tx);
+      return upd;
     });
 
     res.json({ runId: String(batch.id), status: updated.status });
@@ -236,8 +241,11 @@ router.post('/v1/federation/payroll/runs/:runId/lock', requireIdempotencyKey, as
     const settings = await getOrCreatePayrollSettings(tenantId);
     if (!settings.payrollLockingEnabled) return res.status(400).json({ error: 'Payroll locking is turned off for this organization.' });
 
-    const [updated] = await db.update(schema.payrollBatches).set({ status: 'locked', lockedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
-    await writeOutboxEvent({ tenantId, eventType: 'payroll.batch.locked', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1, data: { runId: String(batch.id), status: updated.status } });
+    const updated = await db.transaction(async (tx: any) => {
+      const [upd] = await tx.update(schema.payrollBatches).set({ status: 'locked', lockedAt: new Date() }).where(eq(schema.payrollBatches.id, batch.id)).returning();
+      await writeOutboxEvent({ tenantId, eventType: 'payroll.batch.locked', aggregateType: 'payroll_run', aggregateId: String(batch.id), aggregateVersion: 1, data: { runId: String(batch.id), status: upd.status } }, tx);
+      return upd;
+    });
     res.json({ runId: String(batch.id), status: updated.status });
   } catch (err: any) {
     sendServerError(res, err, 'federation/payroll.routes.ts');
@@ -259,11 +267,13 @@ router.post('/v1/federation/payroll/adjustments', requireIdempotencyKey, async (
     const run = runRows[0];
     const amountDelta = Number(amountDeltaMinor) / MINOR_UNIT_MULTIPLIER;
 
-    const [adjustment] = await db.insert(schema.payrollAdjustments).values({
-      tenantId, userId, payrollRunId: run.id, amountDelta, reason, status: 'pending', sourceType: 'federation_adjustment',
-    }).returning();
-
-    await writeOutboxEvent({ tenantId, eventType: 'payroll.adjustment.posted', aggregateType: 'payroll_adjustment', aggregateId: String(adjustment.id), data: { adjustmentId: String(adjustment.id), runId: String(run.id) } });
+    const adjustment = await db.transaction(async (tx: any) => {
+      const [adj] = await tx.insert(schema.payrollAdjustments).values({
+        tenantId, userId, payrollRunId: run.id, amountDelta, reason, status: 'pending', sourceType: 'federation_adjustment',
+      }).returning();
+      await writeOutboxEvent({ tenantId, eventType: 'payroll.adjustment.posted', aggregateType: 'payroll_adjustment', aggregateId: String(adj.id), data: { adjustmentId: String(adj.id), runId: String(run.id) } }, tx);
+      return adj;
+    });
     res.json({ adjustmentId: String(adjustment.id), newRunVersion: run.version + 1 });
   } catch (err: any) {
     sendServerError(res, err, 'federation/payroll.routes.ts');

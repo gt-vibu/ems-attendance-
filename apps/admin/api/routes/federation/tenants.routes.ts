@@ -2,19 +2,33 @@ import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation } from '../../middleware/federationAuth';
+import { authenticateFederation, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
-import { linkExternalId, resolveInternalId } from '../../services/federation/externalId';
+import { linkExternalId, resolveInternalId, resolveMappingByExternalId } from '../../services/federation/externalId';
 
 export const router = Router();
 router.use('/v1/federation', authenticateFederation, federationLimiter);
 
-// PUT /v1/federation/tenants/{externalOrganizationId} — a federation client
-// is already scoped to exactly one tenant (its access token carries
-// tenantId), so this call only ever touches that same tenant's row; the
-// externalOrganizationId path param is the identity being linked, not a
-// selector into some other tenant.
+// PUT /v1/federation/tenants/{externalOrganizationId}
+//
+// A per-tenant client is already scoped to exactly one tenant (its access
+// token carries a fixed tenantId), so for it this call only ever touches
+// that same tenant's row; externalOrganizationId is the identity being
+// linked, not a selector into some other tenant — unchanged behavior.
+//
+// A platform-wide client (tenantId: null on its token — see
+// federationClients.ts) has no fixed tenant at all. This is deliberately
+// the ONE route platform clients call without going through
+// resolveFederationTenantContext(), because that middleware can only
+// resolve a tenant that already has a mapping — and the very first call
+// for a brand-new hotel/tenant has none yet. So this handler does its own
+// two-way resolution: if externalOrganizationId is already mapped, it's an
+// update to that existing tenant (same as the per-tenant path); if it
+// isn't, a platform client is allowed to provision a BRAND NEW tenant row
+// here. A per-tenant client hitting an unmapped externalOrganizationId is
+// NOT allowed to silently create a second tenant — it only ever owns its
+// one.
 router.put('/v1/federation/tenants/:externalOrganizationId', requireIdempotencyKey, async (req: any, res: any) => {
   try {
     const { externalOrganizationId } = req.params;
@@ -22,29 +36,65 @@ router.put('/v1/federation/tenants/:externalOrganizationId', requireIdempotencyK
     if (!name || !timezone || !currencyCode) {
       return res.status(422).json({ error: 'name, timezone, and currencyCode are required.' });
     }
+    const resolvedStatus = status && ['active', 'suspended'].includes(status) ? status : undefined;
 
-    const tenantId = req.federation.tenantId;
-    const updateData: any = { name, timezone };
-    if (status && ['active', 'suspended'].includes(status)) updateData.status = status;
-    // currencyCode has no existing tenants column — accepted and
-    // acknowledged in the response, but this app doesn't yet have a
-    // multi-currency concept to persist it against (see the entitlement
-    // architecture memo's deliberately-deferred multi-currency FX work).
+    let tenantId: number;
+    let created = false;
 
-    await db.update(schema.tenants).set(updateData).where(eq(schema.tenants.id, tenantId));
-
-    const link = await linkExternalId(tenantId, 'tenant', tenantId, externalOrganizationId);
-    if (!link.ok) {
-      return res.status(409).json({ error: 'externalOrganizationId is already linked to a different tenant.', code: 'EXTERNAL_ID_CONFLICT' });
+    if (req.federation.isPlatformClient) {
+      const existing = await resolveMappingByExternalId('tenant', externalOrganizationId);
+      if (existing) {
+        tenantId = existing.tenantId;
+      } else {
+        // Provision a brand-new tenant for this platform credential. Only
+        // the tenant shell is created here (no human admin account) —
+        // admin-user invitation/onboarding for a newly provisioned hotel
+        // is a separate, deliberately out-of-scope concern from this
+        // machine-to-machine endpoint; adminUid is a stable, non-guessable
+        // placeholder derived from the external id until a real admin user
+        // claims the tenant through the normal invite flow.
+        const [inserted] = await db.insert(schema.tenants).values({
+          name,
+          timezone,
+          status: resolvedStatus || 'active',
+          adminUid: `federation:${externalOrganizationId}`,
+        }).returning();
+        tenantId = inserted.id;
+        created = true;
+        const link = await linkExternalId(tenantId, 'tenant', tenantId, externalOrganizationId);
+        if (link.ok === false) {
+          // Lost a create race to a concurrent identical request — fall
+          // back to whichever tenant actually won.
+          tenantId = link.existingInternalId;
+          created = false;
+        }
+      }
+    } else {
+      tenantId = req.federation.tenantId;
     }
 
-    res.json({ externalOrganizationId, internalTenantId: `tenant_${tenantId}`, status: updateData.status || 'active', aggregateVersion: 1 });
+    if (!created) {
+      const updateData: any = { name, timezone };
+      if (resolvedStatus) updateData.status = resolvedStatus;
+      // currencyCode has no existing tenants column — accepted and
+      // acknowledged in the response, but this app doesn't yet have a
+      // multi-currency concept to persist it against (see the entitlement
+      // architecture memo's deliberately-deferred multi-currency FX work).
+      await db.update(schema.tenants).set(updateData).where(eq(schema.tenants.id, tenantId));
+
+      const link = await linkExternalId(tenantId, 'tenant', tenantId, externalOrganizationId);
+      if (!link.ok) {
+        return res.status(409).json({ error: 'externalOrganizationId is already linked to a different tenant.', code: 'EXTERNAL_ID_CONFLICT' });
+      }
+    }
+
+    res.status(created ? 201 : 200).json({ externalOrganizationId, internalTenantId: `tenant_${tenantId}`, status: resolvedStatus || 'active', aggregateVersion: 1 });
   } catch (err: any) {
     sendServerError(res, err, 'federation/tenants.routes.ts');
   }
 });
 
-router.put('/v1/federation/tenants/:externalOrganizationId/branches/:externalBranchId', requireIdempotencyKey, async (req: any, res: any) => {
+router.put('/v1/federation/tenants/:externalOrganizationId/branches/:externalBranchId', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalBranchId } = req.params;
     const { name, address, geofence, status } = req.body || {};
@@ -76,7 +126,7 @@ router.put('/v1/federation/tenants/:externalOrganizationId/branches/:externalBra
   }
 });
 
-router.patch('/v1/federation/branches/:externalBranchId', requireIdempotencyKey, async (req: any, res: any) => {
+router.patch('/v1/federation/branches/:externalBranchId', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalBranchId } = req.params;
     const tenantId = req.federation.tenantId;
