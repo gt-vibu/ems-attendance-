@@ -42,34 +42,35 @@ import { resolveMappingByExternalId, type FederationEntityType } from '../servic
 // checkMtls(). So the safe default in every environment, including
 // production, is OFF unless an operator has confirmed the proxy is
 // actually there and explicitly opts in — loud warning, not a crash.
+export type FederationAuthMode = 'oauth' | 'oauth+mtls' | 'mtls';
+
+export function getFederationAuthMode(): FederationAuthMode {
+  const mode = process.env.FEDERATION_AUTH_MODE?.toLowerCase();
+  if (mode === 'oauth+mtls' || mode === 'mtls') return mode;
+  if (mode === 'oauth') return 'oauth';
+  // Backwards compatibility with explicit mTLS flags if present
+  if (process.env.FEDERATION_REQUIRE_MTLS === 'true') return 'oauth+mtls';
+  return 'oauth';
+}
+
 export function isMtlsRequired(): boolean {
-  const nodeEnv = process.env.NODE_ENV || '';
-  const explicit = process.env.FEDERATION_REQUIRE_MTLS;
-  const allowUat = process.env.FEDERATION_ALLOW_UNSECURE_UAT === 'true' || process.env.ALLOW_INSECURE_FEDERATION_UAT === 'true';
+  const mode = getFederationAuthMode();
+  return mode === 'oauth+mtls' || mode === 'mtls';
+}
 
-  if (explicit === 'true') return true;
-  if (explicit === 'false') return false;
-
-  if (nodeEnv === 'production') {
-    if (allowUat) {
-      console.warn('[federation] WARNING: NODE_ENV=production but FEDERATION_ALLOW_UNSECURE_UAT=true — running in time-limited bearer-only UAT mode.');
-      return false;
-    }
-    return true;
+export function assertFederationAuthStartupConfig(): void {
+  const mode = getFederationAuthMode();
+  const proxySecret = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
+  if ((mode === 'oauth+mtls' || mode === 'mtls') && !proxySecret) {
+    throw new Error(
+      `FATAL: FEDERATION_AUTH_MODE='${mode}' mandates an mTLS proxy configuration, but FEDERATION_MTLS_PROXY_SECRET is missing.`
+    );
   }
-
-  return false;
+  console.log(`[federation] Federation auth mode initialized: '${mode}' (OAuth 2.0 Bearer JWT active).`);
 }
 
 export function assertMtlsStartupConfig(): void {
-  const required = isMtlsRequired();
-  const proxySecret = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
-  if (required && !proxySecret) {
-    throw new Error(
-      'FATAL: Production mTLS configuration missing. NODE_ENV=production mandates mTLS and FEDERATION_MTLS_PROXY_SECRET must be set. ' +
-      'To enable mTLS, set FEDERATION_MTLS_PROXY_SECRET and proxy headers. For time-limited UAT testing, set FEDERATION_ALLOW_UNSECURE_UAT=true.'
-    );
-  }
+  assertFederationAuthStartupConfig();
 }
 
 function timingSafeStringEqual(a: string, b: string): boolean {
@@ -120,6 +121,16 @@ export async function authenticateFederation(req: any, res: any, next: any) {
   ).limit(1);
   if (clientRows.length === 0) {
     return res.status(401).json({ error: 'Federation client is revoked or no longer exists.', code: 'UNAUTHORIZED' });
+  }
+
+  const client = clientRows[0];
+  const allowedIps = (client as any).allowedIps;
+  if (Array.isArray(allowedIps) && allowedIps.length > 0) {
+    const forwarded = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim();
+    const callerIp = forwarded || req.ip || req.socket?.remoteAddress || '';
+    if (!allowedIps.includes(callerIp)) {
+      return res.status(403).json({ error: `Caller IP address '${callerIp}' is not allowed for this client.`, code: 'IP_NOT_ALLOWED' });
+    }
   }
 
   // Platform-wide clients (issued with tenantId: null — see
