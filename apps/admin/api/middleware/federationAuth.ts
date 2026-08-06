@@ -224,6 +224,16 @@ export function resolveFederationTenantContext() {
         if (rows[0]) resolvedTenantId = rows[0].tenantId;
       }
     }
+    // GET /v1/federation/jobs/:jobId — same reasoning: the job was created
+    // by a prior call this same client made (e.g. a payroll calculate
+    // enqueue), so it was never given an external id of its own.
+    if (resolvedTenantId === null) {
+      const jobId = pick('jobId');
+      if (jobId && /^\d+$/.test(jobId)) {
+        const rows = await db.select({ tenantId: schema.backgroundJobs.tenantId }).from(schema.backgroundJobs).where(eq(schema.backgroundJobs.id, Number(jobId))).limit(1);
+        if (rows[0]) resolvedTenantId = rows[0].tenantId;
+      }
+    }
 
     // Same reasoning as runId above, for the other two internal-id-only
     // routes: attendance corrections/decisions (POST .../attendance/

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and, gt, asc, sql } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation } from '../../middleware/federationAuth';
+import { authenticateFederation, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { buildCapabilities } from '../../services/federation/capabilities';
@@ -32,7 +32,7 @@ router.get('/v1/federation/health/ready', async (_req, res) => {
 
 router.use('/v1/federation', authenticateFederation, federationLimiter);
 
-router.get('/v1/federation/capabilities', async (req: any, res: any) => {
+router.get('/v1/federation/capabilities', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const result = await buildCapabilities(req.federation.tenantId);
     res.set('Cache-Control', `private, max-age=${result.cacheControlMaxAgeSeconds}`);
@@ -55,7 +55,7 @@ router.get('/v1/federation/webhook-signing-keys', async (_req: any, res: any) =>
   }
 });
 
-router.post('/v1/federation/webhook-subscriptions', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/webhook-subscriptions', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { callbackUrl, eventTypes } = req.body || {};
     if (!callbackUrl || typeof callbackUrl !== 'string' || !callbackUrl.startsWith('https://')) {
@@ -88,7 +88,7 @@ router.post('/v1/federation/webhook-subscriptions', requireIdempotencyKey, async
 
 // 90-day cursor-paged outbox replay feed — independent of live webhook
 // delivery, for BlizBooks's daily/incident reconciliation job.
-router.get('/v1/federation/events', async (req: any, res: any) => {
+router.get('/v1/federation/events', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const filters = { eventType: req.query.eventType || null };
@@ -136,7 +136,7 @@ router.get('/v1/federation/events', async (req: any, res: any) => {
 // payroll batch calculation) — background_jobs is the existing generic
 // queue table (services/queue/postgresQueue.ts); this exposes a
 // read-only, tenant-scoped view of one row by id.
-router.get('/v1/federation/jobs/:jobId', async (req: any, res: any) => {
+router.get('/v1/federation/jobs/:jobId', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const jobId = Number(req.params.jobId);
     if (!Number.isInteger(jobId)) return res.status(400).json({ error: 'jobId must be an integer.' });

@@ -10,6 +10,23 @@ import bcrypt from 'bcryptjs';
 
 import { fileURLToPath } from 'url';
 
+// This file runs two different ways: bundled to CJS for production
+// (esbuild, server.cjs — __dirname is defined there) and directly via tsx
+// in dev (a real ESM module — __dirname is undefined, import.meta.url is
+// the only way to know the file's own location). Both branches are live
+// code, not dead code — neither can be deleted.
+//
+// esbuild's CJS-format build emits a warning ("import.meta is not
+// available with the cjs output format") because it sees the literal
+// `import.meta` token in this file, even though this branch is
+// provably unreachable in the CJS bundle (__dirname is always defined
+// there). An indirect-eval trick to hide the token from esbuild's static
+// scan was tried and reverted — Node refuses `import.meta` inside any
+// eval, direct or indirect, with a hard SyntaxError, which broke the tsx
+// dev path entirely. The correct fix is the officially supported one:
+// tell esbuild to silence this specific, known-safe warning (see the
+// `--log-override:empty-import-meta=silent` flag on the `build` script in
+// package.json) rather than fighting the language to hide working code.
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : path.dirname(fileURLToPath(import.meta.url));
 
 const envPaths = [

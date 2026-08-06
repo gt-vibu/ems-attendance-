@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { eq, and, gt, asc, desc } from 'drizzle-orm';
+import { eq, and, gt, asc, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
 import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
+import { resolveBranchFilter, validateEmployeeBranchMembership } from '../../services/federation/branchScope';
 import { writeOutboxEvent } from '../../services/federation/outbox';
 import { encodeCursor, decodeCursor, hashFilters, resolveLimit } from '../../utils/federationCursor';
 import { queue } from '../../services/queue';
@@ -36,8 +37,9 @@ router.put('/v1/federation/employees/:externalEmployeeId/compensation', requireI
     const userId = await resolveInternalId(tenantId, 'employee', req.params.externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
 
-    const { annualCtc, effectiveFrom, components } = req.body || {};
+    const { annualCtc, effectiveFrom, components, externalBranchId: requestedBranchId } = req.body || {};
     if (annualCtc == null || !effectiveFrom) return res.status(422).json({ error: 'annualCtc and effectiveFrom are required.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
 
     const existing = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).limit(1);
     const previousProfile = existing[0] || null;
@@ -255,12 +257,13 @@ router.post('/v1/federation/payroll/runs/:runId/lock', requireIdempotencyKey, re
 router.post('/v1/federation/payroll/adjustments', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const { runId, externalEmployeeId, amountDeltaMinor, reason } = req.body || {};
+    const { runId, externalEmployeeId, amountDeltaMinor, reason, externalBranchId: requestedBranchId } = req.body || {};
     if (!runId || !externalEmployeeId || amountDeltaMinor == null || !reason) {
       return res.status(422).json({ error: 'runId, externalEmployeeId, amountDeltaMinor, and reason are required.' });
     }
     const userId = await resolveInternalId(tenantId, 'employee', externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
 
     const runRows = await db.select().from(schema.payrollRuns).where(and(eq(schema.payrollRuns.id, Number(runId)), eq(schema.payrollRuns.tenantId, tenantId))).limit(1);
     if (runRows.length === 0) return res.status(404).json({ error: 'runId does not match any payroll run.' });
@@ -313,10 +316,22 @@ router.get('/v1/federation/payroll/runs', resolveFederationTenantContext(), asyn
 router.get('/v1/federation/payroll/ledger', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const filters = { runId: req.query.runId || null };
+    const filters = { runId: req.query.runId || null, externalBranchId: req.query.externalBranchId || null };
     const limit = resolveLimit(req.query.limit);
     const conditions = [eq(schema.payrollLedgerEntries.tenantId, tenantId)];
     if (filters.runId) conditions.push(eq(schema.payrollLedgerEntries.batchId, Number(filters.runId)));
+    if (filters.externalBranchId) {
+      // Highest-sensitivity list in the whole federation surface —
+      // per-employee pay amounts. Without this, a branch-scoped caller
+      // could read every employee's salary across the whole organization
+      // just by omitting the filter it's supposed to always send.
+      const branchFilter = await resolveBranchFilter(tenantId, String(filters.externalBranchId), res);
+      if (branchFilter === null) return;
+      if (branchFilter) {
+        if (branchFilter.employeeIds.length === 0) return res.json({ entries: [], nextCursor: null });
+        conditions.push(inArray(schema.payrollLedgerEntries.userId, branchFilter.employeeIds));
+      }
+    }
 
     let afterId = 0;
     if (req.query.cursor) {

@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { eq, and, gt, asc } from 'drizzle-orm';
+import { eq, and, gt, asc, inArray } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
 import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
+import { resolveBranchFilter, validateEmployeeBranchMembership } from '../../services/federation/branchScope';
 
 // Leave events aren't branch-scoped by their own nature, but BlizBooks
 // still needs externalBranchId in the envelope for outlet routing — this
@@ -40,10 +41,11 @@ router.get('/v1/federation/leave/types', resolveFederationTenantContext(), async
 router.get('/v1/federation/leave/balances', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const { externalEmployeeId } = req.query;
+    const { externalEmployeeId, externalBranchId } = req.query;
     if (!externalEmployeeId) return res.status(422).json({ error: 'externalEmployeeId is required.' });
     const userId = await resolveInternalId(tenantId, 'employee', String(externalEmployeeId));
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, userId, externalBranchId ? String(externalBranchId) : null, res))) return;
 
     const { balances } = await computeLeaveBalancesForUser(userId, tenantId);
     res.json({
@@ -59,14 +61,25 @@ router.get('/v1/federation/leave/balances', resolveFederationTenantContext(), as
 router.get('/v1/federation/leave/requests', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const filters = { externalEmployeeId: req.query.externalEmployeeId || null, status: req.query.status || null };
+    const filters = { externalEmployeeId: req.query.externalEmployeeId || null, status: req.query.status || null, externalBranchId: req.query.externalBranchId || null };
     const limit = resolveLimit(req.query.limit);
 
     const conditions = [eq(schema.leaveRequests.tenantId, tenantId)];
     if (filters.externalEmployeeId) {
       const userId = await resolveInternalId(tenantId, 'employee', String(filters.externalEmployeeId));
       if (userId === null) return res.json({ requests: [], nextCursor: null });
+      // Both filters given at once: the employee must actually belong to
+      // the named branch, otherwise a caller could bypass branch scoping
+      // entirely by supplying an out-of-branch externalEmployeeId.
+      if (!(await validateEmployeeBranchMembership(tenantId, userId, filters.externalBranchId, res))) return;
       conditions.push(eq(schema.leaveRequests.userId, userId));
+    } else if (filters.externalBranchId) {
+      const branchFilter = await resolveBranchFilter(tenantId, filters.externalBranchId, res);
+      if (branchFilter === null) return; // resolveBranchFilter already sent the 404
+      if (branchFilter) {
+        if (branchFilter.employeeIds.length === 0) return res.json({ requests: [], nextCursor: null });
+        conditions.push(inArray(schema.leaveRequests.userId, branchFilter.employeeIds));
+      }
     }
     if (filters.status) conditions.push(eq(schema.leaveRequests.status, String(filters.status)));
 
@@ -106,7 +119,7 @@ router.get('/v1/federation/leave/requests', resolveFederationTenantContext(), as
 router.post('/v1/federation/leave/requests', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const { externalEmployeeId, leaveType, startDate, endDate, reason } = req.body || {};
+    const { externalEmployeeId, leaveType, startDate, endDate, reason, externalBranchId: requestedBranchId } = req.body || {};
     if (!externalEmployeeId || !leaveType || !startDate || !endDate) {
       return res.status(422).json({ error: 'externalEmployeeId, leaveType, startDate, and endDate are required.' });
     }
@@ -116,6 +129,7 @@ router.post('/v1/federation/leave/requests', requireIdempotencyKey, resolveFeder
 
     const userId = await resolveInternalId(tenantId, 'employee', externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
 
     const policyRows = await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.tenantId, tenantId), eq(schema.leavePolicies.code, leaveType))).limit(1);
     const policy = policyRows[0] || null;
@@ -149,9 +163,11 @@ router.post('/v1/federation/leave/requests/:id/cancel', requireIdempotencyKey, r
   try {
     const tenantId = req.federation.tenantId;
     const requestId = Number(req.params.id);
+    const { externalBranchId: requestedBranchId } = req.body || {};
     const rows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, requestId), eq(schema.leaveRequests.tenantId, tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
     if (!['pending', 'approved'].includes(rows[0].status)) return res.status(400).json({ error: 'This request can no longer be cancelled.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, rows[0].userId, requestedBranchId, res))) return;
 
     const externalBranchId = await employeeExternalBranchId(tenantId, rows[0].userId);
     const updated = await db.transaction(async (tx: any) => {
@@ -173,7 +189,7 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
   try {
     const tenantId = req.federation.tenantId;
     const requestId = Number(req.params.id);
-    const { action, comment, expectedVersion } = req.body || {};
+    const { action, comment, expectedVersion, externalBranchId: requestedBranchId } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(422).json({ error: 'action must be approve or reject.' });
     if (!Number.isInteger(expectedVersion)) return res.status(422).json({ error: 'expectedVersion (integer) is required.' });
 
@@ -185,6 +201,7 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
       // presuming it was still pending) this is exactly a stale write.
       return res.status(409).json({ error: 'This request has already been decided.', code: 'STALE_RESOURCE_VERSION' });
     }
+    if (!(await validateEmployeeBranchMembership(tenantId, rows[0].userId, requestedBranchId, res))) return;
 
     const externalBranchId = await employeeExternalBranchId(tenantId, rows[0].userId);
     const updated = await db.transaction(async (tx: any) => {
@@ -208,12 +225,13 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
 router.post('/v1/federation/leave/balances/adjustments', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
-    const { externalEmployeeId, leaveType, adjustmentDays, reason, requestedByExternalUserId } = req.body || {};
+    const { externalEmployeeId, leaveType, adjustmentDays, reason, requestedByExternalUserId, externalBranchId: requestedBranchId } = req.body || {};
     if (!externalEmployeeId || !leaveType || adjustmentDays == null || !reason || !requestedByExternalUserId) {
       return res.status(422).json({ error: 'externalEmployeeId, leaveType, adjustmentDays, reason, and requestedByExternalUserId are required.' });
     }
     const userId = await resolveInternalId(tenantId, 'employee', externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+    if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
     // adjustedByUserId is NOT NULL on this table — the business initiator
     // (requestedByExternalUserId) is who gets recorded, never the machine
     // credential itself, matching the plan's audit-actor rule. Falls back

@@ -33,16 +33,65 @@ export const FEDERATION_GRANTABLE_CAPABILITIES = [
   'payroll.release',
 ] as const;
 
+// BlizBooks (and any other federation consumer) resolves which of its own
+// workforce modules to enable purely from capabilities.featuresEnabled, and
+// treats it as a closed, fixed vocabulary it was contractually given up
+// front — employees, attendance, leave, payroll, shifts,
+// device_verification. It has no idea what SmartTeams's own internal
+// PLATFORM_FEATURES keys (payroll_batches, gps_geofence, teams, ...) mean,
+// and was never given a list of them. Returning those raw internal keys
+// here (as this used to do) makes every module BlizBooks tries to select
+// look unrecognized — connection/provisioning rejects them all. This map
+// is the ONLY place internal SmartTeams feature keys get translated into
+// the fixed external module vocabulary the federation contract promises.
+//
+// employees/attendance/leave/shifts are core federation modules — every
+// federation-enabled tenant can use them (the corresponding routes have no
+// separate PLATFORM_FEATURES gate of their own), so they're always
+// reported enabled. payroll and device_verification DO have a real
+// internal on/off switch, so those two are conditional.
+export const BLIZBOOKS_WORKFORCE_MODULES = ['employees', 'attendance', 'leave', 'payroll', 'shifts', 'device_verification'] as const;
+export type BlizBooksWorkforceModule = typeof BLIZBOOKS_WORKFORCE_MODULES[number];
+
+function resolveWorkforceModules(featuresAllowed: unknown): BlizBooksWorkforceModule[] {
+  const allowed = Array.isArray(featuresAllowed) ? (featuresAllowed as string[]) : null; // null = unrestricted (no whitelist configured), mirrors isPlatformFeatureAllowed()'s own fallback
+  const has = (key: string) => allowed === null || allowed.includes(key);
+
+  const modules: BlizBooksWorkforceModule[] = ['employees', 'attendance', 'leave', 'shifts'];
+  // Base payroll (salary components, runs, ledger — routes/federation/payroll.routes.ts)
+  // has no dedicated PLATFORM_FEATURES gate of its own; the advanced
+  // payroll_batches/payroll_lock_adjustments toggles layer ON TOP of it
+  // rather than gating the module's existence, so payroll is also
+  // unconditional here — a tenant with federation enabled but neither
+  // advanced toggle on can still resolve base payroll via the API. This
+  // matches the routes themselves, which never check those flags before
+  // serving a request.
+  modules.push('payroll');
+  // device_verification maps to whichever identity-check method(s) this
+  // tenant actually has switched on — WebAuthn (device_identity) or
+  // face+liveness (face_recognition). Either is sufficient.
+  if (has('device_identity') || has('face_recognition')) modules.push('device_verification');
+
+  return modules;
+}
+
 export async function buildCapabilities(tenantId: number) {
   const tenantRows = await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
   const featuresAllowed = tenantRows[0]?.featuresAllowed;
-  const featuresEnabled = Array.isArray(featuresAllowed)
+  const featuresEnabled = resolveWorkforceModules(featuresAllowed);
+
+  // SmartTeams's own richer internal feature set (payroll_batches, wfh,
+  // teams, gps_geofence, ...) — genuinely useful to a caller that wants
+  // provider-specific detail, but must never be confused with the fixed
+  // BlizBooks module vocabulary above. Kept under its own field instead.
+  const smartTeamsFeatures = Array.isArray(featuresAllowed)
     ? PLATFORM_FEATURES.map((f) => f.key).filter((key) => (featuresAllowed as string[]).includes(key))
-    : PLATFORM_FEATURES.map((f) => f.key); // no whitelist configured — every platform feature is unrestricted, mirrors isPlatformFeatureAllowed()'s own fallback
+    : PLATFORM_FEATURES.map((f) => f.key);
 
   return {
     capabilities: {
       featuresEnabled,
+      smartTeamsFeatures,
       grantableCapabilities: [...FEDERATION_GRANTABLE_CAPABILITIES],
       version: CAPABILITIES_SCHEMA_VERSION,
     },
