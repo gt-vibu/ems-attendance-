@@ -80,21 +80,28 @@ export async function buildCapabilities(tenantId: number) {
   const featuresAllowed = tenantRows[0]?.featuresAllowed;
   const featuresEnabled = resolveWorkforceModules(featuresAllowed);
 
-  // SmartTeams's own richer internal feature set (payroll_batches, wfh,
-  // teams, gps_geofence, ...) — genuinely useful to a caller that wants
-  // provider-specific detail, but must never be confused with the fixed
-  // BlizBooks module vocabulary above. Kept under its own field instead.
-  const smartTeamsFeatures = Array.isArray(featuresAllowed)
-    ? PLATFORM_FEATURES.map((f) => f.key).filter((key) => (featuresAllowed as string[]).includes(key))
-    : PLATFORM_FEATURES.map((f) => f.key);
+  const providerCapabilities: Record<string, boolean> = {};
+  if (Array.isArray(featuresAllowed)) {
+    const allowed = featuresAllowed as string[];
+    for (const f of PLATFORM_FEATURES) {
+      providerCapabilities[f.key] = allowed.includes(f.key);
+    }
+  } else {
+    for (const f of PLATFORM_FEATURES) {
+      providerCapabilities[f.key] = true;
+    }
+  }
+  const smartTeamsFeatures = Object.keys(providerCapabilities).filter((key) => providerCapabilities[key]);
 
   return {
     capabilities: {
       featuresEnabled,
+      providerCapabilities,
       smartTeamsFeatures,
       grantableCapabilities: [...FEDERATION_GRANTABLE_CAPABILITIES],
       version: CAPABILITIES_SCHEMA_VERSION,
     },
+    providerCapabilities,
     cacheControlMaxAgeSeconds: CAPABILITIES_CACHE_MAX_AGE_SECONDS,
   };
 }

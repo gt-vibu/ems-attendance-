@@ -42,59 +42,35 @@ import { resolveMappingByExternalId, type FederationEntityType } from '../servic
 // checkMtls(). So the safe default in every environment, including
 // production, is OFF unless an operator has confirmed the proxy is
 // actually there and explicitly opts in — loud warning, not a crash.
-function resolveMtlsRequirement(): boolean {
+export function isMtlsRequired(): boolean {
   const nodeEnv = process.env.NODE_ENV || '';
   const explicit = process.env.FEDERATION_REQUIRE_MTLS;
+  const allowUat = process.env.FEDERATION_ALLOW_UNSECURE_UAT === 'true' || process.env.ALLOW_INSECURE_FEDERATION_UAT === 'true';
 
   if (explicit === 'true') return true;
+  if (explicit === 'false') return false;
 
-  if (nodeEnv === 'production' || nodeEnv === 'staging') {
-    console.warn(
-      `[federation] WARNING: NODE_ENV=${nodeEnv} and FEDERATION_REQUIRE_MTLS is not 'true' — ` +
-      'the /v1/federation/* provider API is running on bearer-token auth only, without the ' +
-      'additional mTLS layer. This is fully functional for integrations, just without that ' +
-      'extra hardening. To turn mTLS on, first put a TLS terminator that requires and forwards ' +
-      'client certificates in front of this app, then set FEDERATION_REQUIRE_MTLS=true and ' +
-      'FEDERATION_MTLS_PROXY_SECRET — turning it on without that proxy in place will lock out ' +
-      'every federation request instead.'
-    );
+  if (nodeEnv === 'production') {
+    if (allowUat) {
+      console.warn('[federation] WARNING: NODE_ENV=production but FEDERATION_ALLOW_UNSECURE_UAT=true — running in time-limited bearer-only UAT mode.');
+      return false;
+    }
+    return true;
   }
 
   return false;
 }
 
-// When mTLS is required, a request can only be considered verified two
-// ways: (1) this Node process itself terminated TLS with requestCert/ca
-// and the socket says so (req.socket.authorized), or (2) a trusted reverse
-// proxy terminated TLS and forwards x-client-cert-verified — but that
-// header alone is trivially spoofable by anyone who can reach this process
-// directly (the exact P1 finding). So path (2) additionally requires a
-// shared secret header only the trusted proxy is configured to send,
-// compared in constant time. An external caller that knows neither the
-// secret nor can reach the app bypassing the proxy cannot forge this.
-//
-// If an operator explicitly opted into FEDERATION_REQUIRE_MTLS=true but
-// forgot FEDERATION_MTLS_PROXY_SECRET, that's a real misconfiguration —
-// but crashing the ENTIRE process over it (as an earlier version of this
-// file did) is disproportionate for the same reason as above: it takes
-// the whole site down, not just federation. Instead, fail this one flag
-// back to "not required" with a loud warning — every federation request
-// still goes through normal bearer-token auth, it just doesn't also get
-// the mTLS layer until the operator fixes the env and redeploys.
-const FEDERATION_MTLS_PROXY_SECRET = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
-const FEDERATION_MTLS_REQUIRED = (() => {
-  const required = resolveMtlsRequirement();
-  if (required && !FEDERATION_MTLS_PROXY_SECRET) {
-    console.warn(
-      '[federation] WARNING: FEDERATION_REQUIRE_MTLS=true but FEDERATION_MTLS_PROXY_SECRET is ' +
-      'not set. Without it, the x-client-cert-verified header a proxy-terminated mTLS request ' +
-      'relies on would be trivially spoofable — disabling mTLS enforcement until both are set ' +
-      'correctly. Bearer-token auth is unaffected.'
+export function assertMtlsStartupConfig(): void {
+  const required = isMtlsRequired();
+  const proxySecret = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
+  if (required && !proxySecret) {
+    throw new Error(
+      'FATAL: Production mTLS configuration missing. NODE_ENV=production mandates mTLS and FEDERATION_MTLS_PROXY_SECRET must be set. ' +
+      'To enable mTLS, set FEDERATION_MTLS_PROXY_SECRET and proxy headers. For time-limited UAT testing, set FEDERATION_ALLOW_UNSECURE_UAT=true.'
     );
-    return false;
   }
-  return required;
-})();
+}
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -104,14 +80,16 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 }
 
 function checkMtls(req: any): string | null {
-  if (!FEDERATION_MTLS_REQUIRED) return null;
+  if (!isMtlsRequired()) return null;
 
+  const proxySecret = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
   const socketVerified = req.socket?.authorized === true;
   const headerSecret = req.headers['x-federation-mtls-proxy-secret'];
   const proxyVerified =
     typeof headerSecret === 'string' &&
     headerSecret.length > 0 &&
-    timingSafeStringEqual(headerSecret, FEDERATION_MTLS_PROXY_SECRET) &&
+    proxySecret.length > 0 &&
+    timingSafeStringEqual(headerSecret, proxySecret) &&
     req.headers['x-client-cert-verified'] === 'true';
 
   if (!socketVerified && !proxyVerified) {
@@ -278,7 +256,9 @@ export function resolveFederationTenantContext() {
 // scopes granted to this federation client at token-issue time.
 export function requireFederationScope(scope: string) {
   return (req: any, res: any, next: any) => {
-    if (!req.federation?.scopes?.includes(scope)) {
+    const scopes: string[] = req.federation?.scopes || [];
+    const hasScope = scopes.some((s) => s === scope || s.startsWith(`${scope}.`));
+    if (!hasScope) {
       return res.status(403).json({ error: `This federation client is not scoped for '${scope}'.`, code: 'FORBIDDEN_SCOPE' });
     }
     next();

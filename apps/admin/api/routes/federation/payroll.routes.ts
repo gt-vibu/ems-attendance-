@@ -5,7 +5,7 @@ import { sendServerError } from '../../utils/errors';
 import { authenticateFederation, requireFederationScope, resolveFederationTenantContext } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
-import { resolveInternalId, resolveExternalId } from '../../services/federation/externalId';
+import { resolveInternalId, resolveExternalId, getOrAssignExternalId } from '../../services/federation/externalId';
 import { resolveBranchFilter, validateEmployeeBranchMembership } from '../../services/federation/branchScope';
 import { writeOutboxEvent } from '../../services/federation/outbox';
 import { encodeCursor, decodeCursor, hashFilters, resolveLimit } from '../../utils/federationCursor';
@@ -16,7 +16,8 @@ import { getOrCreatePayrollSettings, computeCompensationDiff } from '../leavePay
 import { isPlatformFeatureAllowedForTenant } from '../../auth/rbac';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('payroll'));
+router.use('/v1/federation/payroll', authenticateFederation, federationLimiter, requireFederationScope('payroll'));
+router.use('/v1/federation/employees/:externalEmployeeId/compensation', authenticateFederation, federationLimiter, requireFederationScope('payroll'));
 
 const MINOR_UNIT_MULTIPLIER = 100; // this app stores rupees as a real number; the federation contract uses minor units (e.g. paise)
 
@@ -345,9 +346,9 @@ router.get('/v1/federation/payroll/ledger', resolveFederationTenantContext(), as
     const entries = await Promise.all(rows.map(async (r: any) => ({
       runId: r.batchId ? String(r.batchId) : null,
       runVersion: 1,
-      externalEmployeeId: await resolveExternalId(tenantId, 'employee', r.userId),
+      externalEmployeeId: await getOrAssignExternalId(tenantId, 'employee', r.userId),
       currencyCode: 'INR',
-      amountMinor: Math.round(r.amount * MINOR_UNIT_MULTIPLIER),
+      amountMinor: Math.round((r.amount ?? r.netSalary ?? r.grossSalary ?? 0) * MINOR_UNIT_MULTIPLIER),
       entryType: r.entryType,
     })));
     const nextCursor = rows.length === limit

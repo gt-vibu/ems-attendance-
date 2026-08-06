@@ -15,7 +15,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts requireRole.test.ts",
-    "test:integration": "tsx --test integration/payrollLockConcurrency.integration.test.ts integration/attendanceApprovalConcurrency.integration.test.ts integration/correctionFreezeGuard.integration.test.ts",
+    "test:integration": "tsx --test integration/payrollLockConcurrency.integration.test.ts integration/attendanceApprovalConcurrency.integration.test.ts integration/correctionFreezeGuard.integration.test.ts integration/federationContract.integration.test.ts",
     "cap:sync:android": "cap sync android",
     "cap:open:android": "cap open android",
     "cap:sync:ios": "cap sync ios",

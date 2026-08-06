@@ -22,7 +22,7 @@ import { computeLeaveBalancesForUser } from '../leave.routes';
 import { computeLeaveDays, parseDateOnly } from '../leavePayrollShared';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('leave'));
+router.use('/v1/federation/leave', authenticateFederation, federationLimiter, requireFederationScope('leave'));
 
 router.get('/v1/federation/leave/types', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {

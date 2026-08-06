@@ -15,7 +15,8 @@ import {
 import { issueFederationAssertionToken } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
+router.use('/v1/federation/employees/:externalEmployeeId/webauthn', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
+router.use('/v1/federation/attendance/assertions', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
 
 // SmartTeams must configure the approved BlizBooks origins (production,
 // staging, local dev) it will accept a WebAuthn ceremony against — this

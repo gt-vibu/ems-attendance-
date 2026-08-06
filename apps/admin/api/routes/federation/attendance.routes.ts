@@ -12,7 +12,7 @@ import { tenantDateKey, tenantStartOfDay } from '../../services/tenantTime';
 import { verifyFederationAssertion } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
+router.use('/v1/federation/attendance', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
 
 async function toFederationRecord(tenantId: number, log: any) {
   return {
