@@ -198,7 +198,7 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
   const [runnerMethod, setRunnerMethod] = useState<string>('GET');
   const [runnerResult, setRunnerResult] = useState<any>(null);
   const [runningApi, setRunningApi] = useState<boolean>(false);
-  const [applications, setApplications] = useState<Application[]>(SAMPLE_APPS);
+  const [applications, setApplications] = useState<Application[]>([]);
   const [stats, setStats] = useState({
     totalApplications: 6,
     activeOAuthClients: 5,
@@ -261,11 +261,11 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
       }
       if (appsRes.ok) {
         const appsData = await appsRes.json();
-        if (Array.isArray(appsData.applications) && appsData.applications.length > 0) {
-          setApplications(appsData.applications);
-        } else {
-          setApplications(SAMPLE_APPS);
-        }
+        // Real applications list, however empty — never fall back to
+        // SAMPLE_APPS's fabricated companies (BlizBooks Financial Cloud,
+        // SAP SuccessFactors Bridge, ...). A genuinely empty list must
+        // render as empty, not as six fake registered integrations.
+        setApplications(Array.isArray(appsData.applications) ? appsData.applications : []);
       }
       if (webhooksRes.ok) {
         const webhooksData = await webhooksRes.json();
@@ -673,6 +673,9 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                 </button>
               </div>
 
+              {applications.length === 0 && (
+                <p className="text-xs text-slate-500 py-4 text-center">No platform credentials registered yet — create one from the Platform Credentials page.</p>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {applications.slice(0, 3).map((app) => (
                   <div key={app.id} className="p-4 rounded-xl border border-slate-200 hover:border-slate-300 transition bg-slate-50/50 space-y-3">
@@ -840,45 +843,52 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {applications.flatMap(app =>
-                    Array.from({ length: app.connectedTenantsCount || 1 }).map((_, idx) => (
-                      <tr key={`${app.id}-${idx}`} className="hover:bg-slate-50/80">
-                        <td className="p-3 font-bold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded bg-slate-900 text-cyan-400 font-black flex items-center justify-center text-[10px]">
-                              {app.name.charAt(0)}
-                            </div>
-                            <span>{app.name}</span>
+                  {applications.length === 0 && (
+                    <tr><td colSpan={7} className="p-8 text-center text-xs text-slate-500 font-sans">No applications registered yet.</td></tr>
+                  )}
+                  {applications.map((app) => (
+                    <tr key={app.id} className="hover:bg-slate-50/80">
+                      <td className="p-3 font-bold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded bg-slate-900 text-cyan-400 font-black flex items-center justify-center text-[10px]">
+                            {app.name.charAt(0)}
                           </div>
-                        </td>
-                        <td className="p-3 text-slate-700 font-semibold">
-                          {idx === 0 ? 'ACME Corporation' : idx === 1 ? 'XYZ Logistics Global' : 'Apex Hospitality Group'}
-                        </td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
-                            AUTHORIZED
-                          </span>
-                        </td>
-                        <td className="p-3 font-mono text-[10px] text-slate-600">
-                          {app.scopes.slice(0, 3).join(', ')}
-                        </td>
-                        <td className="p-3 text-slate-500">2026-02-14</td>
-                        <td className="p-3">
+                          <span>{app.name}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 text-slate-700 font-semibold">
+                        {app.connectedTenantsCount > 0 ? `${app.connectedTenantsCount} tenant${app.connectedTenantsCount === 1 ? '' : 's'}` : 'None yet'}
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          app.connectedTenantsCount > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {app.connectedTenantsCount > 0 ? 'AUTHORIZED' : 'NONE AUTHORIZED'}
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono text-[10px] text-slate-600">
+                        {app.scopes.slice(0, 3).join(', ')}
+                      </td>
+                      <td className="p-3 text-slate-500">{app.createdAt ? new Date(app.createdAt).toLocaleDateString() : '—'}</td>
+                      <td className="p-3">
+                        {app.connectedTenantsCount > 0 ? (
                           <span className="inline-flex items-center gap-1 text-emerald-600 font-bold">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Healthy
                           </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => handleOpenAppTenants(app)}
-                            className="font-bold text-cyan-600 hover:underline"
-                          >
-                            Manage
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                        ) : (
+                          <span className="text-slate-400 font-bold">—</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => handleOpenAppTenants(app)}
+                          className="font-bold text-cyan-600 hover:underline"
+                        >
+                          Manage
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -921,10 +931,10 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {(webhooks.length > 0 ? webhooks : [
-                    { id: 1, eventId: 'evt_99182371', eventType: 'attendance.checked_in', targetUrl: 'https://api.blizbooks.com/v1/webhooks', statusCode: 200, responseTimeMs: 45, deliveryStatus: 'delivered', attemptCount: 1, createdAt: new Date().toISOString() },
-                    { id: 2, eventId: 'evt_99182372', eventType: 'leave.approved', targetUrl: 'https://pms.grandhotels.com/api/webhooks', statusCode: 500, responseTimeMs: 120, deliveryStatus: 'failed', attemptCount: 3, createdAt: new Date(Date.now() - 3600000).toISOString() },
-                  ]).map((w: any) => (
+                  {webhooks.length === 0 && (
+                    <tr><td colSpan={7} className="p-8 text-center text-xs text-slate-500 font-sans">No webhook deliveries yet — this fills in as partners' subscribed events actually fire.</td></tr>
+                  )}
+                  {webhooks.map((w: any) => (
                     <tr key={w.id} className="hover:bg-slate-50/80">
                       <td className="p-3 font-bold text-slate-900">{w.eventId}</td>
                       <td className="p-3 font-semibold text-cyan-700">{w.eventType}</td>
@@ -1061,39 +1071,11 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {[
-                    { id: 1, eventId: 'evt_outbox_991823a', eventType: 'attendance.checked_in', tenant: 'ACME Corp (1)', correlationId: 'corr_88192a', attempts: 1, status: 'PUBLISHED', date: new Date().toLocaleTimeString() },
-                    { id: 2, eventId: 'evt_outbox_771239b', eventType: 'leave.approved', tenant: 'Apex Hospitality (3)', correlationId: 'corr_44921b', attempts: 1, status: 'PUBLISHED', date: new Date(Date.now() - 1800000).toLocaleTimeString() },
-                    { id: 3, eventId: 'evt_outbox_dlq_504c', eventType: 'payroll.generated', tenant: 'XYZ Logistics (2)', correlationId: 'corr_11200c', attempts: 5, status: 'FAILED (DLQ)', date: new Date(Date.now() - 7200000).toLocaleTimeString() }
-                  ].map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-bold text-slate-900">{e.eventId}</td>
-                      <td className="p-3 text-cyan-700 font-bold">{e.eventType}</td>
-                      <td className="p-3 font-sans text-slate-700">{e.tenant}</td>
-                      <td className="p-3 text-slate-500">{e.correlationId}</td>
-                      <td className="p-3 text-slate-700 font-bold">{e.attempts} / 5</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                          e.status.includes('PUBLISHED') ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {e.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-sans">
-                        {e.status.includes('DLQ') && (
-                          <button
-                            onClick={() => {
-                              setSuccess(`Event ${e.eventId} re-queued for delivery.`);
-                              setTimeout(() => setSuccess(''), 3000);
-                            }}
-                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] rounded-lg border border-amber-200"
-                          >
-                            Replay DLQ Event
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  <tr><td colSpan={7} className="p-8 text-center text-xs text-slate-500 font-sans">
+                    This tab isn't wired to live outbox data yet — the real outbox/replay feed lives at
+                    GET /v1/federation/events. Use that directly (or the Platform Credentials page) until
+                    this view is connected to it.
+                  </td></tr>
                 </tbody>
               </table>
             </div>
@@ -1135,30 +1117,11 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {[
-                    { id: 1, type: 'Organization', internal: 'tenant_1', name: 'ACME Corporation', external: 'hotel_abc_001', app: 'BlizBooks ERP' },
-                    { id: 2, type: 'Branch', internal: 'branch_1', name: 'HQ Bengaluru Main', external: 'blr_hq_main', app: 'Hotel PMS Pro' },
-                    { id: 3, type: 'Employee', internal: 'emp_102', name: 'Sarah Connor', external: 'EMP_H102_PERM', app: 'Zoho Payroll' }
-                  ].map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-sans font-bold text-slate-900">{m.type}</td>
-                      <td className="p-3 text-slate-600">{m.internal}</td>
-                      <td className="p-3 font-sans font-semibold text-slate-800">{m.name}</td>
-                      <td className="p-3 text-emerald-700 font-bold">{m.external}</td>
-                      <td className="p-3 font-sans text-cyan-700 font-semibold">{m.app}</td>
-                      <td className="p-3 text-right font-sans">
-                        <button
-                          onClick={() => {
-                            setSuccess(`Mapping for ${m.name} updated.`);
-                            setTimeout(() => setSuccess(''), 3000);
-                          }}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-lg border border-slate-200"
-                        >
-                          Edit Mapping
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  <tr><td colSpan={5} className="p-8 text-center text-xs text-slate-500 font-sans">
+                    This tab isn't wired to live mapping data yet — real external-id mappings are created
+                    automatically the first time a federation call touches an entity (see
+                    federation_external_id_mappings). This view doesn't read from that table yet.
+                  </td></tr>
                 </tbody>
               </table>
             </div>
@@ -1287,39 +1250,12 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {[
-                    { id: 1, handle: 'tok_live_blizbooks_991823', clientId: 'st_app_blizbooks_prod_99a8b7', tenant: 'ACME Corp (1)', scopes: 'attendance.read, leave.read', ip: '198.51.100.42', status: 'ACTIVE' },
-                    { id: 2, handle: 'tok_live_hotelpms_771239', clientId: 'st_app_hotelpms_prod_44c11d', tenant: 'Apex Hospitality (3)', scopes: 'attendance.write', ip: '198.51.100.88', status: 'ACTIVE' },
-                    { id: 3, handle: 'tok_sandbox_pos_112009', clientId: 'st_app_pos_punch_88f32a', tenant: 'XYZ Logistics (2)', scopes: 'employee.read', ip: '203.0.113.15', status: 'EXPIRED' }
-                  ].map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-bold text-slate-900">{t.handle}</td>
-                      <td className="p-3 text-slate-600">{t.clientId}</td>
-                      <td className="p-3 font-sans text-slate-800 font-semibold">{t.tenant}</td>
-                      <td className="p-3 text-cyan-700">{t.scopes}</td>
-                      <td className="p-3 text-slate-500">{t.ip}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                          t.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {t.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-sans">
-                        {t.status === 'ACTIVE' && (
-                          <button
-                            onClick={() => {
-                              setSuccess(`Token ${t.handle} revoked.`);
-                              setTimeout(() => setSuccess(''), 3000);
-                            }}
-                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] rounded-lg border border-rose-200"
-                          >
-                            Revoke Token
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  <tr><td colSpan={7} className="p-8 text-center text-xs text-slate-500 font-sans">
+                    This tab isn't wired to live token data yet — access tokens are short-lived JWTs
+                    (issued by POST /v1/federation/oauth/token, 1hr expiry) and aren't stored server-side,
+                    so there's nothing to list or revoke here individually. To cut off a partner's access
+                    entirely, revoke their credential on the Platform Credentials page instead.
+                  </td></tr>
                 </tbody>
               </table>
             </div>
@@ -1343,10 +1279,10 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {(auditLogs.length > 0 ? auditLogs : [
-                    { id: 1, action: 'INTEGRATION_APP_REGISTERED', actorName: 'Super Admin', timestamp: new Date().toISOString(), ipAddress: '127.0.0.1', details: { name: 'BlizBooks Financial Cloud' } },
-                    { id: 2, action: 'INTEGRATION_APP_SECRET_ROTATED', actorName: 'Super Admin', timestamp: new Date(Date.now() - 1800000).toISOString(), ipAddress: '127.0.0.1', details: { name: 'Hotel PMS WorkForce Pro' } },
-                  ]).map((log: any) => (
+                  {auditLogs.length === 0 && (
+                    <tr><td colSpan={5} className="p-8 text-center text-xs text-slate-500 font-sans">No audit events recorded yet.</td></tr>
+                  )}
+                  {auditLogs.map((log: any) => (
                     <tr key={log.id} className="hover:bg-slate-50">
                       <td className="p-3 text-slate-500 font-sans">{new Date(log.timestamp).toLocaleString()}</td>
                       <td className="p-3 font-bold text-cyan-700">{log.action}</td>
