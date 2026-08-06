@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, and, desc, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, getEffectivePrivileges, getDefaultPrivilegesForRole, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -252,8 +253,8 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
 
     // Validate branch if changing
     if (branchId && branchId !== employee.branchId) {
-      const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId)).limit(1);
-      if (branchRows.length === 0 || branchRows[0].tenantId !== tenantId) {
+      const branchRow = await getByIdForTenant(schema.branches, branchId, tenantId);
+      if (!branchRow) {
         return res.status(400).json({ error: 'Invalid branch ID.' });
       }
       if (scopedBranchIds !== null && !scopedBranchIds.includes(branchId)) {
@@ -264,17 +265,17 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
     // Validate shift if changing
     let newShiftName: string | null = null;
     if (shiftId && shiftId !== employee.shiftId) {
-      const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId)).limit(1);
-      if (shiftRows.length === 0 || shiftRows[0].tenantId !== tenantId) {
+      const shiftRow = await getByIdForTenant(schema.shifts, shiftId, tenantId);
+      if (!shiftRow) {
         return res.status(400).json({ error: 'Invalid shift ID.' });
       }
-      newShiftName = shiftRows[0].name;
+      newShiftName = shiftRow.name;
     }
 
     // Validate manager if changing
     if (managerId && managerId !== employee.managerId) {
-      const managerRows = await db.select().from(schema.users).where(eq(schema.users.id, managerId)).limit(1);
-      if (managerRows.length === 0 || managerRows[0].tenantId !== tenantId) {
+      const managerRow = await getByIdForTenant(schema.users, managerId, tenantId);
+      if (!managerRow) {
         return res.status(400).json({ error: 'Invalid manager ID.' });
       }
     }
@@ -354,6 +355,7 @@ router.post('/api/tenant/employees/:id/reset-device', authenticate, async (req: 
     if (userRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
+
     const employee = userRows[0];
     if (employee.tenantId !== tenantId) {
       return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
@@ -546,8 +548,8 @@ router.post('/api/tenant/departments', authenticate, async (req: any, res: any) 
     const tenantId = req.user.tenantId;
 
     if (headUserId) {
-      const userRows = await db.select().from(schema.users).where(eq(schema.users.id, headUserId)).limit(1);
-      if (userRows.length === 0 || userRows[0].tenantId !== tenantId) {
+      const headUserRow = await getByIdForTenant(schema.users, headUserId, tenantId);
+      if (!headUserRow) {
         return res.status(400).json({ error: 'Invalid department head user ID.' });
       }
     }

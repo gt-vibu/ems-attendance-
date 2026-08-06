@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { notify, notifyOrFallback, notifyOrFallbackCustom } from '../services/notificationService';
@@ -579,8 +580,8 @@ router.post('/api/tenant/leave/adjustments', authenticate, async (req: any, res:
     const tenantId = req.user.tenantId;
 
     // Verify employee exists and belongs to tenant
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(userId))).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== tenantId) {
+    const employee = await getByIdForTenant(schema.users, Number(userId), tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
 

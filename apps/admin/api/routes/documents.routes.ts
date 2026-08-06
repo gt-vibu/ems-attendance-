@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -136,11 +137,10 @@ router.get('/api/tenant/documents/:id/download', authenticate, async (req: any, 
     if (!await documentsEnabledForTenant(tenantId)) {
       return res.status(403).json({ error: 'Document storage is not enabled for this organization.' });
     }
-    const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(req.params.id))).limit(1);
-    if (docRows.length === 0 || docRows[0].tenantId !== tenantId) {
+    const doc = await getByIdForTenant(schema.employeeDocuments, Number(req.params.id), tenantId);
+    if (!doc) {
       return res.status(404).json({ error: 'Document not found.' });
     }
-    const doc = docRows[0];
     if (!(await canAccessEmployeeDocuments(req, doc.userId))) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
@@ -159,11 +159,10 @@ router.delete('/api/tenant/documents/:id', authenticate, async (req: any, res: a
     if (!await documentsEnabledForTenant(tenantId)) {
       return res.status(403).json({ error: 'Document storage is not enabled for this organization.' });
     }
-    const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(req.params.id))).limit(1);
-    if (docRows.length === 0 || docRows[0].tenantId !== tenantId) {
+    const doc = await getByIdForTenant(schema.employeeDocuments, Number(req.params.id), tenantId);
+    if (!doc) {
       return res.status(404).json({ error: 'Document not found.' });
     }
-    const doc = docRows[0];
     // Deletion is a step tighter than viewing: the owner, or someone who can
     // actually manage the roster (employee.create/employee.edit), not
     // merely read/report privileges.

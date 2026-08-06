@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
@@ -613,8 +614,8 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
 // the two — same query, same fields, just a different caller/target pairing
 // and privilege check at each route.
 async function buildCompensationHistoryResponse(tenantId: number, userId: number) {
-  const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-  if (employeeRows.length === 0 || employeeRows[0].tenantId !== tenantId) {
+  const employee = await getByIdForTenant(schema.users, userId, tenantId);
+  if (!employee) {
     return null;
   }
 
@@ -629,7 +630,7 @@ async function buildCompensationHistoryResponse(tenantId: number, userId: number
   const changedByName = new Map(changedByUsers.map((u: any) => [u.id, u.name || u.email]));
 
   return {
-    employee: { id: employeeRows[0].id, name: employeeRows[0].name, email: employeeRows[0].email, role: employeeRows[0].role },
+    employee: { id: employee.id, name: employee.name, email: employee.email, role: employee.role },
     history: rows.map((r: any) => ({
       id: r.id,
       changedAt: r.createdAt,

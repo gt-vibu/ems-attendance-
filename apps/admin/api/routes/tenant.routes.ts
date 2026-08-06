@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -466,8 +467,8 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
           if (!branchId || !shiftId) throw new Error('branchId and shiftId are required');
           if (scopedBranchIds !== null && !scopedBranchIds.includes(branchId)) throw new Error('you are not scoped to this branch');
 
-          const branchRows = await db.select().from(schema.branches).where(eq(schema.branches.id, branchId));
-          if (branchRows.length === 0 || branchRows[0].tenantId !== tenantId) throw new Error('invalid branchId');
+          const branchRow = await getByIdForTenant(schema.branches, branchId, tenantId);
+          if (!branchRow) throw new Error('invalid branchId');
           const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
           if (shiftRows.length === 0 || shiftRows[0].branchId !== branchId) throw new Error('invalid shiftId for the selected branch');
 

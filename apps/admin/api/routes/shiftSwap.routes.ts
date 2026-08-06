@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { getEffectiveShiftId } from '../services/shiftOverrides';
@@ -28,11 +29,10 @@ router.post('/api/tenant/shift-swap', authenticate, async (req: any, res: any) =
     }
 
     const tenantId = req.user.tenantId;
-    const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(targetUserId))).limit(1);
-    if (targetRows.length === 0 || targetRows[0].tenantId !== tenantId) {
+    const target = await getByIdForTenant(schema.users, Number(targetUserId), tenantId);
+    if (!target) {
       return res.status(404).json({ error: 'Colleague not found.' });
     }
-    const target = targetRows[0];
 
     const [requesterShiftId, targetShiftId] = await Promise.all([
       getEffectiveShiftId(tenantId, req.user.userId, swapDate),
