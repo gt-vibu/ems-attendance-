@@ -18,41 +18,50 @@ import { resolveMappingByExternalId, type FederationEntityType } from '../servic
 // layer (reverse proxy / load balancer / Node https server's
 // `requestCert`+`ca` options), not inside Express route middleware — this
 // hook only checks for the peer-certificate metadata a correctly configured
-// termination layer forwards. It used to be a silent no-op unless
-// FEDERATION_REQUIRE_MTLS=true was explicitly set, which is exactly what
-// P1 of the code review flagged: "mTLS is optional and trusts
+// termination layer forwards. It's a no-op (bearer-token auth in
+// authenticateFederation is still fully enforced either way) unless
+// FEDERATION_REQUIRE_MTLS=true is explicitly set, which is exactly what P1
+// of the code review flagged: "mTLS is optional and trusts
 // x-client-cert-verified, which is spoofable unless the application is
-// unreachable except through a trusted TLS terminator." Mirroring the same
-// fail-closed pattern jwt.ts already uses for JWT_SECRET: in
-// staging/production this now throws at module load (refusing to start)
-// unless mTLS enforcement has been explicitly and correctly configured,
-// rather than silently accepting unauthenticated traffic. In any other
-// NODE_ENV (local dev, the sandbox exception the plan documents, test) it
-// stays off by default so nothing here needs real certificates provisioned
-// first.
-const MTLS_REQUIRED_ENVIRONMENTS = new Set(['production', 'staging']);
-
+// unreachable except through a trusted TLS terminator."
+//
+// An earlier version of this file THREW at module load (crashing the
+// entire process, not just federation routes) if NODE_ENV was
+// production/staging without mTLS explicitly configured — mirroring
+// jwt.ts's JWT_SECRET pattern. That was wrong for this specific case: it
+// took the whole site down in production the moment it deployed, because
+// standard hosting (e.g. Render's web services) doesn't terminate
+// client-certificate TLS for you — there was no way to satisfy the
+// requirement short of standing up a dedicated mTLS-terminating proxy in
+// front of the app first. JWT_SECRET has no such infrastructure
+// dependency (any environment can set a random string), so a hard fail
+// there is proportionate; this isn't. Mistakenly setting
+// FEDERATION_REQUIRE_MTLS=true without that proxy in place would be just
+// as bad in the other direction — every federation request would then
+// fail closed with MTLS_REQUIRED, since nothing would ever satisfy
+// checkMtls(). So the safe default in every environment, including
+// production, is OFF unless an operator has confirmed the proxy is
+// actually there and explicitly opts in — loud warning, not a crash.
 function resolveMtlsRequirement(): boolean {
   const nodeEnv = process.env.NODE_ENV || '';
   const explicit = process.env.FEDERATION_REQUIRE_MTLS;
 
   if (explicit === 'true') return true;
 
-  if (MTLS_REQUIRED_ENVIRONMENTS.has(nodeEnv)) {
-    throw new Error(
-      `FATAL: NODE_ENV=${nodeEnv} but FEDERATION_REQUIRE_MTLS is not set to 'true'. ` +
-      'mTLS is mandatory for the /v1/federation/* provider API in staging/production ' +
-      '(a bearer token alone is not enough — see the code review\'s mTLS finding). ' +
-      'Configure the TLS terminator in front of this app to require and forward client ' +
-      'certificates, set FEDERATION_REQUIRE_MTLS=true, and set FEDERATION_MTLS_PROXY_SECRET ' +
-      'to a long random value shared only with that trusted terminator.'
+  if (nodeEnv === 'production' || nodeEnv === 'staging') {
+    console.warn(
+      `[federation] WARNING: NODE_ENV=${nodeEnv} and FEDERATION_REQUIRE_MTLS is not 'true' — ` +
+      'the /v1/federation/* provider API is running on bearer-token auth only, without the ' +
+      'additional mTLS layer. This is fully functional for integrations, just without that ' +
+      'extra hardening. To turn mTLS on, first put a TLS terminator that requires and forwards ' +
+      'client certificates in front of this app, then set FEDERATION_REQUIRE_MTLS=true and ' +
+      'FEDERATION_MTLS_PROXY_SECRET — turning it on without that proxy in place will lock out ' +
+      'every federation request instead.'
     );
   }
 
   return false;
 }
-
-const FEDERATION_MTLS_REQUIRED = resolveMtlsRequirement();
 
 // When mTLS is required, a request can only be considered verified two
 // ways: (1) this Node process itself terminated TLS with requestCert/ca
@@ -63,14 +72,29 @@ const FEDERATION_MTLS_REQUIRED = resolveMtlsRequirement();
 // shared secret header only the trusted proxy is configured to send,
 // compared in constant time. An external caller that knows neither the
 // secret nor can reach the app bypassing the proxy cannot forge this.
+//
+// If an operator explicitly opted into FEDERATION_REQUIRE_MTLS=true but
+// forgot FEDERATION_MTLS_PROXY_SECRET, that's a real misconfiguration —
+// but crashing the ENTIRE process over it (as an earlier version of this
+// file did) is disproportionate for the same reason as above: it takes
+// the whole site down, not just federation. Instead, fail this one flag
+// back to "not required" with a loud warning — every federation request
+// still goes through normal bearer-token auth, it just doesn't also get
+// the mTLS layer until the operator fixes the env and redeploys.
 const FEDERATION_MTLS_PROXY_SECRET = process.env.FEDERATION_MTLS_PROXY_SECRET || '';
-if (FEDERATION_MTLS_REQUIRED && !FEDERATION_MTLS_PROXY_SECRET) {
-  throw new Error(
-    'FATAL: FEDERATION_REQUIRE_MTLS=true but FEDERATION_MTLS_PROXY_SECRET is not set. ' +
-    'Without it, the x-client-cert-verified header a proxy-terminated mTLS request relies ' +
-    'on would be trivially spoofable by any caller that can reach this process directly.'
-  );
-}
+const FEDERATION_MTLS_REQUIRED = (() => {
+  const required = resolveMtlsRequirement();
+  if (required && !FEDERATION_MTLS_PROXY_SECRET) {
+    console.warn(
+      '[federation] WARNING: FEDERATION_REQUIRE_MTLS=true but FEDERATION_MTLS_PROXY_SECRET is ' +
+      'not set. Without it, the x-client-cert-verified header a proxy-terminated mTLS request ' +
+      'relies on would be trivially spoofable — disabling mTLS enforcement until both are set ' +
+      'correctly. Bearer-token auth is unaffected.'
+    );
+    return false;
+  }
+  return required;
+})();
 
 function timingSafeStringEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
