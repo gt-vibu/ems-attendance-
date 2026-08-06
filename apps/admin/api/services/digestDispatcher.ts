@@ -17,7 +17,7 @@
 // than calling sendEmail()/notifyUser() directly, so digest delivery gets
 // the exact same retry-on-failure behavior immediate notifications already
 // have for free from the existing queue processor (services/queue).
-import { eq, and, lte, sql, inArray } from 'drizzle-orm';
+import { eq, and, lte, sql, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { queue } from './queue';
 import { tenantStartOfDay, tenantDateKey } from './tenantTime';
@@ -65,7 +65,28 @@ async function resolveDigestRecipients(tenantId: number, specs: DigestRecipientS
   return [...map.values()];
 }
 
-async function enqueueDigestDelivery(tenantId: number, digestType: string, recipient: { id: number; name: string; email: string }, subject: string, body: string) {
+interface StructuredDigestExtra {
+  tenantName: string;
+  periodLabel: 'Daily' | 'Weekly';
+  stats: {
+    totalEmployees: number;
+    present: number;
+    absent: number;
+    lateArrivals: number;
+    pendingLeaveRequests: number;
+    pendingAttendanceCorrections: number;
+    policyViolations: number;
+  };
+}
+
+async function enqueueDigestDelivery(
+  tenantId: number,
+  digestType: string,
+  recipient: { id: number; name: string; email: string },
+  subject: string,
+  body: string,
+  structuredExtra?: StructuredDigestExtra,
+) {
   for (const channel of ['email', 'in_app']) {
     await queue.enqueue('deliver_notification', {
       tenantId,
@@ -75,7 +96,14 @@ async function enqueueDigestDelivery(tenantId: number, digestType: string, recip
       channel,
       eventType: `digest_${digestType}`,
       subjectName: recipient.name,
-      data: { __prerendered: true, subject, body },
+      // __digestStats is only ever set for the executive/org-wide digest
+      // (the one with real numeric stats) and only consumed for the email
+      // channel — see notificationService.ts's deliver_notification handler,
+      // which renders it through mail.ts's sendDailySummaryEmail() instead
+      // of the generic `<p>${body}</p>` wrap. in_app keeps using the plain
+      // `body` text either way (the notification feed already renders that
+      // fine, per the existing "Daily Summary" list items).
+      data: structuredExtra ? { __prerendered: true, subject, body, __digestStats: structuredExtra } : { __prerendered: true, subject, body },
     }, { tenantId });
   }
 }
@@ -137,15 +165,35 @@ async function dispatchExecutiveDigest(tenantId: number, digestType: string, rec
   if (!tenant) return;
   const dayStart = tenantStartOfDay(tenant);
 
-  const totalEmployees = await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, 'employee')));
+  // BUG FIX: this previously filtered role = 'employee' literally, which
+  // silently excluded every manager/HR/GM/custom-role person from the
+  // headcount — a tenant whose staff mostly hold non-'employee' roles saw
+  // "Total Employees: 0" (and, since absent = max(0, total - checkedIn),
+  // "Absent: 0" too) despite having real, active people. Matches the same
+  // "every clock-in-capable role except tenant_admin/super_admin" convention
+  // computeAttendancePercent() and the payroll overview endpoint already use
+  // elsewhere in this app, and excludes terminated employees the same way
+  // payrollBatchCalculation.ts's employee loop does.
+  const totalEmployees = await db.select().from(schema.users).where(and(
+    eq(schema.users.tenantId, tenantId),
+    sql`role NOT IN ('tenant_admin', 'super_admin')`,
+    ne(schema.users.employeeStatus, 'terminated'),
+  ));
 
   const checkedInResult = await db.execute(sql`
     SELECT COUNT(DISTINCT user_id) as count FROM attendance_logs
     WHERE tenant_id = ${tenantId} AND created_at >= ${dayStart} AND status = 'approved' AND type = 'check_in'
   `);
+  // BUG FIX: was string-matching the human-readable `reason` column
+  // ('%Late Arrival%'), which attendance.routes.ts's check-in flow doesn't
+  // even always populate that way (WFH late arrivals use different reason
+  // text entirely — see attendance.routes.ts's `reason` assignment). The
+  // canonical signal is the isLate boolean column attendancePolicy.ts
+  // writes on every check-in, specifically introduced to replace this exact
+  // fragile-string-matching anti-pattern (see schema.ts's isLate comment).
   const lateResult = await db.execute(sql`
     SELECT COUNT(DISTINCT user_id) as count FROM attendance_logs
-    WHERE tenant_id = ${tenantId} AND created_at >= ${dayStart} AND status = 'approved' AND type = 'check_in' AND reason LIKE '%Late Arrival%'
+    WHERE tenant_id = ${tenantId} AND created_at >= ${dayStart} AND status = 'approved' AND type = 'check_in' AND is_late = true
   `);
   const pendingLeaveResult = await db.execute(sql`
     SELECT COUNT(*) as count FROM leave_requests WHERE tenant_id = ${tenantId} AND status = 'pending'
@@ -164,7 +212,8 @@ async function dispatchExecutiveDigest(tenantId: number, digestType: string, rec
   const pendingCorrections = num(pendingCorrectionsResult);
   const absent = Math.max(0, totalEmployees.length - checkedIn);
 
-  const subject = `${digestType === 'executive_weekly' ? 'Weekly' : 'Daily'} Summary: ${tenant.name}`;
+  const periodLabel: 'Daily' | 'Weekly' = digestType === 'executive_weekly' ? 'Weekly' : 'Daily';
+  const subject = `${periodLabel} Summary: ${tenant.name}`;
   const body = [
     `Total Employees: ${totalEmployees.length}`,
     `Present: ${checkedIn}`,
@@ -174,9 +223,22 @@ async function dispatchExecutiveDigest(tenantId: number, digestType: string, rec
     `Pending Attendance Corrections: ${pendingCorrections}`,
     `Policy Violations: ${violations.length}`,
   ].join('\n');
+  const structuredExtra = {
+    tenantName: tenant.name,
+    periodLabel,
+    stats: {
+      totalEmployees: totalEmployees.length,
+      present: checkedIn,
+      absent,
+      lateArrivals: late,
+      pendingLeaveRequests: pendingLeave,
+      pendingAttendanceCorrections: pendingCorrections,
+      policyViolations: violations.length,
+    },
+  };
 
   for (const recipient of recipients) {
-    await enqueueDigestDelivery(tenantId, digestType, recipient, subject, body);
+    await enqueueDigestDelivery(tenantId, digestType, recipient, subject, body, structuredExtra);
   }
 }
 

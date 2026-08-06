@@ -4,7 +4,7 @@ import { getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { resolveEscalationAssignee } from './escalation';
 import { renderNotificationTemplate } from './notificationTemplates';
 import { notifyUser } from './notifications';
-import { sendEmail } from '../../mail';
+import { sendEmail, sendDailySummaryEmail } from '../../mail';
 import { queue } from './queue';
 import { tenantParts, tenantDateKey } from './tenantTime';
 
@@ -89,6 +89,15 @@ const DEFAULT_POLICIES: Record<string, DefaultPolicy> = {
   shift_changed: { notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
   shift_swap_requested: { notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
   shift_swap_decided: { notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
+  // Team membership is a "my team" workspace belonging to whoever adds the
+  // member (see teams.routes.ts), so the added employee is the only
+  // recipient that needs resolving here — the team lead is the caller and
+  // already knows.
+  team_member_added: { notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
+  // notifyManager here resolves via the subject's OWN managerId — teams.routes.ts
+  // sets that to the new manager BEFORE calling notify(), so this one entry
+  // reaches both the employee and their newly assigned manager.
+  manager_assigned: { notifyEmployee: true, notifyManager: true, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
   leave_encashment_requested: { notifyEmployee: false, notifyManager: true, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: ['leave.approve'], priority: 'high' },
   leave_encashment_decided: { notifyEmployee: true, notifyManager: false, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: [] },
   late_arrival_requested: { notifyEmployee: false, notifyManager: true, notifyHR: false, notifyAdmin: false, channels: ['in_app', 'email'], fallbackPrivileges: ['attendance.approve'], priority: 'high' },
@@ -365,7 +374,16 @@ export function registerNotificationDeliveryHandler() {
       if (channel === 'in_app') {
         await notifyUser(userId, subject, body);
       } else if (channel === 'email' && userEmail) {
-        await sendEmail({ to: userEmail, subject, text: body, html: `<p>${body}</p>` });
+        // Structured daily/weekly summary digests (digestDispatcher.ts's
+        // dispatchExecutiveDigest) render through a real HTML stat-grid
+        // template instead of the generic `<p>${body}</p>` wrap every other
+        // notification uses — see mail.ts's sendDailySummaryEmail.
+        if (data?.__digestStats) {
+          const { tenantName, periodLabel, stats } = data.__digestStats;
+          await sendDailySummaryEmail(userEmail, userName || subjectName, tenantName, periodLabel, stats);
+        } else {
+          await sendEmail({ to: userEmail, subject, text: body, html: `<p>${body}</p>` });
+        }
       }
       await db.insert(schema.notificationLog).values({
         tenantId, eventType, recipientUserId: userId, channel, status: 'sent', attempts: meta?.attempts || 1, subjectName, data: data || {},

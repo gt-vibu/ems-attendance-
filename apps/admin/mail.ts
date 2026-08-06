@@ -723,3 +723,99 @@
     const text = `Hello ${requestedByName},\n\nYour request to terminate ${employeeName} has been ${status.toUpperCase()}.`;
     await sendEmail({ to, subject, text, html });
   }
+
+  export interface DailySummaryStats {
+    totalEmployees: number;
+    present: number;
+    absent: number;
+    lateArrivals: number;
+    pendingLeaveRequests: number;
+    pendingAttendanceCorrections: number;
+    policyViolations: number;
+  }
+
+  // Structured HTML version of the "Daily Summary" digest — replaces the
+  // generic `<p>${body}</p>` wrap every other digest email went through
+  // (services/notificationService.ts's deliver_notification handler), which
+  // stuffed a newline-joined plain-text stat list into one unstyled
+  // paragraph (the \n characters didn't even render as line breaks in
+  // HTML). Uses the same emailStyles/containerStyles/cardStyles/
+  // footerStyles this file's other templates already share, so a Daily
+  // Summary email looks consistent with every other notification, not like
+  // a different, unstyled system.
+  export async function sendDailySummaryEmail(
+    to: string,
+    recipientName: string,
+    tenantName: string,
+    periodLabel: 'Daily' | 'Weekly',
+    stats: DailySummaryStats,
+  ): Promise<EmailResult> {
+    const subject = `${periodLabel} Summary: ${tenantName}`;
+    const attendancePct = stats.totalEmployees > 0 ? Math.round((stats.present / stats.totalEmployees) * 100) : 0;
+    const hasIssues = stats.lateArrivals > 0 || stats.pendingLeaveRequests > 0 || stats.pendingAttendanceCorrections > 0 || stats.policyViolations > 0;
+
+    // Two-column stat grid via <table> (not flex/grid) — email clients
+    // (Outlook in particular) reliably render table layouts, not modern CSS
+    // layout properties.
+    const statCell = (label: string, value: number | string, color: string) => `
+      <td style="width: 50%; padding: 12px; text-align: center;">
+        <div style="font-size: 28px; font-weight: 800; color: ${color}; line-height: 1.1;">${value}</div>
+        <div style="font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px;">${label}</div>
+      </td>
+    `;
+
+    const html = `
+      <div style="${emailStyles}">
+        <div style="${containerStyles}">
+          <h2 style="${headerStyles}">${periodLabel} Summary — ${tenantName}</h2>
+          <p>Hello ${recipientName},</p>
+          <p>Here's the attendance snapshot for your organization:</p>
+
+          <div style="${cardStyles}; padding: 8px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+              <tr>
+                ${statCell('Total Employees', stats.totalEmployees, '#0F172A')}
+                ${statCell('Present Today', `${stats.present} (${attendancePct}%)`, '#10B981')}
+              </tr>
+              <tr>
+                ${statCell('Absent', stats.absent, stats.absent > 0 ? '#EF4444' : '#0F172A')}
+                ${statCell('Late Arrivals', stats.lateArrivals, stats.lateArrivals > 0 ? '#F59E0B' : '#0F172A')}
+              </tr>
+            </table>
+          </div>
+
+          ${hasIssues ? `
+          <div style="margin: 24px 0;">
+            <p style="font-size: 13px; font-weight: 700; color: #0F172A; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;">Needs Attention</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; font-size: 13px;">
+              ${stats.pendingLeaveRequests > 0 ? `<tr><td style="padding: 6px 0; color: #475569;">Pending Leave Requests</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: #F59E0B;">${stats.pendingLeaveRequests}</td></tr>` : ''}
+              ${stats.pendingAttendanceCorrections > 0 ? `<tr><td style="padding: 6px 0; color: #475569;">Pending Attendance Corrections</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: #F59E0B;">${stats.pendingAttendanceCorrections}</td></tr>` : ''}
+              ${stats.policyViolations > 0 ? `<tr><td style="padding: 6px 0; color: #475569;">Policy Violations</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: #EF4444;">${stats.policyViolations}</td></tr>` : ''}
+            </table>
+          </div>
+          ` : `<p style="font-size: 13px; color: #10B981; font-weight: 600;">✓ Nothing pending — no leave requests, corrections, or policy violations awaiting review.</p>`}
+
+          <div style="${footerStyles}">
+            <p>© 2026 Smart Teams Security Engine. All rights reserved.</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Plain-text fallback for clients that don't render HTML — real line
+    // breaks (\n), not the single run-on paragraph the old generic path
+    // produced.
+    const text = [
+      `${periodLabel} Summary — ${tenantName}`,
+      '',
+      `Total Employees: ${stats.totalEmployees}`,
+      `Present: ${stats.present} (${attendancePct}%)`,
+      `Absent: ${stats.absent}`,
+      `Late Arrivals: ${stats.lateArrivals}`,
+      `Pending Leave Requests: ${stats.pendingLeaveRequests}`,
+      `Pending Attendance Corrections: ${stats.pendingAttendanceCorrections}`,
+      `Policy Violations: ${stats.policyViolations}`,
+    ].join('\n');
+
+    return sendEmail({ to, subject, text, html });
+  }

@@ -3,7 +3,9 @@ import { eq, and, ne, inArray, gte, lte } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege } from '../auth/rbac';
+import { hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
+import { notify } from '../services/notificationService';
+import { notifyUser } from '../services/notifications';
 import { tenantDateKey, tenantDateTime } from '../services/tenantTime';
 
 export const router = Router();
@@ -128,9 +130,40 @@ router.post('/api/tenant/teams/assign-manager', authenticate, async (req: any, r
     const { memberId, managerId } = req.body;
     if (!memberId) return res.status(400).json({ error: 'memberId is required.' });
 
+    const memberRows = await db.select().from(schema.users).where(and(eq(schema.users.id, Number(memberId)), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    const member = memberRows[0];
+    if (!member) return res.status(404).json({ error: 'Employee not found.' });
+
     await db.update(schema.users)
       .set({ managerId: managerId ? Number(managerId) : null })
       .where(and(eq(schema.users.id, Number(memberId)), eq(schema.users.tenantId, req.user.tenantId)));
+
+    // Both the employee (their reporting line just changed) and the newly
+    // assigned manager (they have a new direct report) should hear about
+    // this — neither is necessarily the caller (a tenant admin can assign
+    // managers on anyone's behalf).
+    if (managerId) {
+      const newManagerRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(managerId))).limit(1);
+      const newManager = newManagerRows[0] || null;
+      const tenantRowForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+      if (isPlatformFeatureAllowed(tenantRowForNotify, 'unified_notifications')) {
+        // notifyManager:true on this event resolves the recipient via the
+        // employee's OWN managerId (services/notificationService.ts's
+        // resolveEscalationAssignee) — which we just set above to the new
+        // manager, so this single notify() call reaches both sides.
+        await notify(req.user.tenantId, 'manager_assigned', {
+          subjectUserId: member.id,
+          subjectName: member.name,
+          actorId: req.user.userId,
+          data: { managerName: newManager?.name || 'your new manager' },
+        }).catch(() => undefined);
+      } else {
+        await notifyUser(member.id, 'Reporting manager updated', `${newManager?.name || 'A new manager'} is now your reporting manager.`).catch(() => undefined);
+        if (newManager) {
+          await notifyUser(newManager.id, 'New direct report assigned', `${member.name} now reports to you.`).catch(() => undefined);
+        }
+      }
+    }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -233,6 +266,23 @@ router.post('/api/tenant/teams/members', authenticate, async (req: any, res: any
     }
 
     await db.insert(schema.teamMembers).values({ teamId: team.id, userId });
+
+    // Tell the newly-added employee who their team lead is — previously
+    // this route returned success with no signal to the person actually
+    // affected by the change.
+    const teamLeadName = manager?.name || req.user.name;
+    const tenantRowForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
+    if (isPlatformFeatureAllowed(tenantRowForNotify, 'unified_notifications')) {
+      await notify(req.user.tenantId, 'team_member_added', {
+        subjectUserId: candidate.id,
+        subjectName: candidate.name,
+        actorId: req.user.userId,
+        data: { teamName: team.name, managerName: teamLeadName },
+      }).catch(() => undefined);
+    } else {
+      await notifyUser(candidate.id, `Added to ${team.name}`, `You've been added to the "${team.name}" team, led by ${teamLeadName}.`).catch(() => undefined);
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     sendServerError(res, err, "teams.routes.ts");
