@@ -15,11 +15,11 @@ import { getOrCreatePayrollSettings, computeCompensationDiff } from '../leavePay
 import { isPlatformFeatureAllowedForTenant } from '../../auth/rbac';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('payroll'), resolveFederationTenantContext());
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('payroll'));
 
 const MINOR_UNIT_MULTIPLIER = 100; // this app stores rupees as a real number; the federation contract uses minor units (e.g. paise)
 
-router.get('/v1/federation/payroll/components', async (req: any, res: any) => {
+router.get('/v1/federation/payroll/components', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const rows = await db.select().from(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.tenantId, req.federation.tenantId)).limit(200);
     const distinct = new Map<string, any>();
@@ -30,7 +30,7 @@ router.get('/v1/federation/payroll/components', async (req: any, res: any) => {
   }
 });
 
-router.put('/v1/federation/employees/:externalEmployeeId/compensation', requireIdempotencyKey, async (req: any, res: any) => {
+router.put('/v1/federation/employees/:externalEmployeeId/compensation', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const userId = await resolveInternalId(tenantId, 'employee', req.params.externalEmployeeId);
@@ -80,7 +80,7 @@ router.put('/v1/federation/employees/:externalEmployeeId/compensation', requireI
   }
 });
 
-router.get('/v1/federation/payroll/calendars', async (req: any, res: any) => {
+router.get('/v1/federation/payroll/calendars', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { year, month } = req.query;
     if (!year || !month) return res.status(422).json({ error: 'year and month are required.' });
@@ -95,7 +95,7 @@ router.get('/v1/federation/payroll/calendars', async (req: any, res: any) => {
   }
 });
 
-router.post('/v1/federation/payroll/runs', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/runs', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { periodStart, periodEnd } = req.body || {};
@@ -134,7 +134,7 @@ async function loadBatch(tenantId: number, runId: number) {
 // The internal admin UI's own review workflow for non-federation batches
 // is completely unaffected — this only adds another valid path through an
 // already-existing table.
-router.post('/v1/federation/payroll/runs/:runId/calculate', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/runs/:runId/calculate', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const runId = Number(req.params.runId);
@@ -158,7 +158,7 @@ router.post('/v1/federation/payroll/runs/:runId/calculate', requireIdempotencyKe
   }
 });
 
-router.post('/v1/federation/payroll/runs/:runId/approve', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/runs/:runId/approve', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const runId = Number(req.params.runId);
@@ -182,7 +182,7 @@ router.post('/v1/federation/payroll/runs/:runId/approve', requireIdempotencyKey,
   }
 });
 
-router.post('/v1/federation/payroll/runs/:runId/release', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/runs/:runId/release', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const runId = Number(req.params.runId);
@@ -228,7 +228,7 @@ router.post('/v1/federation/payroll/runs/:runId/release', requireIdempotencyKey,
   }
 });
 
-router.post('/v1/federation/payroll/runs/:runId/lock', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/runs/:runId/lock', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const runId = Number(req.params.runId);
@@ -252,7 +252,7 @@ router.post('/v1/federation/payroll/runs/:runId/lock', requireIdempotencyKey, as
   }
 });
 
-router.post('/v1/federation/payroll/adjustments', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/payroll/adjustments', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { runId, externalEmployeeId, amountDeltaMinor, reason } = req.body || {};
@@ -280,7 +280,7 @@ router.post('/v1/federation/payroll/adjustments', requireIdempotencyKey, async (
   }
 });
 
-router.get('/v1/federation/payroll/runs', async (req: any, res: any) => {
+router.get('/v1/federation/payroll/runs', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const filters = { status: req.query.status || null };
@@ -310,7 +310,7 @@ router.get('/v1/federation/payroll/runs', async (req: any, res: any) => {
   }
 });
 
-router.get('/v1/federation/payroll/ledger', async (req: any, res: any) => {
+router.get('/v1/federation/payroll/ledger', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const filters = { runId: req.query.runId || null };

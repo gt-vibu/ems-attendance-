@@ -21,9 +21,9 @@ import { computeLeaveBalancesForUser } from '../leave.routes';
 import { computeLeaveDays, parseDateOnly } from '../leavePayrollShared';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('leave'), resolveFederationTenantContext());
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('leave'));
 
-router.get('/v1/federation/leave/types', async (req: any, res: any) => {
+router.get('/v1/federation/leave/types', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const rows = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.federation.tenantId));
     res.json({
@@ -37,7 +37,7 @@ router.get('/v1/federation/leave/types', async (req: any, res: any) => {
   }
 });
 
-router.get('/v1/federation/leave/balances', async (req: any, res: any) => {
+router.get('/v1/federation/leave/balances', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId } = req.query;
@@ -56,7 +56,7 @@ router.get('/v1/federation/leave/balances', async (req: any, res: any) => {
   }
 });
 
-router.get('/v1/federation/leave/requests', async (req: any, res: any) => {
+router.get('/v1/federation/leave/requests', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const filters = { externalEmployeeId: req.query.externalEmployeeId || null, status: req.query.status || null };
@@ -103,7 +103,7 @@ router.get('/v1/federation/leave/requests', async (req: any, res: any) => {
   }
 });
 
-router.post('/v1/federation/leave/requests', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/leave/requests', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId, leaveType, startDate, endDate, reason } = req.body || {};
@@ -145,7 +145,7 @@ router.post('/v1/federation/leave/requests', requireIdempotencyKey, async (req: 
   }
 });
 
-router.post('/v1/federation/leave/requests/:id/cancel', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/leave/requests/:id/cancel', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const requestId = Number(req.params.id);
@@ -169,7 +169,7 @@ router.post('/v1/federation/leave/requests/:id/cancel', requireIdempotencyKey, a
   }
 });
 
-router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const requestId = Number(req.params.id);
@@ -205,7 +205,7 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
   }
 });
 
-router.post('/v1/federation/leave/balances/adjustments', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/leave/balances/adjustments', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId, leaveType, adjustmentDays, reason, requestedByExternalUserId } = req.body || {};

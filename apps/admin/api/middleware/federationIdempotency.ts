@@ -90,10 +90,21 @@ export function requireIdempotencyKey(req: any, res: any, next: any) {
       }).returning({ id: schema.federationIdempotencyKeys.id });
       rowId = inserted.id;
     } catch (err: any) {
-      // Unique-constraint race: two concurrent requests with the exact same
-      // key both passed the SELECT above before either inserted. Whichever
-      // loses this race is treated as "already in progress" — safe default,
-      // never lets a duplicate write through.
+      // A genuine unique-constraint violation on (clientId, idempotencyKey)
+      // means two concurrent requests with the exact same key both passed
+      // the SELECT above before either inserted — whichever loses this race
+      // is safely treated as "already in progress", never letting a
+      // duplicate write through. Any OTHER insert failure (e.g. a schema
+      // mismatch) is a real bug and must not be masked as the same 409 —
+      // that previously made a genuine server error indistinguishable from
+      // a normal concurrency race (caught while wiring up platform-scoped
+      // federation clients: a NOT NULL tenant_id column silently turned
+      // every first-ever request into a false "already in progress").
+      const isUniqueViolation = err?.code === '23505' || /unique/i.test(String(err?.cause?.message || err?.message || ''));
+      if (!isUniqueViolation) {
+        logger.warn('[federation] idempotency key claim failed unexpectedly (not a race)', { clientId, idempotencyKey, error: err?.cause?.message || err?.message });
+        return sendServerError(res, err, 'federationIdempotency');
+      }
       return res.status(409).json({ error: 'A request with this Idempotency-Key is already being processed.', code: 'IDEMPOTENCY_KEY_IN_PROGRESS' });
     }
     req.idempotencyRowId = rowId;

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate, requireRole } from '../middleware/authenticate';
@@ -71,6 +71,81 @@ router.post('/api/super/tenants/:tenantId/federation-clients', authenticate, req
       // Shown once — same "copy now" contract as a service account key.
       clientSecret: rawSecret,
     });
+  } catch (err: any) {
+    sendServerError(res, err, 'federationClients.routes.ts');
+  }
+});
+
+// Platform-scoped credentials (tenantId: null on federationClients — see
+// packages/database/src/schema.ts's "Nullable: global platform apps are
+// not tenant-bound"). One of these is handed to a SINGLE external partner
+// (e.g. BlizBooks) and lets them integrate with MANY of your tenants
+// (hotels) through one credential — the request itself carries which
+// tenant it targets via externalOrganizationId/externalBranchId/
+// externalEmployeeId, resolved per-request by
+// resolveFederationTenantContext() (see middleware/federationAuth.ts).
+// Deliberately separate from the tenant-scoped routes above: those always
+// require picking one existing tenant first; these never do.
+router.get('/api/super/platform-federation-clients', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
+  try {
+    const rows = await db.select().from(schema.federationClients).where(isNull(schema.federationClients.tenantId));
+    res.json({
+      federationClients: rows.map((r: any) => ({
+        id: r.id, name: r.name, clientId: r.clientId, environment: r.environment, scopes: r.scopes,
+        status: r.status, lastUsedAt: r.lastUsedAt, revokedAt: r.revokedAt, createdAt: r.createdAt,
+      })),
+    });
+  } catch (err: any) {
+    sendServerError(res, err, 'federationClients.routes.ts');
+  }
+});
+
+router.post('/api/super/platform-federation-clients', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
+  try {
+    const { name, environment, scopes } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const resolvedEnvironment = ['sandbox', 'staging', 'production'].includes(environment) ? environment : 'sandbox';
+    const resolvedScopes = Array.isArray(scopes) && scopes.length > 0 ? scopes : ['attendance', 'leave', 'payroll', 'employees'];
+
+    const clientId = generateClientId();
+    const { rawSecret, secretHash } = await generateClientSecret();
+    const [created] = await db.insert(schema.federationClients).values({
+      tenantId: null,
+      name: name.trim(),
+      clientId,
+      clientSecretHash: secretHash,
+      environment: resolvedEnvironment,
+      scopes: resolvedScopes,
+      createdByUserId: req.user.userId,
+    }).returning();
+
+    // No single tenant to attribute this action to — audit ledger entries
+    // are tenant-scoped by design (see services/audit.ts), so a
+    // platform-credential creation is intentionally NOT written there;
+    // it's fully visible via GET /api/super/platform-federation-clients
+    // itself (createdAt/createdByUserId) instead.
+
+    res.status(201).json({
+      federationClient: { id: created.id, name: created.name, clientId: created.clientId, environment: created.environment, scopes: created.scopes, createdAt: created.createdAt },
+      // Shown once — same "copy now" contract as a service account key.
+      clientSecret: rawSecret,
+    });
+  } catch (err: any) {
+    sendServerError(res, err, 'federationClients.routes.ts');
+  }
+});
+
+router.delete('/api/super/platform-federation-clients/:id', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
+  try {
+    const id = Number(req.params.id);
+    const rows = await db.select().from(schema.federationClients).where(and(eq(schema.federationClients.id, id), isNull(schema.federationClients.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Platform federation client not found' });
+    if (rows[0].status === 'revoked') return res.json({ success: true });
+
+    await db.update(schema.federationClients).set({ status: 'revoked', revokedAt: new Date() }).where(eq(schema.federationClients.id, id));
+    res.json({ success: true });
   } catch (err: any) {
     sendServerError(res, err, 'federationClients.routes.ts');
   }

@@ -201,6 +201,27 @@ export function resolveFederationTenantContext() {
       }
     }
 
+    // Same reasoning as runId above, for the other two internal-id-only
+    // routes: attendance corrections/decisions (POST .../attendance/
+    // :attendanceId/...) and leave request cancel/decision (POST .../leave/
+    // requests/:id/...) — both identify their target purely by an internal
+    // serial id from a prior call's own response, never given an external
+    // id of its own.
+    if (resolvedTenantId === null) {
+      const attendanceId = pick('attendanceId');
+      if (attendanceId && /^\d+$/.test(attendanceId)) {
+        const rows = await db.select({ tenantId: schema.attendanceLogs.tenantId }).from(schema.attendanceLogs).where(eq(schema.attendanceLogs.id, Number(attendanceId))).limit(1);
+        if (rows[0]) resolvedTenantId = rows[0].tenantId;
+      }
+    }
+    if (resolvedTenantId === null) {
+      const leaveRequestId = pick('id');
+      if (leaveRequestId && /^\d+$/.test(leaveRequestId) && String(req.path || req.originalUrl || '').includes('/leave/requests/')) {
+        const rows = await db.select({ tenantId: schema.leaveRequests.tenantId }).from(schema.leaveRequests).where(eq(schema.leaveRequests.id, Number(leaveRequestId))).limit(1);
+        if (rows[0]) resolvedTenantId = rows[0].tenantId;
+      }
+    }
+
     if (resolvedTenantId === null) {
       return res.status(400).json({
         error: 'This platform credential must identify a target organization. Include a valid externalOrganizationId, externalBranchId, or externalEmployeeId belonging to an already-provisioned tenant.',

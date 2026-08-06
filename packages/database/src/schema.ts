@@ -2342,7 +2342,15 @@ export const federationExternalIdMappings = pgTable('federation_external_id_mapp
 // the plan's contract. One row per (clientId, idempotencyKey).
 export const federationIdempotencyKeys = pgTable('federation_idempotency_keys', {
   id: serial('id').primaryKey(),
-  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  // Nullable: a platform-scoped federation client (see federationClients.
+  // tenantId's own "Nullable: global platform apps are not tenant-bound")
+  // hits PUT /v1/federation/tenants/:externalOrganizationId to provision a
+  // BRAND NEW tenant before one exists yet — req.federation.tenantId is
+  // still null at that point. Uniqueness for the idempotency check itself
+  // never depended on tenantId anyway (see clientKeyUnique below, keyed on
+  // clientId + idempotencyKey alone), so this was only ever a leftover
+  // NOT NULL from when every caller was tenant-scoped.
+  tenantId: integer('tenant_id').references(() => tenants.id),
   clientId: text('client_id').notNull(), // federationClients.clientId, not the internal serial id
   idempotencyKey: text('idempotency_key').notNull(),
   requestHash: text('request_hash').notNull(), // sha256(method + path + body)

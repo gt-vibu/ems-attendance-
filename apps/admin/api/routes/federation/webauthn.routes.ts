@@ -15,7 +15,7 @@ import {
 import { issueFederationAssertionToken } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'), resolveFederationTenantContext());
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
 
 // SmartTeams must configure the approved BlizBooks origins (production,
 // staging, local dev) it will accept a WebAuthn ceremony against — this
@@ -27,7 +27,7 @@ function federationRp() {
   return resolveRpFromOrigin(process.env.FEDERATION_WEBAUTHN_ORIGIN);
 }
 
-router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/begin', async (req: any, res: any) => {
+router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/begin', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const userId = await resolveInternalId(tenantId, 'employee', req.params.externalEmployeeId);
@@ -41,7 +41,7 @@ router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/b
   }
 });
 
-router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/complete', async (req: any, res: any) => {
+router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/complete', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const userId = await resolveInternalId(tenantId, 'employee', req.params.externalEmployeeId);
@@ -61,7 +61,7 @@ router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/c
   }
 });
 
-router.post('/v1/federation/attendance/assertions/begin', async (req: any, res: any) => {
+router.post('/v1/federation/attendance/assertions/begin', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId } = req.body || {};
@@ -77,7 +77,7 @@ router.post('/v1/federation/attendance/assertions/begin', async (req: any, res: 
   }
 });
 
-router.post('/v1/federation/attendance/assertions/complete', async (req: any, res: any) => {
+router.post('/v1/federation/attendance/assertions/complete', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId, assertionResponse } = req.body || {};

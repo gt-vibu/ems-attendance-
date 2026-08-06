@@ -11,7 +11,7 @@ import { FEDERATION_GRANTABLE_CAPABILITIES } from '../../services/federation/cap
 import { writeOutboxEvent } from '../../services/federation/outbox';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, resolveFederationTenantContext());
+router.use('/v1/federation', authenticateFederation, federationLimiter);
 
 // Placeholder-login-domain: this app's users.email column is NOT NULL +
 // UNIQUE, but the federation employee-upsert payload deliberately carries
@@ -24,7 +24,7 @@ function placeholderEmail(externalEmployeeId: string): string {
   return `fed-${externalEmployeeId}@federation.smartteams.invalid`;
 }
 
-router.put('/v1/federation/employees/:externalEmployeeId', requireIdempotencyKey, async (req: any, res: any) => {
+router.put('/v1/federation/employees/:externalEmployeeId', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalEmployeeId } = req.params;
     const { name, employmentType, dateOfJoining, status } = req.body || {};
@@ -84,7 +84,7 @@ router.put('/v1/federation/employees/:externalEmployeeId', requireIdempotencyKey
   }
 });
 
-router.put('/v1/federation/employees/:externalEmployeeId/branches/:externalBranchId', requireIdempotencyKey, async (req: any, res: any) => {
+router.put('/v1/federation/employees/:externalEmployeeId/branches/:externalBranchId', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalEmployeeId, externalBranchId } = req.params;
     const { isPrimary } = req.body || {};
@@ -127,7 +127,7 @@ router.put('/v1/federation/employees/:externalEmployeeId/branches/:externalBranc
   }
 });
 
-router.put('/v1/federation/employees/:externalEmployeeId/access', requireIdempotencyKey, async (req: any, res: any) => {
+router.put('/v1/federation/employees/:externalEmployeeId/access', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalEmployeeId } = req.params;
     const { grantVersion, grants } = req.body || {};
@@ -165,7 +165,7 @@ router.put('/v1/federation/employees/:externalEmployeeId/access', requireIdempot
   }
 });
 
-router.post('/v1/federation/employees/:externalEmployeeId/sessions/revoke', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/employees/:externalEmployeeId/sessions/revoke', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const { externalEmployeeId } = req.params;
     const tenantId = req.federation.tenantId;

@@ -1644,6 +1644,19 @@ async function runSchemaSync() {
     try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS rating TEXT DEFAULT '4.9';`); } catch (e) {}
     try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General';`); } catch (e) {}
     try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS install_count INTEGER DEFAULT 0;`); } catch (e) {}
+    // These three were in the original CREATE TABLE above but never had a
+    // matching ALTER TABLE ... ADD COLUMN IF NOT EXISTS fallback, so any
+    // deployment whose federation_clients table predates them (this table
+    // is CREATE TABLE IF NOT EXISTS — never recreated once it exists) never
+    // actually got them, even though schema.ts and every SELECT * built
+    // from it has assumed they exist ever since. Silent until something
+    // selects/inserts every declared column at once (e.g. Drizzle's
+    // db.select().from(schema.federationClients)), which then fails with
+    // "column ... does not exist" — caught while building the Platform
+    // Credentials page.
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS token_lifetime_seconds INTEGER NOT NULL DEFAULT 3600;`); } catch (e) { console.error('Column sync failed (federation_clients.token_lifetime_seconds):', e); }
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS refresh_token_policy TEXT NOT NULL DEFAULT 'sliding';`); } catch (e) { console.error('Column sync failed (federation_clients.refresh_token_policy):', e); }
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS credential_history JSONB DEFAULT '[]';`); } catch (e) { console.error('Column sync failed (federation_clients.credential_history):', e); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS tenant_federation_authorizations (
@@ -1715,7 +1728,7 @@ async function runSchemaSync() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS federation_idempotency_keys (
         id SERIAL PRIMARY KEY,
-        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        tenant_id INTEGER REFERENCES tenants(id),
         client_id TEXT NOT NULL,
         idempotency_key TEXT NOT NULL,
         request_hash TEXT NOT NULL,
@@ -1728,6 +1741,10 @@ async function runSchemaSync() {
       );
     `);
     try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_idempotency_client_key_unique ON federation_idempotency_keys (client_id, idempotency_key);`); } catch (e) { console.error('Index sync failed (federation_idempotency_client_key_unique):', e); }
+    // A platform-scoped federation client (tenantId: null) provisioning a
+    // brand-new tenant has no tenantId yet when this row is first claimed
+    // — see the schema.ts comment on federationIdempotencyKeys.tenantId.
+    try { await db.execute(sql`ALTER TABLE federation_idempotency_keys ALTER COLUMN tenant_id DROP NOT NULL;`); } catch (e) { console.error('Column sync failed (federation_idempotency_keys.tenant_id nullable):', e); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS federation_webhook_outbox (

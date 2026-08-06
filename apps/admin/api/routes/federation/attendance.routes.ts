@@ -12,7 +12,7 @@ import { tenantDateKey, tenantStartOfDay } from '../../services/tenantTime';
 import { verifyFederationAssertion } from '../../services/federation/webauthnAssertion';
 
 export const router = Router();
-router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'), resolveFederationTenantContext());
+router.use('/v1/federation', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
 
 async function toFederationRecord(tenantId: number, log: any) {
   return {
@@ -28,7 +28,7 @@ async function toFederationRecord(tenantId: number, log: any) {
   };
 }
 
-router.get('/v1/federation/attendance', async (req: any, res: any) => {
+router.get('/v1/federation/attendance', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const filters = { externalBranchId: req.query.externalBranchId || null, externalEmployeeId: req.query.externalEmployeeId || null, fromBusinessDate: req.query.fromBusinessDate || null, toBusinessDate: req.query.toBusinessDate || null };
@@ -68,7 +68,7 @@ router.get('/v1/federation/attendance', async (req: any, res: any) => {
   }
 });
 
-router.get('/v1/federation/attendance/today', async (req: any, res: any) => {
+router.get('/v1/federation/attendance/today', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalEmployeeId, externalBranchId } = req.query;
@@ -150,10 +150,10 @@ async function recordAttendanceFact(req: any, res: any, type: 'check_in' | 'chec
   res.json({ ...record, correlationId: req.correlationId });
 }
 
-router.post('/v1/federation/attendance/check-ins', requireIdempotencyKey, (req, res) => recordAttendanceFact(req, res, 'check_in'));
-router.post('/v1/federation/attendance/check-outs', requireIdempotencyKey, (req, res) => recordAttendanceFact(req, res, 'check_out'));
+router.post('/v1/federation/attendance/check-ins', requireIdempotencyKey, resolveFederationTenantContext(), (req, res) => recordAttendanceFact(req, res, 'check_in'));
+router.post('/v1/federation/attendance/check-outs', requireIdempotencyKey, resolveFederationTenantContext(), (req, res) => recordAttendanceFact(req, res, 'check_out'));
 
-router.post('/v1/federation/attendance/:attendanceId/corrections', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/attendance/:attendanceId/corrections', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const attendanceId = Number(req.params.attendanceId);
@@ -180,7 +180,7 @@ router.post('/v1/federation/attendance/:attendanceId/corrections', requireIdempo
   }
 });
 
-router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempotencyKey, async (req: any, res: any) => {
+router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const attendanceId = Number(req.params.attendanceId);
@@ -208,7 +208,7 @@ router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempoten
   }
 });
 
-router.get('/v1/federation/attendance/policies', async (req: any, res: any) => {
+router.get('/v1/federation/attendance/policies', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalBranchId } = req.query;
@@ -235,7 +235,7 @@ router.get('/v1/federation/attendance/policies', async (req: any, res: any) => {
   }
 });
 
-router.get('/v1/federation/attendance/shifts', async (req: any, res: any) => {
+router.get('/v1/federation/attendance/shifts', resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
     const { externalBranchId, externalEmployeeId } = req.query;

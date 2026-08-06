@@ -263,6 +263,8 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
         const appsData = await appsRes.json();
         if (Array.isArray(appsData.applications) && appsData.applications.length > 0) {
           setApplications(appsData.applications);
+        } else {
+          setApplications(SAMPLE_APPS);
         }
       }
       if (webhooksRes.ok) {
@@ -487,6 +489,14 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate('/super/platform-federation-clients')}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-500 text-xs font-bold flex items-center gap-2 transition"
+                title="Mint a real /v1/federation/* credential a partner can use across many of your tenants"
+              >
+                <Plug className="w-3.5 h-3.5" />
+                Platform Credentials
+              </button>
               <button
                 onClick={() => fetchHubData()}
                 className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold flex items-center gap-2 transition"
