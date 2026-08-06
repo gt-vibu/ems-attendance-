@@ -1623,11 +1623,18 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
 
             {loadingTenants ? (
               <div className="py-8 text-center text-xs text-slate-500">Loading connected tenants...</div>
+            ) : selectedAppTenants.tenants.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-xs font-bold text-slate-700">No tenants authorized yet</p>
+                <p className="text-[11px] text-slate-500 mt-1 max-w-xs mx-auto">
+                  This partner hasn't successfully linked any of your tenants through the API yet
+                  (PUT /v1/federation/tenants/:externalOrganizationId). This list updates automatically
+                  the moment they do.
+                </p>
+              </div>
             ) : (
               <div className="space-y-3 max-h-80 overflow-y-auto text-xs">
-                {(selectedAppTenants.tenants.length > 0 ? selectedAppTenants.tenants : [
-                  { id: 1, tenantId: 1, tenantName: 'ACME Corporation', domain: 'acme.smartteams.io', status: 'authorized', authorizedScopes: selectedAppTenants.app.scopes, connectionDate: '2026-01-20', lastSyncAt: new Date().toISOString(), syncStatus: 'healthy', tokenExpiry: null }
-                ]).map((t: any) => (
+                {selectedAppTenants.tenants.map((t: any) => (
                   <div key={t.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center">
                     <div>
                       <h4 className="font-bold text-slate-900 text-xs">{t.tenantName}</h4>
