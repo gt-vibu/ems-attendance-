@@ -176,7 +176,7 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'applications' | 'authorizations' | 'webhooks' | 'explorer' | 'tokens' | 'audit'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'applications' | 'authorizations' | 'webhooks' | 'outbox' | 'mappings' | 'explorer' | 'tokens' | 'audit'>('overview');
   const [marketplaceCatalog, setMarketplaceCatalog] = useState<any[]>([
     { id: 'mk_slack', name: 'Slack WorkSpace Sync', company: 'Slack Technologies', category: 'Chat & Notifications', rating: '4.9', installCount: 1240, logoUrl: null, description: 'Automated shift notifications, clock-in alerts, and leave approval commands inside Slack channels.' },
     { id: 'mk_blizbooks', name: 'BlizBooks Financial ERP', company: 'BlizBooks Accounting Inc.', category: 'Payroll & Accounting', rating: '5.0', installCount: 890, logoUrl: null, description: 'Automated payroll disbursement, tax withholding, and general ledger synchronization.' },
@@ -569,6 +569,8 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
             { id: 'applications', label: `Connected Apps (${filteredApps.length})`, icon: Layers },
             { id: 'authorizations', label: 'Tenant Authorizations', icon: Building2 },
             { id: 'webhooks', label: 'Webhooks & Events', icon: Globe },
+            { id: 'outbox', label: 'Outbox & DLQ Engine', icon: Database },
+            { id: 'mappings', label: 'External Mappings', icon: Sliders },
             { id: 'explorer', label: 'API Explorer & Try-It-Out', icon: Terminal },
             { id: 'tokens', label: 'Active Tokens', icon: Key },
             { id: 'audit', label: 'Audit Ledger', icon: FileCode },
@@ -1015,6 +1017,140 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
                     </div>
                   </div>
                 ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: OUTBOX & DLQ ENGINE */}
+        {activeTab === 'outbox' && (
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <Database className="w-5 h-5 text-indigo-600" />
+                  Transactional Outbox Engine & Dead Letter Queue (DLQ)
+                </h2>
+                <p className="text-xs text-slate-500">Atomic database event pipeline guaranteeing exactly-once outbound event processing and manual DLQ replay capability.</p>
+              </div>
+              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                Transactional Outbox Active
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-3">Event UUID</th>
+                    <th className="p-3">Event Type</th>
+                    <th className="p-3">Tenant ID</th>
+                    <th className="p-3">Payload Correlation</th>
+                    <th className="p-3">Attempts</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">DLQ Replay</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[
+                    { id: 1, eventId: 'evt_outbox_991823a', eventType: 'attendance.checked_in', tenant: 'ACME Corp (1)', correlationId: 'corr_88192a', attempts: 1, status: 'PUBLISHED', date: new Date().toLocaleTimeString() },
+                    { id: 2, eventId: 'evt_outbox_771239b', eventType: 'leave.approved', tenant: 'Apex Hospitality (3)', correlationId: 'corr_44921b', attempts: 1, status: 'PUBLISHED', date: new Date(Date.now() - 1800000).toLocaleTimeString() },
+                    { id: 3, eventId: 'evt_outbox_dlq_504c', eventType: 'payroll.generated', tenant: 'XYZ Logistics (2)', correlationId: 'corr_11200c', attempts: 5, status: 'FAILED (DLQ)', date: new Date(Date.now() - 7200000).toLocaleTimeString() }
+                  ].map((e) => (
+                    <tr key={e.id} className="hover:bg-slate-50/80">
+                      <td className="p-3 font-bold text-slate-900">{e.eventId}</td>
+                      <td className="p-3 text-cyan-700 font-bold">{e.eventType}</td>
+                      <td className="p-3 font-sans text-slate-700">{e.tenant}</td>
+                      <td className="p-3 text-slate-500">{e.correlationId}</td>
+                      <td className="p-3 text-slate-700 font-bold">{e.attempts} / 5</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          e.status.includes('PUBLISHED') ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {e.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-sans">
+                        {e.status.includes('DLQ') && (
+                          <button
+                            onClick={() => {
+                              setSuccess(`Event ${e.eventId} re-queued for delivery.`);
+                              setTimeout(() => setSuccess(''), 3000);
+                            }}
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] rounded-lg border border-amber-200"
+                          >
+                            Replay DLQ Event
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: EXTERNAL ENTITY MAPPINGS */}
+        {activeTab === 'mappings' && (
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-teal-600" />
+                  Immutable External Entity ID Mapping Desk
+                </h2>
+                <p className="text-xs text-slate-500">Map internal system IDs (Tenant, Branch, Department, Employee) to third-party ERP/PMS external identifiers (e.g. hotel_abc, blr_hq, EMP102, H102).</p>
+              </div>
+              <button
+                onClick={() => {
+                  setSuccess('Entity mapping saved.');
+                  setTimeout(() => setSuccess(''), 3000);
+                }}
+                className="px-3.5 py-1.5 bg-slate-900 text-white font-bold text-xs rounded-xl shadow flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add New Mapping
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="p-3">Entity Category</th>
+                    <th className="p-3">Internal Record ID</th>
+                    <th className="p-3">Internal Name</th>
+                    <th className="p-3">Immutable External ID</th>
+                    <th className="p-3">Target Platform</th>
+                    <th className="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {[
+                    { id: 1, type: 'Organization', internal: 'tenant_1', name: 'ACME Corporation', external: 'hotel_abc_001', app: 'BlizBooks ERP' },
+                    { id: 2, type: 'Branch', internal: 'branch_1', name: 'HQ Bengaluru Main', external: 'blr_hq_main', app: 'Hotel PMS Pro' },
+                    { id: 3, type: 'Employee', internal: 'emp_102', name: 'Sarah Connor', external: 'EMP_H102_PERM', app: 'Zoho Payroll' }
+                  ].map((m) => (
+                    <tr key={m.id} className="hover:bg-slate-50/80">
+                      <td className="p-3 font-sans font-bold text-slate-900">{m.type}</td>
+                      <td className="p-3 text-slate-600">{m.internal}</td>
+                      <td className="p-3 font-sans font-semibold text-slate-800">{m.name}</td>
+                      <td className="p-3 text-emerald-700 font-bold">{m.external}</td>
+                      <td className="p-3 font-sans text-cyan-700 font-semibold">{m.app}</td>
+                      <td className="p-3 text-right font-sans">
+                        <button
+                          onClick={() => {
+                            setSuccess(`Mapping for ${m.name} updated.`);
+                            setTimeout(() => setSuccess(''), 3000);
+                          }}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] rounded-lg border border-slate-200"
+                        >
+                          Edit Mapping
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

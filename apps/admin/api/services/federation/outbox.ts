@@ -76,15 +76,27 @@ async function deliverOutboxEvent(eventId: string): Promise<void> {
   const eventTypes = subscription.eventTypes as string[] | null;
   if (Array.isArray(eventTypes) && eventTypes.length > 0 && !eventTypes.includes(event.eventType)) return;
 
+  const correlationId = `corr_${crypto.randomUUID().slice(0, 8)}`;
+  const traceId = `tr_${crypto.randomUUID().slice(0, 12)}`;
+  const externalOrgId = `org_ext_${event.tenantId}`;
+  const externalBranchId = event.data?.branchId ? `br_ext_${event.data.branchId}` : null;
+  const externalEmpId = event.data?.employeeId ? `emp_ext_${event.data.employeeId}` : null;
+
   const body = JSON.stringify({
+    eventId: event.eventId,
+    correlationId,
+    traceId,
     eventType: event.eventType,
-    schemaVersion: event.schemaVersion,
-    providerSequence: String(event.id),
-    aggregate: { type: event.aggregateType, id: event.aggregateId, version: event.aggregateVersion },
-    tenantId: event.tenantId,
-    occurredAt: event.occurredAt,
-    businessDate: event.businessDate,
-    data: event.data,
+    version: event.schemaVersion || '1.0',
+    createdAt: event.occurredAt || new Date().toISOString(),
+    retryCount: event.deliveryAttempts || 0,
+    organizationId: `org_${event.tenantId}`,
+    externalOrganizationId: externalOrgId,
+    branchId: event.data?.branchId ? `branch_${event.data.branchId}` : null,
+    externalBranchId,
+    employeeId: event.data?.employeeId ? `emp_${event.data.employeeId}` : null,
+    externalEmployeeId: externalEmpId,
+    payload: event.data,
   });
   const timestamp = String(Math.floor(Date.now() / 1000));
 

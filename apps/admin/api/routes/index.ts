@@ -43,6 +43,7 @@ import { router as attendancePreferencesRouter } from './attendancePreferences.r
 import { router as presenceRouter } from './presence.routes';
 import { router as integrationHubRouter } from './integrationHub.routes';
 import { router as tenantConnectedAppsRouter } from './tenantConnectedApps.routes';
+import { router as entityMappingsRouter } from './entityMappings.routes';
 import {
   federationOauthRouter,
   federationPlatformRouter,
@@ -87,6 +88,7 @@ export function registerRoutes(app: Express) {
   app.use(federationClientsRouter);
   app.use(integrationHubRouter);
   app.use(tenantConnectedAppsRouter);
+  app.use(entityMappingsRouter);
   app.use(webhooksRouter);
   app.use(earningsRouter);
   app.use(webauthnRouter);
