@@ -76,15 +76,28 @@ router.put('/v1/federation/tenants/:externalOrganizationId', requireIdempotencyK
     if (!created) {
       const updateData: any = { name, timezone };
       if (resolvedStatus) updateData.status = resolvedStatus;
-      // currencyCode has no existing tenants column — accepted and
-      // acknowledged in the response, but this app doesn't yet have a
-      // multi-currency concept to persist it against (see the entitlement
-      // architecture memo's deliberately-deferred multi-currency FX work).
       await db.update(schema.tenants).set(updateData).where(eq(schema.tenants.id, tenantId));
 
       const link = await linkExternalId(tenantId, 'tenant', tenantId, externalOrganizationId);
       if (!link.ok) {
         return res.status(409).json({ error: 'externalOrganizationId is already linked to a different tenant.', code: 'EXTERNAL_ID_CONFLICT' });
+      }
+    }
+
+    // Record tenant authorization in database so UI tracking shows the active connection
+    if (req.federation?.clientId) {
+      const existingAuth = await db.select().from(schema.tenantFederationAuthorizations)
+        .where(and(eq(schema.tenantFederationAuthorizations.tenantId, tenantId), eq(schema.tenantFederationAuthorizations.clientId, req.federation.clientId)))
+        .limit(1);
+      if (existingAuth.length === 0) {
+        await db.insert(schema.tenantFederationAuthorizations).values({
+          tenantId,
+          clientId: req.federation.clientId,
+          status: 'authorized',
+          authorizedScopes: req.federation.scopes || ['attendance.read', 'leave.read', 'payroll.read', 'employee.read'],
+          connectionDate: new Date(),
+          syncStatus: 'healthy',
+        });
       }
     }
 
