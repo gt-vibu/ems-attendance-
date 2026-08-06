@@ -1583,6 +1583,133 @@ async function runSchemaSync() {
       );
     `);
 
+    // ------------------------------------------------------------------
+    // SmartTeams Federation Provider API (/v1/federation/*) — additive
+    // tables only, same CREATE TABLE IF NOT EXISTS pattern as everything
+    // above. See packages/database/src/schema.ts's matching block for the
+    // Drizzle definitions and field-by-field comments.
+    // ------------------------------------------------------------------
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_clients (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        name TEXT NOT NULL,
+        client_id TEXT NOT NULL UNIQUE,
+        client_secret_hash TEXT NOT NULL,
+        environment TEXT NOT NULL DEFAULT 'sandbox',
+        scopes JSONB NOT NULL DEFAULT '["attendance","leave","payroll","employees"]',
+        status TEXT NOT NULL DEFAULT 'active',
+        last_used_at TIMESTAMP,
+        revoked_at TIMESTAMP,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_external_id_mappings (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        entity_type TEXT NOT NULL,
+        internal_id INTEGER NOT NULL,
+        external_id TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_ext_id_entity_external_unique ON federation_external_id_mappings (entity_type, external_id);`); } catch (e) { console.error('Index sync failed (federation_ext_id_entity_external_unique):', e); }
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_ext_id_entity_internal_unique ON federation_external_id_mappings (tenant_id, entity_type, internal_id);`); } catch (e) { console.error('Index sync failed (federation_ext_id_entity_internal_unique):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_idempotency_keys (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        client_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        response_status INTEGER,
+        response_body JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL
+      );
+    `);
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_idempotency_client_key_unique ON federation_idempotency_keys (client_id, idempotency_key);`); } catch (e) { console.error('Index sync failed (federation_idempotency_client_key_unique):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_webhook_outbox (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        event_id TEXT NOT NULL UNIQUE,
+        event_type TEXT NOT NULL,
+        schema_version TEXT NOT NULL DEFAULT '1.0',
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        aggregate_version INTEGER NOT NULL DEFAULT 1,
+        occurred_at TIMESTAMP NOT NULL,
+        business_date TEXT,
+        data JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        delivery_attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at TIMESTAMP,
+        last_error TEXT,
+        delivered_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_status_idx ON federation_webhook_outbox (tenant_id, status);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_created_idx ON federation_webhook_outbox (tenant_id, created_at);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_created_idx):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_signing_keys (
+        id SERIAL PRIMARY KEY,
+        key_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        private_key_ref TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        activated_at TIMESTAMP DEFAULT NOW(),
+        retired_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_webhook_subscriptions (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL UNIQUE,
+        callback_url TEXT NOT NULL,
+        event_types JSONB,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        last_delivery_at TIMESTAMP,
+        last_delivery_status TEXT
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_employee_access_grants (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
+        grant_version INTEGER NOT NULL DEFAULT 0,
+        grants JSONB NOT NULL DEFAULT '[]',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_break_glass_audit (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        actor_user_id INTEGER REFERENCES users(id),
+        reason TEXT NOT NULL,
+        action TEXT NOT NULL,
+        before_json JSONB,
+        after_json JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
     // Hot-path composite indexes (architecture audit, 2026-08-05) — Postgres
     // does not auto-index FK columns, and every list/lookup query above
     // filters by (tenant_id, ...), so without these the attendance/leave/

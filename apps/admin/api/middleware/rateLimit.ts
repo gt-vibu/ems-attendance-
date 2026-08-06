@@ -101,3 +101,20 @@ export const authLimiter = rateLimit({
     keyGenerator: (req: any) => `${req.ip}:${(req.body?.email || '').toLowerCase()}`,
     store: buildSharedStore('auth'),
   });
+
+// Per the federation contract: at least 20 requests/second sustained, burst
+// 40, per authenticated federation client — keyed by the federation
+// client's own clientId (set by middleware/federationAuth.ts) rather than
+// IP, since a single BlizBooks deployment calling on behalf of many
+// tenants/branches is exactly the "many legitimate requests, one caller"
+// shape userAwareRateLimitKey already handles for human users. Falls back
+// to IP only for the pre-auth token endpoint itself.
+export const federationLimiter = rateLimit({
+    windowMs: 1000,
+    max: 40, // burst ceiling per second; sustained ~20/s in practice over a full window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Rate limit exceeded.', code: 'RATE_LIMITED' },
+    keyGenerator: (req: any) => (req.federation?.clientId ? `fedclient:${req.federation.clientId}` : `ip:${req.ip}`),
+    store: buildSharedStore('federation'),
+  });

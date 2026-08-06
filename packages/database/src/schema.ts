@@ -2216,3 +2216,170 @@ export const presenceWarningsRelations = relations(presenceWarnings, ({ one }) =
   }),
 }));
 
+// ============================================================================
+// SmartTeams Federation Provider API (/v1/federation/*) — additive tables
+// only. Nothing above this line is touched by the federation feature: every
+// existing route, table, and behavior stays exactly as it was. See
+// api/routes/federation/*.routes.ts and api/services/federation/*.ts.
+// ============================================================================
+
+// One row per machine client (BlizBooks' server-to-server credential),
+// scoped to exactly one tenant + environment — mirrors serviceAccounts'
+// clientId(prefix)+secretHash pattern (api/auth/serviceAccounts.ts) rather
+// than inventing a new credential shape. The raw secret is shown once at
+// creation and never stored, same as a service-account key or a user
+// password.
+export const federationClients = pgTable('federation_clients', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(), // human label, e.g. "BlizBooks Production"
+  clientId: text('client_id').notNull().unique(), // public identifier, safe to log
+  clientSecretHash: text('client_secret_hash').notNull(),
+  environment: text('environment').notNull().default('sandbox'), // 'sandbox' | 'staging' | 'production'
+  // Federation capability scopes this client may request an access token
+  // for, e.g. ['attendance', 'leave', 'payroll', 'employees'] — checked at
+  // token-issue time, not per-request, so a scope narrowed after issuance
+  // takes effect on the client's next token renewal (access tokens are
+  // short-lived, see auth/federationClients.ts).
+  scopes: jsonb('scopes').notNull().default('["attendance","leave","payroll","employees"]'),
+  status: text('status').notNull().default('active'), // 'active' | 'revoked'
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Maps an immutable external UUID (BlizBooks' externalOrganizationId /
+// externalBranchId / externalEmployeeId) to this system's internal serial
+// id — kept as its own generic table rather than adding an externalId
+// column to tenants/branches/users, so the federation feature never alters
+// an existing table's shape. entityType + externalId is globally unique
+// (an external UUID always resolves to exactly one internal row);
+// entityType + tenantId + internalId is unique per tenant (one external
+// identity per internal row, per entity type).
+export const federationExternalIdMappings = pgTable('federation_external_id_mappings', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  entityType: text('entity_type').notNull(), // 'tenant' | 'branch' | 'employee'
+  internalId: integer('internal_id').notNull(),
+  externalId: text('external_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  externalUnique: uniqueIndex('federation_ext_id_entity_external_unique').on(table.entityType, table.externalId),
+  internalUnique: uniqueIndex('federation_ext_id_entity_internal_unique').on(table.tenantId, table.entityType, table.internalId),
+}));
+
+// Idempotency-Key ledger for every /v1/federation/* write — a replayed key
+// with the identical request returns the stored response verbatim; a
+// replayed key with a DIFFERENT request body is refused (409
+// IDEMPOTENCY_KEY_REUSED). Rows are retained 7 days (expiresAt), matching
+// the plan's contract. One row per (clientId, idempotencyKey).
+export const federationIdempotencyKeys = pgTable('federation_idempotency_keys', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  clientId: text('client_id').notNull(), // federationClients.clientId, not the internal serial id
+  idempotencyKey: text('idempotency_key').notNull(),
+  requestHash: text('request_hash').notNull(), // sha256(method + path + body)
+  method: text('method').notNull(),
+  path: text('path').notNull(),
+  responseStatus: integer('response_status'), // null while the original request is still in flight
+  responseBody: jsonb('response_body'),
+  createdAt: timestamp('created_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+}, (table) => ({
+  clientKeyUnique: uniqueIndex('federation_idempotency_client_key_unique').on(table.clientId, table.idempotencyKey),
+}));
+
+// Outbox pattern: every federation-relevant domain write (attendance
+// checked in/out, leave requested/approved/rejected, payroll batch
+// released, etc.) inserts one row here in the same request as the
+// operational change. A background job (see
+// services/federation/outbox.ts's registerFederationOutboxDispatchHandler,
+// wired into the existing Postgres job queue) delivers each row via a
+// signed webhook POST and never discards it on delivery failure — this
+// table itself IS the 90-day replay feed exposed at GET
+// /v1/federation/events.
+export const federationWebhookOutbox = pgTable('federation_webhook_outbox', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  eventId: text('event_id').notNull().unique(), // uuid, dedupe key for the receiver
+  eventType: text('event_type').notNull(), // e.g. 'attendance.checked_in', 'payroll.batch.released'
+  schemaVersion: text('schema_version').notNull().default('1.0'),
+  aggregateType: text('aggregate_type').notNull(), // 'attendance' | 'leave_request' | 'payroll_run' | ...
+  aggregateId: text('aggregate_id').notNull(),
+  aggregateVersion: integer('aggregate_version').notNull().default(1),
+  occurredAt: timestamp('occurred_at').notNull(),
+  businessDate: text('business_date'), // tenant-local YYYY-MM-DD, when relevant (attendance/leave/payroll events)
+  data: jsonb('data').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'delivered' | 'failed'
+  deliveryAttempts: integer('delivery_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  lastError: text('last_error'),
+  deliveredAt: timestamp('delivered_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantStatusIdx: index('federation_outbox_tenant_status_idx').on(table.tenantId, table.status),
+  tenantCreatedIdx: index('federation_outbox_tenant_created_idx').on(table.tenantId, table.createdAt),
+}));
+
+// Ed25519 signing keypairs used to sign every outbound webhook body
+// (timestamp + '.' + rawBody), published at GET
+// /v1/federation/webhook-signing-keys. Production deployments should
+// replace `privateKeyRef` with a pointer into a managed secret
+// store/HSM rather than the raw key material this dev-friendly default
+// stores — see services/federation/webhookSigning.ts's header comment.
+export const federationSigningKeys = pgTable('federation_signing_keys', {
+  id: serial('id').primaryKey(),
+  keyId: text('key_id').notNull().unique(),
+  publicKey: text('public_key').notNull(), // base64 SPKI DER
+  privateKeyRef: text('private_key_ref').notNull(), // base64 PKCS8 DER (dev default) or a secret-store URI in production
+  status: text('status').notNull().default('active'), // 'active' | 'next' | 'retired'
+  activatedAt: timestamp('activated_at').defaultNow(),
+  retiredAt: timestamp('retired_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One registered callback URL per tenant (the plan requires a single HTTPS
+// callback registered through the provider API, not one per event type).
+export const federationWebhookSubscriptions = pgTable('federation_webhook_subscriptions', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull().unique(),
+  callbackUrl: text('callback_url').notNull(),
+  eventTypes: jsonb('event_types'), // null = every event family
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  lastDeliveryAt: timestamp('last_delivery_at'),
+  lastDeliveryStatus: text('last_delivery_status'), // 'success' | 'failed'
+});
+
+// Tracks the monotonic grantVersion for PUT
+// /v1/federation/employees/:id/access separately from users.privileges
+// (which stays a plain string array everywhere else in the app) — a stale
+// grantVersion must be rejected outright (409 STALE_RESOURCE_VERSION),
+// which needs a version counter to compare against that this table
+// supplies without changing the shape of the existing privileges column.
+export const federationEmployeeAccessGrants = pgTable('federation_employee_access_grants', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull().unique(),
+  grantVersion: integer('grant_version').notNull().default(0),
+  grants: jsonb('grants').notNull().default('[]'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Every provider-only "break-glass" action taken against a federated
+// tenant through a path other than the federation API itself (e.g. direct
+// admin-UI access while federation.provider_admin_action is expected to be
+// the normal path) — reasoned, audited, and expected to also be emitted as
+// a federation.provider_admin_action outbox event within 60 seconds.
+export const federationBreakGlassAudit = pgTable('federation_break_glass_audit', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  actorUserId: integer('actor_user_id').references(() => users.id),
+  reason: text('reason').notNull(),
+  action: text('action').notNull(),
+  beforeJson: jsonb('before_json'),
+  afterJson: jsonb('after_json'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
