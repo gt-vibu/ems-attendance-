@@ -10,7 +10,7 @@ import { logToAuditLedger } from '../services/audit';
 export const router = Router();
 
 // Middleware: All routes in Integration Hub require Super Admin authentication
-router.use('/api/super/integration-hub', authenticate, requireRole('super_admin'));
+router.use(authenticate, requireRole('super_admin'));
 
 async function ensureDefaultFederationClients() {
   try {

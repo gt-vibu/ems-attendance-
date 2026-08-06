@@ -86,7 +86,7 @@ export function registerRoutes(app: Express) {
   app.use(teamsRouter);
   app.use(serviceAccountsRouter);
   app.use(federationClientsRouter);
-  app.use(integrationHubRouter);
+  app.use('/api/super/integration-hub', integrationHubRouter);
   app.use(tenantConnectedAppsRouter);
   app.use(entityMappingsRouter);
   app.use(webhooksRouter);

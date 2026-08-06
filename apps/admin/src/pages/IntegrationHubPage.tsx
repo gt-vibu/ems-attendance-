@@ -297,7 +297,7 @@ export default function IntegrationHubPage({ user, onLogout }: { user?: any; onL
       ...prev,
       scopes: prev.scopes.includes(scopeId)
         ? prev.scopes.filter(s => s !== scopeId)
-        : [...prev, scopeId]
+        : [...prev.scopes, scopeId]
     }));
   };
 
