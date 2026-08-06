@@ -40,11 +40,12 @@ import NotificationsTab from './dashboard/NotificationsTab';
 // Lazy so Leaflet is code-split out of the main bundle.
 const LocationPicker = lazy(() => import('../components/LocationPicker'));
 import {
-  LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell,
+  LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell, Plug,
   ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine, Activity, Power, Play, ExternalLink, TrendingUp, CalendarDays, Banknote,
   CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket, BarChart2,
 } from 'lucide-react';
+const IntegrationHubPage = lazy(() => import('./IntegrationHubPage'));
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area
@@ -680,6 +681,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     { id: 'analytics', label: 'Analytics', icon: LayoutDashboard, description: 'Cross-tenant usage and health at a glance.' },
     { id: 'requests', label: 'Tenancy Requests', icon: ClipboardCheck, count: tenancyRequests.length, description: 'Approve or reject new company sign-ups.' },
     { id: 'tenants', label: 'Manage Tenants', icon: Building2, count: allTenants.length, description: 'Suspend, reinstate, and inspect every workspace.' },
+    { id: 'integration-hub', label: 'Integration Hub', icon: Plug, description: 'Manage platform OAuth applications and third-party integrations.' },
     { id: 'notifications', label: 'Admin Inbox', icon: Bell, count: notifications.length, description: 'Platform-wide alerts and messages.' },
   ];
 
@@ -2175,10 +2177,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                                   Edit Features
                                 </button>
                                 <button
-                                  onClick={() => navigate(`/super/federation-clients/${t.id}`)}
+                                  onClick={() => navigate('/super/integration-hub')}
                                   className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
                                 >
-                                  Federation
+                                  Connected Apps
                                 </button>
                                 <button
                                   onClick={() => handleToggleTenantStatus(t.id, t.status || 'active')}

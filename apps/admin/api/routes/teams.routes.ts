@@ -138,6 +138,35 @@ router.post('/api/tenant/teams/assign-manager', authenticate, async (req: any, r
       .set({ managerId: managerId ? Number(managerId) : null })
       .where(and(eq(schema.users.id, Number(memberId)), eq(schema.users.tenantId, req.user.tenantId)));
 
+    // Auto-grant 'team.manage' to the newly assigned manager if they don't
+    // already have it (via role default or an earlier individual grant) —
+    // being made someone's manager is meaningless in this app's model
+    // without the privilege that actually lets them create/run a team, and
+    // making them ask a second person for a second, separate grant right
+    // after being assigned was pure friction. Safe under the existing
+    // "can't hand out what you don't have" rule: canManageTeams() above
+    // already required the caller to hold 'team.manage' themselves to
+    // reach this route at all, so they're never granting more than they
+    // have. Stored as an individual delta, same as every other
+    // individually-granted privilege in this app (employees.routes.ts's
+    // PUT handler uses the identical append-to-privileges pattern).
+    let autoGrantedTeamManage = false;
+    if (managerId) {
+      const newManagerRowsForGrant = await db.select().from(schema.users).where(eq(schema.users.id, Number(managerId))).limit(1);
+      const newManagerForGrant = newManagerRowsForGrant[0];
+      if (newManagerForGrant) {
+        const alreadyHasTeamManage = await hasPrivilege(
+          { userId: newManagerForGrant.id, tenantId: req.user.tenantId, role: newManagerForGrant.role },
+          'team.manage',
+        );
+        if (!alreadyHasTeamManage) {
+          const currentPrivileges = Array.isArray(newManagerForGrant.privileges) ? newManagerForGrant.privileges : [];
+          await db.update(schema.users).set({ privileges: [...currentPrivileges, 'team.manage'] }).where(eq(schema.users.id, newManagerForGrant.id));
+          autoGrantedTeamManage = true;
+        }
+      }
+    }
+
     // Both the employee (their reporting line just changed) and the newly
     // assigned manager (they have a new direct report) should hear about
     // this — neither is necessarily the caller (a tenant admin can assign
@@ -165,7 +194,7 @@ router.post('/api/tenant/teams/assign-manager', authenticate, async (req: any, r
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, autoGrantedTeamManage });
   } catch (err: any) {
     sendServerError(res, err, "teams.routes.ts");
   }
@@ -192,6 +221,48 @@ router.post('/api/tenant/teams', authenticate, async (req: any, res: any) => {
     }).returning();
 
     res.json({ success: true, team: { id: team.id, name: team.name, createdAt: team.createdAt } });
+  } catch (err: any) {
+    sendServerError(res, err, "teams.routes.ts");
+  }
+});
+
+// Rename the caller's own team — the Settings tab's one real piece of
+// team-specific configuration (working shift/attendance policy remain
+// org-wide, per the tab's own explanatory copy).
+router.patch('/api/tenant/teams', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await canManageTeams(req.user)) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const { name } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'A team name is required.' });
+    }
+    const { team } = await loadManagerAndTeam(req);
+    if (!team) return res.status(404).json({ error: 'You have no team yet.' });
+
+    const [updated] = await db.update(schema.teams).set({ name: name.trim() }).where(eq(schema.teams.id, team.id)).returning();
+    res.json({ success: true, team: { id: updated.id, name: updated.name } });
+  } catch (err: any) {
+    sendServerError(res, err, "teams.routes.ts");
+  }
+});
+
+// Disband the caller's own team — removes the team and its membership
+// rows only. Deliberately does NOT touch any member's managerId,
+// employment record, or attendance/leave/payroll history: this is purely
+// undoing the Teams-feature grouping, not an offboarding action.
+router.delete('/api/tenant/teams', authenticate, async (req: any, res: any) => {
+  try {
+    if (!await canManageTeams(req.user)) {
+      return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
+    }
+    const { team } = await loadManagerAndTeam(req);
+    if (!team) return res.status(404).json({ error: 'You have no team yet.' });
+
+    await db.delete(schema.teamMembers).where(eq(schema.teamMembers.teamId, team.id));
+    await db.delete(schema.teams).where(eq(schema.teams.id, team.id));
+    res.json({ success: true });
   } catch (err: any) {
     sendServerError(res, err, "teams.routes.ts");
   }

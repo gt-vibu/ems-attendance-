@@ -58,6 +58,7 @@ const PayrollBatchPage = safeLazy(() => import('./pages/PayrollBatchPage'));
 const NotificationPoliciesPage = safeLazy(() => import('./pages/NotificationPoliciesPage'));
 const DelegationPage = safeLazy(() => import('./pages/DelegationPage'));
 const FederationClientsPage = safeLazy(() => import('./pages/FederationClientsPage'));
+const IntegrationHubPage = safeLazy(() => import('./pages/IntegrationHubPage'));
 const PlanFeaturesPage = safeLazy(() => import('./pages/PlanFeaturesPage'));
 const BusinessCalendarPage = safeLazy(() => import('./pages/BusinessCalendarPage'));
 const EmployeeDirectory = safeLazy(() => import('./pages/EmployeeDirectory'));
@@ -181,6 +182,7 @@ export default function AdminApp() {
           <Route path="/tenant/notification-policies" element={<Navigate to="/tenant/notification-center" replace />} />
           <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/super/federation-clients/:tenantId" element={user && user.role === 'super_admin' ? <FederationClientsPage /> : <Navigate to="/login" />} />
+          <Route path="/super/integration-hub" element={user && user.role === 'super_admin' ? <IntegrationHubPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/super/plan-features/:tenantId" element={user && user.role === 'super_admin' ? <PlanFeaturesPage user={user} /> : <Navigate to="/login" />} />
           <Route path="/tenant/business-calendar" element={user && canSeeDashboard(user.role) ? <BusinessCalendarPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/admin" element={user && canSeeDashboard(user.role) ? <AdminOverviewPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />

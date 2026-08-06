@@ -2223,29 +2223,95 @@ export const presenceWarningsRelations = relations(presenceWarnings, ({ one }) =
 // api/routes/federation/*.routes.ts and api/services/federation/*.ts.
 // ============================================================================
 
-// One row per machine client (BlizBooks' server-to-server credential),
-// scoped to exactly one tenant + environment — mirrors serviceAccounts'
-// clientId(prefix)+secretHash pattern (api/auth/serviceAccounts.ts) rather
-// than inventing a new credential shape. The raw secret is shown once at
-// creation and never stored, same as a service-account key or a user
-// password.
+// Platform-level OAuth Application registered in Integration Hub / Developer Console.
+// OAuth credentials belong to the Smart Teams Platform itself, not an individual tenant.
 export const federationClients = pgTable('federation_clients', {
   id: serial('id').primaryKey(),
-  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
-  name: text('name').notNull(), // human label, e.g. "BlizBooks Production"
-  clientId: text('client_id').notNull().unique(), // public identifier, safe to log
+  tenantId: integer('tenant_id').references(() => tenants.id), // Nullable: global platform apps are not tenant-bound
+  name: text('name').notNull(), // Application Name e.g. "BlizBooks", "Hotel PMS"
+  company: text('company'), // Developer / Company e.g. "BlizBooks Inc."
+  description: text('description'),
+  clientId: text('client_id').notNull().unique(), // e.g. st_app_...
   clientSecretHash: text('client_secret_hash').notNull(),
+  apiKey: text('api_key'), // Server-to-server API Key e.g. st_live_...
+  webhookSecret: text('webhook_secret'), // Webhook Signing Secret e.g. whsec_...
+  appUuid: text('app_uuid'),
+  publicIdentifier: text('public_identifier'),
   environment: text('environment').notNull().default('sandbox'), // 'sandbox' | 'staging' | 'production'
-  // Federation capability scopes this client may request an access token
-  // for, e.g. ['attendance', 'leave', 'payroll', 'employees'] — checked at
-  // token-issue time, not per-request, so a scope narrowed after issuance
-  // takes effect on the client's next token renewal (access tokens are
-  // short-lived, see auth/federationClients.ts).
-  scopes: jsonb('scopes').notNull().default('["attendance","leave","payroll","employees"]'),
-  status: text('status').notNull().default('active'), // 'active' | 'revoked'
+  scopes: jsonb('scopes').notNull().default('["attendance.read","leave.read","payroll.read","employee.read"]'),
+  grantTypes: jsonb('grant_types').default('["client_credentials","authorization_code","refresh_token"]'),
+  pkceRequired: boolean('pkce_required').notNull().default(true),
+  redirectUris: jsonb('redirect_uris').default('[]'),
+  allowedOrigins: jsonb('allowed_origins').default('[]'),
+  logoUrl: text('logo_url'),
+  contactEmail: text('contact_email'),
+  webhookUrl: text('webhook_url'),
+  webhookEvents: jsonb('webhook_events').default('[]'),
+  webhookStatus: text('webhook_status').notNull().default('active'), // 'active' | 'failing' | 'disabled'
+  tokenLifetimeSeconds: integer('token_lifetime_seconds').notNull().default(3600),
+  refreshTokenPolicy: text('refresh_token_policy').notNull().default('sliding'),
+  rateLimitPerMin: integer('rate_limit_per_min').notNull().default(1000),
+  apiVersion: text('api_version').notNull().default('v1.0'), // 'v1.0' | 'v2.0-beta' | 'v1.1-deprecated'
+  isMarketplaceApp: boolean('is_marketplace_app').notNull().default(false),
+  rating: text('rating').default('4.9'),
+  category: text('category').default('General'),
+  installCount: integer('install_count').default(0),
+  credentialHistory: jsonb('credential_history').default('[]'),
+  status: text('status').notNull().default('active'), // 'active' | 'suspended' | 'revoked'
   lastUsedAt: timestamp('last_used_at'),
   revokedAt: timestamp('revoked_at'),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Explicit authorization mapping granting a global platform application access to a specific tenant's data.
+export const tenantFederationAuthorizations = pgTable('tenant_federation_authorizations', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  clientId: text('client_id').notNull(), // federation_clients.client_id
+  status: text('status').notNull().default('authorized'), // 'authorized' | 'suspended' | 'revoked'
+  authorizedScopes: jsonb('authorized_scopes').notNull().default('["attendance.read","leave.read","employee.read"]'),
+  rejectedScopes: jsonb('rejected_scopes').default('[]'), // Tenant-rejected scopes
+  connectionDate: timestamp('connection_date').defaultNow(),
+  lastSyncAt: timestamp('last_sync_at'),
+  syncStatus: text('sync_status').default('healthy'), // 'healthy' | 'error' | 'syncing' | 'idle'
+  tokenExpiry: timestamp('token_expiry'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantClientUnique: uniqueIndex('tenant_federation_auth_tenant_client_unique').on(table.tenantId, table.clientId),
+}));
+
+// Issued Active & Historical Access/Refresh Tokens Ledger
+export const federationTokens = pgTable('federation_tokens', {
+  id: serial('id').primaryKey(),
+  clientId: text('client_id').notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id),
+  accessTokenHash: text('access_token_hash').notNull(),
+  refreshTokenHash: text('refresh_token_hash'),
+  scopes: jsonb('scopes').notNull().default('[]'),
+  ipAddress: text('ip_address'),
+  issuedAt: timestamp('issued_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
+  status: text('status').notNull().default('active'), // 'active' | 'expired' | 'revoked'
+});
+
+// Ledger of outbound webhook delivery attempts for monitoring and retries in Developer Console.
+export const federationWebhookDeliveries = pgTable('federation_webhook_deliveries', {
+  id: serial('id').primaryKey(),
+  clientId: text('client_id').notNull(),
+  tenantId: integer('tenant_id').references(() => tenants.id),
+  eventId: text('event_id').notNull(),
+  eventType: text('event_type').notNull(),
+  targetUrl: text('target_url').notNull(),
+  statusCode: integer('status_code'),
+  responseTimeMs: integer('response_time_ms'),
+  deliveryStatus: text('delivery_status').notNull().default('delivered'), // 'delivered' | 'failed' | 'retrying'
+  attemptCount: integer('attempt_count').notNull().default(1),
+  payload: jsonb('payload'),
+  errorMessage: text('error_message'),
+  deliveredAt: timestamp('delivered_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

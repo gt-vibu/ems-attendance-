@@ -41,6 +41,8 @@ import { router as delegationRouter } from './delegation.routes';
 import { router as businessCalendarRouter } from './businessCalendar.routes';
 import { router as attendancePreferencesRouter } from './attendancePreferences.routes';
 import { router as presenceRouter } from './presence.routes';
+import { router as integrationHubRouter } from './integrationHub.routes';
+import { router as tenantConnectedAppsRouter } from './tenantConnectedApps.routes';
 import {
   federationOauthRouter,
   federationPlatformRouter,
@@ -83,6 +85,8 @@ export function registerRoutes(app: Express) {
   app.use(teamsRouter);
   app.use(serviceAccountsRouter);
   app.use(federationClientsRouter);
+  app.use(integrationHubRouter);
+  app.use(tenantConnectedAppsRouter);
   app.use(webhooksRouter);
   app.use(earningsRouter);
   app.use(webauthnRouter);

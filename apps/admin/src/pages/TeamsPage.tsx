@@ -71,6 +71,13 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
   // Search & Filter state
   const [memberSearch, setMemberSearch] = useState('');
 
+  // Settings tab: rename / disband — the two real, backend-supported
+  // team-specific actions (working shift/attendance policy stay org-wide,
+  // per this tab's own explanatory copy elsewhere on the page).
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [disbanding, setDisbanding] = useState(false);
+
   // Detail panel state
   const [detailUserId, setDetailUserId] = useState<number | null>(null);
 
@@ -85,6 +92,7 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       if (data.team) {
         setTeam(data.team);
         setMembers(Array.isArray(data.members) ? data.members : []);
+        setRenameValue(data.team.name || '');
       } else {
         setTeam(null);
         setMembers([]);
@@ -192,12 +200,57 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to update manager.');
       setAssigningMember(null);
-      setSuccess(`Updated reporting manager for ${assigningMember.name}.`);
+      setSuccess(
+        data.autoGrantedTeamManage
+          ? `Updated reporting manager for ${assigningMember.name}. The new manager didn't have team-management access yet, so it was granted automatically.`
+          : `Updated reporting manager for ${assigningMember.name}.`
+      );
       await refreshTeams();
     } catch (err: any) {
       setError(err.message);
     } finally {
       setAssigningLoading(false);
+    }
+  };
+
+  const handleRenameTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameValue.trim() || !team) return;
+    setRenaming(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/teams', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: renameValue.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to rename team.');
+      setSuccess('Team renamed.');
+      await refreshTeams();
+    } catch (err: any) {
+      setError(err.message || 'Failed to rename team.');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleDisbandTeam = async () => {
+    if (!team) return;
+    if (!window.confirm(`Disband "${team.name}"? Members keep their reporting lines and history — only the team grouping itself is removed. This cannot be undone.`)) return;
+    setDisbanding(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/teams', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to disband team.');
+      setSuccess('Team disbanded.');
+      setActiveTab('overview');
+      await refreshTeams();
+    } catch (err: any) {
+      setError(err.message || 'Failed to disband team.');
+    } finally {
+      setDisbanding(false);
     }
   };
 
@@ -588,13 +641,50 @@ export default function TeamsPage({ user, onLogout, embedded = false }: { user: 
 
           {/* TAB 6: SETTINGS */}
           {activeTab === 'settings' && (
-            <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-4">
-              <div>
+            <div className="space-y-4">
+              <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-3">
+                <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Name</h3>
+                <form onSubmit={handleRenameTeam} className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    className="flex-1 px-3 py-2 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={renaming || !renameValue.trim() || renameValue.trim() === team?.name}
+                    className="px-4 py-2 rounded-lg bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50 shrink-0"
+                  >
+                    {renaming ? 'Saving…' : 'Save Name'}
+                  </button>
+                </form>
+              </div>
+
+              <div className="p-5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl space-y-1">
                 <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Team Configuration</h3>
-                <p className="text-xs text-[var(--color-nexus-muted)] mt-1">
+                <p className="text-xs text-[var(--color-nexus-muted)]">
                   Working shift and attendance policy are configured org-wide (Attendance Preferences), not per team —
-                  nothing team-specific to override yet.
+                  nothing team-specific to override there.
                 </p>
+              </div>
+
+              <div className="p-5 bg-[var(--color-nexus-error-soft)] border border-[var(--color-nexus-error)]/20 rounded-xl space-y-3">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--color-nexus-error)]">Disband Team</h3>
+                  <p className="text-xs text-[var(--color-nexus-error)]/80 mt-1">
+                    Removes this team and its member grouping. Members keep their reporting lines, employment records,
+                    and full attendance/leave/payroll history — this cannot be undone.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDisbandTeam}
+                  disabled={disbanding}
+                  className="px-4 py-2 rounded-lg bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50"
+                >
+                  {disbanding ? 'Disbanding…' : 'Disband This Team'}
+                </button>
               </div>
             </div>
           )}

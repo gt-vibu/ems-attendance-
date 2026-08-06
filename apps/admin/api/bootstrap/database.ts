@@ -1592,16 +1592,109 @@ async function runSchemaSync() {
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS federation_clients (
         id SERIAL PRIMARY KEY,
-        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        tenant_id INTEGER REFERENCES tenants(id),
         name TEXT NOT NULL,
+        company TEXT,
+        description TEXT,
         client_id TEXT NOT NULL UNIQUE,
         client_secret_hash TEXT NOT NULL,
+        app_uuid TEXT,
+        public_identifier TEXT,
         environment TEXT NOT NULL DEFAULT 'sandbox',
-        scopes JSONB NOT NULL DEFAULT '["attendance","leave","payroll","employees"]',
+        scopes JSONB NOT NULL DEFAULT '["attendance.read","leave.read","payroll.read","employee.read"]',
+        grant_types JSONB DEFAULT '["client_credentials","authorization_code","refresh_token"]',
+        pkce_required BOOLEAN NOT NULL DEFAULT TRUE,
+        redirect_uris JSONB DEFAULT '[]',
+        allowed_origins JSONB DEFAULT '[]',
+        logo_url TEXT,
+        contact_email TEXT,
+        webhook_url TEXT,
+        webhook_events JSONB DEFAULT '[]',
+        webhook_status TEXT NOT NULL DEFAULT 'active',
+        token_lifetime_seconds INTEGER NOT NULL DEFAULT 3600,
+        refresh_token_policy TEXT NOT NULL DEFAULT 'sliding',
+        credential_history JSONB DEFAULT '[]',
         status TEXT NOT NULL DEFAULT 'active',
         last_used_at TIMESTAMP,
         revoked_at TIMESTAMP,
         created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    // Ensure existing deployments allow null tenant_id and have missing columns
+    try { await db.execute(sql`ALTER TABLE federation_clients ALTER COLUMN tenant_id DROP NOT NULL;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS company TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS description TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS app_uuid TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS public_identifier TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS grant_types JSONB DEFAULT '["client_credentials","authorization_code","refresh_token"]';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS pkce_required BOOLEAN DEFAULT TRUE;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS redirect_uris JSONB DEFAULT '[]';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS allowed_origins JSONB DEFAULT '[]';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS logo_url TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS contact_email TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS webhook_url TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS webhook_events JSONB DEFAULT '[]';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS webhook_status TEXT DEFAULT 'active';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS api_key TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS webhook_secret TEXT;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS rate_limit_per_min INTEGER DEFAULT 1000;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS api_version TEXT DEFAULT 'v1.0';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS is_marketplace_app BOOLEAN DEFAULT FALSE;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS rating TEXT DEFAULT '4.9';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE federation_clients ADD COLUMN IF NOT EXISTS install_count INTEGER DEFAULT 0;`); } catch (e) {}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS tenant_federation_authorizations (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        client_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'authorized',
+        authorized_scopes JSONB NOT NULL DEFAULT '["attendance.read","leave.read","employee.read"]',
+        rejected_scopes JSONB DEFAULT '[]',
+        connection_date TIMESTAMP DEFAULT NOW(),
+        last_sync_at TIMESTAMP,
+        sync_status TEXT DEFAULT 'healthy',
+        token_expiry TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS tenant_federation_auth_tenant_client_unique ON tenant_federation_authorizations (tenant_id, client_id);`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE tenant_federation_authorizations ADD COLUMN IF NOT EXISTS rejected_scopes JSONB DEFAULT '[]';`); } catch (e) {}
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_tokens (
+        id SERIAL PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        tenant_id INTEGER REFERENCES tenants(id),
+        access_token_hash TEXT NOT NULL,
+        refresh_token_hash TEXT,
+        scopes JSONB NOT NULL DEFAULT '[]',
+        ip_address TEXT,
+        issued_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL,
+        revoked_at TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_webhook_deliveries (
+        id SERIAL PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        tenant_id INTEGER REFERENCES tenants(id),
+        event_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        target_url TEXT NOT NULL,
+        status_code INTEGER,
+        response_time_ms INTEGER,
+        delivery_status TEXT NOT NULL DEFAULT 'delivered',
+        attempt_count INTEGER NOT NULL DEFAULT 1,
+        payload JSONB,
+        error_message TEXT,
+        delivered_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
