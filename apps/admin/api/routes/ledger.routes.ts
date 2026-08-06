@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -65,7 +66,7 @@ router.get('/api/audit/mine', authenticate, async (req: any, res: any) => {
       const rows = Array.isArray(rawRows) ? rawRows.map(formatAuditRow) : [];
       res.json({ ledger: rows });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "ledger.routes.ts");
     }
   });
 
@@ -84,7 +85,7 @@ router.get('/api/tenant/attendance-archive', authenticate, async (req: any, res:
         .limit(2000);
       res.json({ logs: rows });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "ledger.routes.ts");
     }
   });
 
@@ -104,7 +105,7 @@ router.get('/api/tenant/ledger', authenticate, async (req: any, res: any) => {
       const ledger = rawLedger.map(formatAuditRow);
       res.json({ ledger });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "ledger.routes.ts");
     }
   });
 
@@ -137,6 +138,6 @@ router.post('/api/tenant/ledger/verify', authenticate, async (req: any, res: any
 
       res.json({ isValid, invalidBlocks, verifiedBlocksCount: logs.length });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "ledger.routes.ts");
     }
   });

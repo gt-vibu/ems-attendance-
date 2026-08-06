@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
-import { notify } from '../services/notificationService';
+import { notify, notifyOrFallback, notifyOrFallbackCustom } from '../services/notificationService';
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
@@ -113,7 +115,7 @@ router.get('/api/leave/mine', authenticate, async (req: any, res: any) => {
       selectedOptionalHolidayCount: holidayChoices.length,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -127,8 +129,8 @@ router.get('/api/tenant/employees/:id/leave-balance', authenticate, async (req: 
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const employeeId = parseInt(req.params.id, 10);
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, employeeId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -139,7 +141,7 @@ router.get('/api/tenant/employees/:id/leave-balance', authenticate, async (req: 
     const remainingDays = balances.reduce((sum: number, b: any) => sum + Number(b.remainingDays || 0), 0);
     res.json({ balances, remainingDays });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -168,10 +170,10 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
     if (totalDays <= 0) return res.status(400).json({ error: 'Leave range contains no working days.' });
 
     const policyRows = policyId
-      ? await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1)
+      ? await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.id, Number(policyId)), eq(schema.leavePolicies.tenantId, req.user.tenantId))).limit(1)
       : await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.tenantId, req.user.tenantId), eq(schema.leavePolicies.code, leaveType))).limit(1);
     const policy = policyRows[0] || null;
-    if (policy && policy.tenantId !== req.user.tenantId) {
+    if (policyId && !policy) {
       return res.status(403).json({ error: 'Invalid leave policy selected.' });
     }
     if (policy && !policy.allowHalfDay && halfDay) {
@@ -251,7 +253,7 @@ router.post('/api/leave/requests', authenticate, async (req: any, res: any) => {
 
     res.json({ success: true, request: inserted });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -263,7 +265,7 @@ router.get('/api/tenant/leave/policies', authenticate, async (req: any, res: any
     const policies = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, req.user.tenantId)).orderBy(schema.leavePolicies.name);
     res.json({ policies });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -290,7 +292,7 @@ router.post('/api/tenant/leave/policies', authenticate, async (req: any, res: an
     }).returning();
     res.json({ success: true, policy });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -329,7 +331,7 @@ router.post('/api/tenant/leave/policies/seed-defaults', authenticate, async (req
     ).returning();
     res.json({ success: true, policies });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -343,7 +345,20 @@ router.get('/api/tenant/leave/requests', authenticate, async (req: any, res: any
       ? await db.select().from(schema.users).where(eq(schema.users.tenantId, req.user.tenantId))
       : await db.select().from(schema.users).where(and(eq(schema.users.tenantId, req.user.tenantId), inArray(schema.users.branchId, scopedBranchIds)));
     const userById = new Map(users.map((user: any) => [user.id, user]));
-    const requests = (await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, req.user.tenantId)).orderBy(desc(schema.leaveRequests.createdAt)))
+    // Pagination: optional `limit`/`offset` query params for callers that
+    // want to page through history; existing callers (which read `requests`
+    // as a flat array with no params) keep working unchanged, but are now
+    // capped at DEFAULT_LIST_LIMIT instead of an unbounded tenant-wide scan.
+    const DEFAULT_LIST_LIMIT = 500;
+    const MAX_LIST_LIMIT = 2000;
+    const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIST_LIMIT));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const rows = await db.select().from(schema.leaveRequests)
+      .where(eq(schema.leaveRequests.tenantId, req.user.tenantId))
+      .orderBy(desc(schema.leaveRequests.createdAt))
+      .limit(limit)
+      .offset(offset);
+    const requests = rows
       .filter((request: any) => userById.has(request.userId))
       .map((request: any) => {
         const employee: any = userById.get(request.userId);
@@ -355,9 +370,9 @@ router.get('/api/tenant/leave/requests', authenticate, async (req: any, res: any
           department: employee?.department || '',
         };
       });
-    res.json({ requests });
+    res.json({ requests, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -368,10 +383,9 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     }
     const { requestId, action, comment } = req.body || {};
     if (!requestId || !['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'requestId and valid action are required.' });
-    const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, Number(requestId))).limit(1);
+    const requestRows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, Number(requestId)), eq(schema.leaveRequests.tenantId, req.user.tenantId))).limit(1);
     if (requestRows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
     const leaveRequest = requestRows[0];
-    if (leaveRequest.tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Leave request not found.' });
     if (leaveRequest.status !== 'pending') return res.status(400).json({ error: 'This request has already been decided.' });
     const [updated] = await db.update(schema.leaveRequests).set({
       status: action === 'approve' ? 'approved' : 'rejected',
@@ -382,16 +396,14 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, leaveRequest.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'leave_decided', {
-          subjectUserId: employee.id,
-          subjectName: employee.name,
-          data: { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
-        }).catch(() => undefined);
-      } else {
-        await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
-      }
+      await notifyOrFallbackCustom(
+        req.user.tenantId,
+        'leave_decided',
+        employee.id,
+        employee.name,
+        { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
+        () => sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment),
+      );
     }
     dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
       requestId: updated.id,
@@ -403,7 +415,7 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     });
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -433,10 +445,9 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
     for (const rawId of requestIds) {
       const requestId = Number(rawId);
       try {
-        const requestRows = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
+        const requestRows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, requestId), eq(schema.leaveRequests.tenantId, req.user.tenantId))).limit(1);
         if (requestRows.length === 0) throw new Error('not found');
         const leaveRequest = requestRows[0];
-        if (leaveRequest.tenantId !== req.user.tenantId) throw new Error('not in your organization');
         if (leaveRequest.status !== 'pending') throw new Error('already decided');
 
         const [updated] = await db.update(schema.leaveRequests).set({
@@ -471,7 +482,7 @@ router.post('/api/tenant/leave/requests/bulk-action', authenticate, async (req: 
 
     res.json({ success: true, results, updated: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -515,7 +526,7 @@ router.patch('/api/tenant/leave/requests/:id/amend', authenticate, async (req: a
     const [updated] = await db.select().from(schema.leaveRequests).where(eq(schema.leaveRequests.id, requestId)).limit(1);
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -552,7 +563,7 @@ router.get('/api/tenant/leave/adjustments', authenticate, async (req: any, res: 
 
     res.json({ adjustments: enriched });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -569,8 +580,8 @@ router.post('/api/tenant/leave/adjustments', authenticate, async (req: any, res:
     const tenantId = req.user.tenantId;
 
     // Verify employee exists and belongs to tenant
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(userId))).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== tenantId) {
+    const employee = await getByIdForTenant(schema.users, Number(userId), tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
 
@@ -585,7 +596,7 @@ router.post('/api/tenant/leave/adjustments', authenticate, async (req: any, res:
 
     res.json({ success: true, adjustment });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -607,8 +618,8 @@ router.post('/api/leave/encashment', authenticate, async (req: any, res: any) =>
       return res.status(400).json({ error: 'policyId and a positive number of days are required.' });
     }
 
-    const policyRows = await db.select().from(schema.leavePolicies).where(eq(schema.leavePolicies.id, Number(policyId))).limit(1);
-    if (policyRows.length === 0 || policyRows[0].tenantId !== req.user.tenantId) {
+    const policyRows = await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.id, Number(policyId)), eq(schema.leavePolicies.tenantId, req.user.tenantId))).limit(1);
+    if (policyRows.length === 0) {
       return res.status(404).json({ error: 'Leave policy not found.' });
     }
     const policy = policyRows[0];
@@ -646,7 +657,7 @@ router.post('/api/leave/encashment', authenticate, async (req: any, res: any) =>
 
     res.json({ success: true, request });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -663,7 +674,7 @@ router.get('/api/tenant/leave/encashment-requests', authenticate, async (req: an
       requests: rows.map((r: any) => ({ ...r, employeeName: userById.get(r.userId)?.name || 'Unknown' })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });
 
@@ -677,10 +688,9 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
       return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required.' });
     }
 
-    const rows = await db.select().from(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.id, Number(requestId))).limit(1);
+    const rows = await db.select().from(schema.leaveEncashmentRequests).where(and(eq(schema.leaveEncashmentRequests.id, Number(requestId)), eq(schema.leaveEncashmentRequests.tenantId, req.user.tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Encashment request not found.' });
     const request = rows[0];
-    if (request.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
     if (request.status !== 'pending') return res.status(400).json({ error: 'This request has already been reviewed.' });
 
     let ratePerDay: number | null = null;
@@ -710,23 +720,17 @@ router.post('/api/tenant/leave/encashment-requests/action', authenticate, async 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, request.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      const tenantRowEncashDecision = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRowEncashDecision, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'leave_encashment_decided', {
-          subjectUserId: employee.id,
-          subjectName: employee.name,
-          data: { days: request.days, amount: Math.round(amount || 0), status: action === 'approve' ? 'approved' : 'rejected' },
-        }).catch(() => undefined);
-      } else {
-        const message = action === 'approve'
-          ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
-          : 'Your leave encashment request was rejected.';
-        await notifyUser(employee.id, `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, message);
-      }
+      const fallbackMessage = action === 'approve'
+        ? `Your encashment of ${request.days} day(s) was approved — ₹${Math.round(amount || 0).toLocaleString()} will be included in your next payroll review.`
+        : 'Your leave encashment request was rejected.';
+      await notifyOrFallback(req.user.tenantId, 'leave_encashment_decided', employee.id, employee.name,
+        { days: request.days, amount: Math.round(amount || 0), status: action === 'approve' ? 'approved' : 'rejected' },
+        `Encashment ${action === 'approve' ? 'approved' : 'rejected'}`, fallbackMessage,
+      );
     }
 
     res.json({ success: true, request: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "leave.routes.ts");
   }
 });

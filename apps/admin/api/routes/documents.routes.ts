@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, hasAnyPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -10,6 +12,19 @@ export const router = Router();
 
 const CATEGORIES = ['offer_letter', 'contract', 'id_proof', 'certificate', 'attendance_correction', 'other'];
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15MB — plenty for a scanned ID/contract PDF, small enough to keep base64-in-JSON upload practical
+// Defense-in-depth allowlist — the client-declared mimeType was previously
+// stored and later replayed verbatim as the download's Content-Type with no
+// validation. Content-Disposition: attachment (see the download route
+// below) already forces a download rather than inline rendering, so this
+// isn't closing an active stored-XSS hole, but an arbitrary/spoofed MIME
+// type has no legitimate reason to be accepted for what's meant to be
+// scanned IDs/contracts/certificates.
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/heic',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 
 // Gated two ways: the tenant admin's own on/off switch (documentsEnabled),
 // AND the platform layer above it (isPlatformFeatureAllowed 'documents') —
@@ -41,12 +56,15 @@ router.post('/api/tenant/documents', authenticate, async (req: any, res: any) =>
     if (!fileName || !mimeType || !fileBase64) {
       return res.status(400).json({ error: 'fileName, mimeType, and fileBase64 are required.' });
     }
+    if (!ALLOWED_MIME_TYPES.has(String(mimeType).toLowerCase())) {
+      return res.status(400).json({ error: `Unsupported file type: ${mimeType}. Allowed: PDF, PNG, JPEG, WEBP, HEIC, DOC, DOCX.` });
+    }
     if (!(await canAccessEmployeeDocuments(req, targetUserId))) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
 
-    const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
-    if (targetRows.length === 0 || targetRows[0].tenantId !== tenantId) {
+    const targetRows = await db.select().from(schema.users).where(and(eq(schema.users.id, targetUserId), eq(schema.users.tenantId, tenantId))).limit(1);
+    if (targetRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -87,7 +105,7 @@ router.post('/api/tenant/documents', authenticate, async (req: any, res: any) =>
 
     res.json({ success: true, document: { id: doc.id, userId: doc.userId, category: doc.category, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize, createdAt: doc.createdAt } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -109,7 +127,7 @@ router.get('/api/tenant/documents', authenticate, async (req: any, res: any) => 
       documents: rows.map((d) => ({ id: d.id, category: d.category, fileName: d.fileName, mimeType: d.mimeType, fileSize: d.fileSize, createdAt: d.createdAt })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -119,11 +137,10 @@ router.get('/api/tenant/documents/:id/download', authenticate, async (req: any, 
     if (!await documentsEnabledForTenant(tenantId)) {
       return res.status(403).json({ error: 'Document storage is not enabled for this organization.' });
     }
-    const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(req.params.id))).limit(1);
-    if (docRows.length === 0 || docRows[0].tenantId !== tenantId) {
+    const doc = await getByIdForTenant(schema.employeeDocuments, Number(req.params.id), tenantId);
+    if (!doc) {
       return res.status(404).json({ error: 'Document not found.' });
     }
-    const doc = docRows[0];
     if (!(await canAccessEmployeeDocuments(req, doc.userId))) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
@@ -132,7 +149,7 @@ router.get('/api/tenant/documents/:id/download', authenticate, async (req: any, 
     res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName.replace(/["\r\n]/g, '')}"`);
     res.send(buffer);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });
 
@@ -142,11 +159,10 @@ router.delete('/api/tenant/documents/:id', authenticate, async (req: any, res: a
     if (!await documentsEnabledForTenant(tenantId)) {
       return res.status(403).json({ error: 'Document storage is not enabled for this organization.' });
     }
-    const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(req.params.id))).limit(1);
-    if (docRows.length === 0 || docRows[0].tenantId !== tenantId) {
+    const doc = await getByIdForTenant(schema.employeeDocuments, Number(req.params.id), tenantId);
+    if (!doc) {
       return res.status(404).json({ error: 'Document not found.' });
     }
-    const doc = docRows[0];
     // Deletion is a step tighter than viewing: the owner, or someone who can
     // actually manage the roster (employee.create/employee.edit), not
     // merely read/report privileges.
@@ -166,6 +182,6 @@ router.delete('/api/tenant/documents/:id', authenticate, async (req: any, res: a
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "documents.routes.ts");
   }
 });

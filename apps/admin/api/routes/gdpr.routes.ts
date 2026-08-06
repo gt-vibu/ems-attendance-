@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -65,7 +67,7 @@ router.get('/api/employees/me/data-export', authenticate, async (req: any, res: 
       leaveEncashmentRequests: encashmentRequests,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "gdpr.routes.ts");
   }
 });
 
@@ -88,11 +90,10 @@ router.post('/api/tenant/employees/:id/erase-data', authenticate, async (req: an
     const employeeId = parseInt(req.params.id, 10);
     const tenantId = req.user.tenantId;
 
-    const rows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== tenantId) {
+    const employee = await getByIdForTenant(schema.users, employeeId, tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
-    const employee = rows[0];
     if (employee.employeeStatus !== 'terminated') {
       return res.status(400).json({ error: 'This employee must be terminated before their data can be erased.' });
     }
@@ -127,6 +128,6 @@ router.post('/api/tenant/employees/:id/erase-data', authenticate, async (req: an
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "gdpr.routes.ts");
   }
 });

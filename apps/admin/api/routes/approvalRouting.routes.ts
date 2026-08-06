@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { DEFAULT_POLICY_EVENT_TYPES, notify, retryNotificationLogEntry } from '../services/notificationService';
@@ -31,7 +32,7 @@ router.get('/api/tenant/approval-routing', authenticate, async (req: any, res: a
       .where(eq(schema.approvalRoutingRules.tenantId, req.user.tenantId));
     res.json({ rules });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -64,7 +65,7 @@ router.post('/api/tenant/approval-routing', authenticate, async (req: any, res: 
 
     res.json({ rule: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -72,8 +73,8 @@ router.delete('/api/tenant/approval-routing/:id', authenticate, async (req: any,
   try {
     if (!await requireRoutingFeature(req, res)) return;
     const ruleId = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.approvalRoutingRules).where(eq(schema.approvalRoutingRules.id, ruleId)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) {
+    const rows = await db.select().from(schema.approvalRoutingRules).where(and(eq(schema.approvalRoutingRules.id, ruleId), eq(schema.approvalRoutingRules.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Routing rule not found.' });
     }
     await db.delete(schema.approvalRoutingRules).where(eq(schema.approvalRoutingRules.id, ruleId));
@@ -83,7 +84,7 @@ router.delete('/api/tenant/approval-routing/:id', authenticate, async (req: any,
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -101,7 +102,7 @@ router.get('/api/tenant/notification-templates', authenticate, async (req: any, 
       .where(eq(schema.notificationTemplates.tenantId, req.user.tenantId));
     res.json({ templates });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -139,7 +140,7 @@ router.put('/api/tenant/notification-templates', authenticate, async (req: any, 
 
     res.json({ template: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -166,7 +167,7 @@ router.get('/api/tenant/notification-policies', authenticate, async (req: any, r
     const rows = await db.select().from(schema.notificationPolicies).where(eq(schema.notificationPolicies.tenantId, req.user.tenantId));
     res.json({ policies: rows, eventTypes: DEFAULT_POLICY_EVENT_TYPES });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -211,7 +212,7 @@ router.put('/api/tenant/notification-policies', authenticate, async (req: any, r
 
     res.json({ policy: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -237,7 +238,7 @@ router.get('/api/tenant/notification-log', authenticate, async (req: any, res: a
       .limit(100);
     res.json({ entries: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -260,7 +261,7 @@ router.post('/api/tenant/notification-log/:id/retry', authenticate, async (req: 
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -283,7 +284,7 @@ router.post('/api/tenant/notifications/test', authenticate, async (req: any, res
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -299,7 +300,7 @@ router.get('/api/tenant/notification-digest-subscriptions', authenticate, async 
     const rows = await db.select().from(schema.notificationDigestSubscriptions).where(eq(schema.notificationDigestSubscriptions.tenantId, req.user.tenantId));
     res.json({ subscriptions: rows, digestTypes: DIGEST_TYPES });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -307,8 +308,8 @@ router.put('/api/tenant/notification-digest-subscriptions/:id', authenticate, as
   try {
     if (!await requireNotificationPoliciesFeature(req, res)) return;
     const id = parseInt(req.params.id, 10);
-    const existingRows = await db.select().from(schema.notificationDigestSubscriptions).where(eq(schema.notificationDigestSubscriptions.id, id)).limit(1);
-    if (existingRows.length === 0 || existingRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Digest subscription not found.' });
+    const existingRows = await db.select().from(schema.notificationDigestSubscriptions).where(and(eq(schema.notificationDigestSubscriptions.id, id), eq(schema.notificationDigestSubscriptions.tenantId, req.user.tenantId))).limit(1);
+    if (existingRows.length === 0) return res.status(404).json({ error: 'Digest subscription not found.' });
 
     const { frequency, timeOfDay, dayOfWeek, recipients, active } = req.body || {};
     const resolvedFrequency = frequency === 'weekly' ? 'weekly' : 'daily';
@@ -331,7 +332,7 @@ router.put('/api/tenant/notification-digest-subscriptions/:id', authenticate, as
 
     res.json({ subscription: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -344,7 +345,7 @@ router.get('/api/tenant/notification-recipient-groups', authenticate, async (req
     const groups = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.tenantId, req.user.tenantId));
     res.json({ groups });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -365,7 +366,7 @@ router.post('/api/tenant/notification-recipient-groups', authenticate, async (re
     });
     res.json({ group: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -373,12 +374,12 @@ router.delete('/api/tenant/notification-recipient-groups/:id', authenticate, asy
   try {
     if (!await requireNotificationPoliciesFeature(req, res)) return;
     const id = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Recipient group not found.' });
+    const rows = await db.select().from(schema.notificationRecipientGroups).where(and(eq(schema.notificationRecipientGroups.id, id), eq(schema.notificationRecipientGroups.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Recipient group not found.' });
     await db.delete(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });
 
@@ -392,8 +393,8 @@ router.post('/api/tenant/notification-recipient-groups/:id/apply', authenticate,
     const id = parseInt(req.params.id, 10);
     const eventTypes: string[] = Array.isArray(req.body?.eventTypes) ? req.body.eventTypes : [];
     if (eventTypes.length === 0) return res.status(400).json({ error: 'eventTypes must be a non-empty array.' });
-    const groupRows = await db.select().from(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.id, id)).limit(1);
-    if (groupRows.length === 0 || groupRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Recipient group not found.' });
+    const groupRows = await db.select().from(schema.notificationRecipientGroups).where(and(eq(schema.notificationRecipientGroups.id, id), eq(schema.notificationRecipientGroups.tenantId, req.user.tenantId))).limit(1);
+    if (groupRows.length === 0) return res.status(404).json({ error: 'Recipient group not found.' });
     const group = groupRows[0];
 
     for (const eventType of eventTypes) {
@@ -418,6 +419,6 @@ router.post('/api/tenant/notification-recipient-groups/:id/apply', authenticate,
 
     res.json({ success: true, appliedTo: eventTypes.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "approvalRouting.routes.ts");
   }
 });

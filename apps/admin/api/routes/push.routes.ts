@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { isPushConfigured } from '../services/push';
 
@@ -36,7 +37,7 @@ router.post('/api/push/subscribe', authenticate, async (req: any, res: any) => {
     }
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "push.routes.ts");
   }
 });
 
@@ -47,6 +48,6 @@ router.post('/api/push/unsubscribe', authenticate, async (req: any, res: any) =>
     await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.endpoint, endpoint));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "push.routes.ts");
   }
 });

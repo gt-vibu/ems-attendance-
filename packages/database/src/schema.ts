@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex, index, type AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
@@ -135,7 +135,12 @@ export const departments = pgTable('departments', {
   tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   name: text('name').notNull(),
   description: text('description'),
-  headUserId: integer('head_user_id'), // references users.id — FK defined after users table
+  // Deferred reference (users is declared later in this file) — was a
+  // plain integer column with only a comment claiming the FK relationship
+  // for a long time, so the DB never actually enforced it. set null on
+  // delete: a department shouldn't be blocked from ever deleting its head
+  // just because they left the company.
+  headUserId: integer('head_user_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -252,7 +257,11 @@ export const users = pgTable('users', {
   department: text('department'), // free-text dept name, mirrors departments.name for fast reads
   designation: text('designation'), // job title e.g. 'Senior Engineer', 'HR Manager'
   employmentType: text('employment_type').default('full_time'), // 'full_time' | 'part_time' | 'contract' | 'intern'
-  managerId: integer('manager_id'), // direct reporting manager — references users.id
+  // Self-referential deferred FK — was a plain integer column with only a
+  // comment claiming the relationship, never actually enforced at the DB
+  // level. set null on delete: a departing manager shouldn't block
+  // deleting their own row (also matches headUserId's rule above).
+  managerId: integer('manager_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
   dateOfJoining: text('date_of_joining'), // ISO date string 'YYYY-MM-DD'
   dateOfExit: text('date_of_exit'), // ISO date string 'YYYY-MM-DD'
   phone: text('phone'), // mobile phone
@@ -335,7 +344,12 @@ export const deviceChangeRequests = pgTable('device_change_requests', {
 export const breakSessions = pgTable('break_sessions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id).notNull(),
-  tenantId: integer('tenant_id').references(() => tenants.id),
+  // NOT NULL — was nullable while every other tenant-scoped child table in
+  // this schema requires it, which meant a break session could exist
+  // outside the tenant-filter pattern every other query relies on. Backfilled
+  // from users.tenant_id (see bootstrap/database.ts) before this constraint
+  // is applied at the DB level, so existing null rows don't break the ALTER.
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
   breakType: text('break_type').default('General'), // 'Lunch' | 'Tea' | 'Personal' | 'Meeting' | 'General' | custom
   startTime: timestamp('start_time').defaultNow(),
   endTime: timestamp('end_time'),
@@ -433,7 +447,14 @@ export const attendanceLogs = pgTable('attendance_logs', {
   // services/attendanceDayStatus.ts's 'pending_checkout_verification' status.
   pendingVerification: boolean('pending_verification').default(false),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  // Hot path for day-status resolution and payroll input computation:
+  // "give me this employee's logs in this tenant within a date range"
+  // (attendanceDayStatus.ts loadMonthInputs). Postgres doesn't auto-index
+  // FK columns, so without this every such lookup is a sequential scan.
+  tenantUserCreatedIdx: index('attendance_logs_tenant_user_created_idx').on(table.tenantId, table.userId, table.createdAt),
+  tenantCreatedIdx: index('attendance_logs_tenant_created_idx').on(table.tenantId, table.createdAt),
+}));
 
 // Relationships
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -1153,7 +1174,12 @@ export const leaveRequests = pgTable('leave_requests', {
   // something.
   escalationLevel: integer('escalation_level').notNull().default(0),
   lastEscalatedAt: timestamp('last_escalated_at'),
-});
+}, (table) => ({
+  // Tenant-wide "list pending/approved requests" and per-employee history
+  // both filter on these columns (leave.routes.ts GET /api/tenant/leave/requests).
+  tenantStatusIdx: index('leave_requests_tenant_status_idx').on(table.tenantId, table.status),
+  tenantUserIdx: index('leave_requests_tenant_user_idx').on(table.tenantId, table.userId),
+}));
 
 export const payrollSettings = pgTable('payroll_settings', {
   id: serial('id').primaryKey(),
@@ -1164,6 +1190,14 @@ export const payrollSettings = pgTable('payroll_settings', {
   // behavior, unchanged) — a tenant explicitly opts into the stricter
   // "block release" policy.
   blockPayrollReleaseOnPendingAdjustments: boolean('block_payroll_release_on_pending_adjustments').default(false),
+  // Tenant-admin-facing on/off switch for the payroll lock workflow
+  // (POST /api/tenant/payroll/:runId/lock — see payroll.routes.ts). Sits
+  // BELOW the super-admin platform feature 'payroll_lock_adjustments' in
+  // the gating chain: a tenant only sees/can use this at all if the
+  // platform allows it for their plan, and this flag is then their own
+  // choice of whether to actually turn the enforcement on. Defaults true
+  // so existing behavior for tenants already using locking is unchanged.
+  payrollLockingEnabled: boolean('payroll_locking_enabled').notNull().default(true),
   workingDaysPerMonth: integer('working_days_per_month').notNull().default(26),
   lopCalculationPolicy: text('lop_calculation_policy').default('fixed_26'), // 'fixed_26' | 'calendar_days' | 'working_days'
   monthlySalaryBasis: text('monthly_salary_basis').default('actual_calendar_days'), // '30_days' | 'actual_calendar_days' | 'working_days'
@@ -1299,6 +1333,9 @@ export const payrollRuns = pgTable('payroll_runs', {
   // always targets version 1 explicitly — this is additive, not a
   // behavior change for either of them.
   userPeriodVersionUnique: uniqueIndex('payroll_runs_user_period_version_unique').on(table.userId, table.year, table.month, table.version),
+  // Tenant-wide batch/period lookups (payroll.routes.ts generate/history)
+  // filter on exactly this triple.
+  tenantYearMonthIdx: index('payroll_runs_tenant_year_month_idx').on(table.tenantId, table.year, table.month),
 }));
 
 // Once a payroll_runs row is locked (status = 'locked'), it is never
@@ -1327,7 +1364,12 @@ export const payrollAdjustments = pgTable('payroll_adjustments', {
   appliedToNextCycle: boolean('applied_to_next_cycle').notNull().default(false),
   appliedAt: timestamp('applied_at'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  // GET /api/tenant/payroll/adjustments lists by tenantId (unbounded scan
+  // today, see the pagination fix) — this at least makes the scan an
+  // index-only lookup instead of a full table scan once paginated.
+  tenantStatusIdx: index('payroll_adjustments_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 // A tenant-configurable payroll calendar for one (year, month) period —
 // freeze/calculation/review/release/credit dates. Batch lifecycle routes
@@ -1403,7 +1445,9 @@ export const payrollLoans = pgTable('payroll_loans', {
   reason: text('reason'),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_loans_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollAdvances = pgTable('payroll_advances', {
   id: serial('id').primaryKey(),
@@ -1419,7 +1463,9 @@ export const payrollAdvances = pgTable('payroll_advances', {
   reason: text('reason'),
   createdByUserId: integer('created_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_advances_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollReimbursements = pgTable('payroll_reimbursements', {
   id: serial('id').primaryKey(),
@@ -1434,7 +1480,9 @@ export const payrollReimbursements = pgTable('payroll_reimbursements', {
   approvedAt: timestamp('approved_at'),
   payrollBatchId: integer('payroll_batch_id'), // set once actually paid out in a batch
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantStatusIdx: index('payroll_reimbursements_tenant_status_idx').on(table.tenantId, table.status),
+}));
 
 export const payrollBonuses = pgTable('payroll_bonuses', {
   id: serial('id').primaryKey(),
@@ -1493,7 +1541,9 @@ export const payrollLedgerEntries = pgTable('payroll_ledger_entries', {
   year: integer('year').notNull(),
   month: integer('month').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  tenantYearMonthIdx: index('payroll_ledger_entries_tenant_year_month_idx').on(table.tenantId, table.year, table.month),
+}));
 
 // Generated once an employee's termination has been approved
 // (terminationRequests.status = 'approved') — never automatic, an HR/
@@ -2026,6 +2076,14 @@ export const attendancePreferences = pgTable('attendance_preferences', {
   showAttendanceTimeline: boolean('show_attendance_timeline').default(true),
   allowEmployeeNotes: boolean('allow_employee_notes').default(true),
   allowAttendanceRegularization: boolean('allow_attendance_regularization').default(true),
+  // Tenant-admin-facing on/off switch for the manual "close the books"
+  // attendance freeze workflow (POST /api/tenant/attendance/freeze — see
+  // attendance.routes.ts). Sits BELOW the super-admin platform feature
+  // 'attendance_freeze': a tenant only sees/can use this at all if the
+  // platform allows it for their plan, and this flag is then their own
+  // choice of whether the workflow is actually turned on. Defaults true so
+  // existing behavior for tenants already using freeze is unchanged.
+  allowManualAttendanceFreeze: boolean('allow_manual_attendance_freeze').default(true),
   allowBreakTracking: boolean('allow_break_tracking').default(true),
   allowManualCheckout: boolean('allow_manual_checkout').default(true),
   requireCheckoutReason: boolean('require_checkout_reason').default(false),
@@ -2157,4 +2215,171 @@ export const presenceWarningsRelations = relations(presenceWarnings, ({ one }) =
     references: [users.id],
   }),
 }));
+
+// ============================================================================
+// SmartTeams Federation Provider API (/v1/federation/*) — additive tables
+// only. Nothing above this line is touched by the federation feature: every
+// existing route, table, and behavior stays exactly as it was. See
+// api/routes/federation/*.routes.ts and api/services/federation/*.ts.
+// ============================================================================
+
+// One row per machine client (BlizBooks' server-to-server credential),
+// scoped to exactly one tenant + environment — mirrors serviceAccounts'
+// clientId(prefix)+secretHash pattern (api/auth/serviceAccounts.ts) rather
+// than inventing a new credential shape. The raw secret is shown once at
+// creation and never stored, same as a service-account key or a user
+// password.
+export const federationClients = pgTable('federation_clients', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(), // human label, e.g. "BlizBooks Production"
+  clientId: text('client_id').notNull().unique(), // public identifier, safe to log
+  clientSecretHash: text('client_secret_hash').notNull(),
+  environment: text('environment').notNull().default('sandbox'), // 'sandbox' | 'staging' | 'production'
+  // Federation capability scopes this client may request an access token
+  // for, e.g. ['attendance', 'leave', 'payroll', 'employees'] — checked at
+  // token-issue time, not per-request, so a scope narrowed after issuance
+  // takes effect on the client's next token renewal (access tokens are
+  // short-lived, see auth/federationClients.ts).
+  scopes: jsonb('scopes').notNull().default('["attendance","leave","payroll","employees"]'),
+  status: text('status').notNull().default('active'), // 'active' | 'revoked'
+  lastUsedAt: timestamp('last_used_at'),
+  revokedAt: timestamp('revoked_at'),
+  createdByUserId: integer('created_by_user_id').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Maps an immutable external UUID (BlizBooks' externalOrganizationId /
+// externalBranchId / externalEmployeeId) to this system's internal serial
+// id — kept as its own generic table rather than adding an externalId
+// column to tenants/branches/users, so the federation feature never alters
+// an existing table's shape. entityType + externalId is globally unique
+// (an external UUID always resolves to exactly one internal row);
+// entityType + tenantId + internalId is unique per tenant (one external
+// identity per internal row, per entity type).
+export const federationExternalIdMappings = pgTable('federation_external_id_mappings', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  entityType: text('entity_type').notNull(), // 'tenant' | 'branch' | 'employee'
+  internalId: integer('internal_id').notNull(),
+  externalId: text('external_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  externalUnique: uniqueIndex('federation_ext_id_entity_external_unique').on(table.entityType, table.externalId),
+  internalUnique: uniqueIndex('federation_ext_id_entity_internal_unique').on(table.tenantId, table.entityType, table.internalId),
+}));
+
+// Idempotency-Key ledger for every /v1/federation/* write — a replayed key
+// with the identical request returns the stored response verbatim; a
+// replayed key with a DIFFERENT request body is refused (409
+// IDEMPOTENCY_KEY_REUSED). Rows are retained 7 days (expiresAt), matching
+// the plan's contract. One row per (clientId, idempotencyKey).
+export const federationIdempotencyKeys = pgTable('federation_idempotency_keys', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  clientId: text('client_id').notNull(), // federationClients.clientId, not the internal serial id
+  idempotencyKey: text('idempotency_key').notNull(),
+  requestHash: text('request_hash').notNull(), // sha256(method + path + body)
+  method: text('method').notNull(),
+  path: text('path').notNull(),
+  responseStatus: integer('response_status'), // null while the original request is still in flight
+  responseBody: jsonb('response_body'),
+  createdAt: timestamp('created_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+}, (table) => ({
+  clientKeyUnique: uniqueIndex('federation_idempotency_client_key_unique').on(table.clientId, table.idempotencyKey),
+}));
+
+// Outbox pattern: every federation-relevant domain write (attendance
+// checked in/out, leave requested/approved/rejected, payroll batch
+// released, etc.) inserts one row here in the same request as the
+// operational change. A background job (see
+// services/federation/outbox.ts's registerFederationOutboxDispatchHandler,
+// wired into the existing Postgres job queue) delivers each row via a
+// signed webhook POST and never discards it on delivery failure — this
+// table itself IS the 90-day replay feed exposed at GET
+// /v1/federation/events.
+export const federationWebhookOutbox = pgTable('federation_webhook_outbox', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  eventId: text('event_id').notNull().unique(), // uuid, dedupe key for the receiver
+  eventType: text('event_type').notNull(), // e.g. 'attendance.checked_in', 'payroll.batch.released'
+  schemaVersion: text('schema_version').notNull().default('1.0'),
+  aggregateType: text('aggregate_type').notNull(), // 'attendance' | 'leave_request' | 'payroll_run' | ...
+  aggregateId: text('aggregate_id').notNull(),
+  aggregateVersion: integer('aggregate_version').notNull().default(1),
+  occurredAt: timestamp('occurred_at').notNull(),
+  businessDate: text('business_date'), // tenant-local YYYY-MM-DD, when relevant (attendance/leave/payroll events)
+  data: jsonb('data').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'delivered' | 'failed'
+  deliveryAttempts: integer('delivery_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at'),
+  lastError: text('last_error'),
+  deliveredAt: timestamp('delivered_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  tenantStatusIdx: index('federation_outbox_tenant_status_idx').on(table.tenantId, table.status),
+  tenantCreatedIdx: index('federation_outbox_tenant_created_idx').on(table.tenantId, table.createdAt),
+}));
+
+// Ed25519 signing keypairs used to sign every outbound webhook body
+// (timestamp + '.' + rawBody), published at GET
+// /v1/federation/webhook-signing-keys. Production deployments should
+// replace `privateKeyRef` with a pointer into a managed secret
+// store/HSM rather than the raw key material this dev-friendly default
+// stores — see services/federation/webhookSigning.ts's header comment.
+export const federationSigningKeys = pgTable('federation_signing_keys', {
+  id: serial('id').primaryKey(),
+  keyId: text('key_id').notNull().unique(),
+  publicKey: text('public_key').notNull(), // base64 SPKI DER
+  privateKeyRef: text('private_key_ref').notNull(), // base64 PKCS8 DER (dev default) or a secret-store URI in production
+  status: text('status').notNull().default('active'), // 'active' | 'next' | 'retired'
+  activatedAt: timestamp('activated_at').defaultNow(),
+  retiredAt: timestamp('retired_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One registered callback URL per tenant (the plan requires a single HTTPS
+// callback registered through the provider API, not one per event type).
+export const federationWebhookSubscriptions = pgTable('federation_webhook_subscriptions', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull().unique(),
+  callbackUrl: text('callback_url').notNull(),
+  eventTypes: jsonb('event_types'), // null = every event family
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  lastDeliveryAt: timestamp('last_delivery_at'),
+  lastDeliveryStatus: text('last_delivery_status'), // 'success' | 'failed'
+});
+
+// Tracks the monotonic grantVersion for PUT
+// /v1/federation/employees/:id/access separately from users.privileges
+// (which stays a plain string array everywhere else in the app) — a stale
+// grantVersion must be rejected outright (409 STALE_RESOURCE_VERSION),
+// which needs a version counter to compare against that this table
+// supplies without changing the shape of the existing privileges column.
+export const federationEmployeeAccessGrants = pgTable('federation_employee_access_grants', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull().unique(),
+  grantVersion: integer('grant_version').notNull().default(0),
+  grants: jsonb('grants').notNull().default('[]'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Every provider-only "break-glass" action taken against a federated
+// tenant through a path other than the federation API itself (e.g. direct
+// admin-UI access while federation.provider_admin_action is expected to be
+// the normal path) — reasoned, audited, and expected to also be emitted as
+// a federation.provider_admin_action outbox event within 60 seconds.
+export const federationBreakGlassAudit = pgTable('federation_break_glass_audit', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  actorUserId: integer('actor_user_id').references(() => users.id),
+  reason: text('reason').notNull(),
+  action: text('action').notNull(),
+  beforeJson: jsonb('before_json'),
+  afterJson: jsonb('after_json'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 

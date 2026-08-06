@@ -44,7 +44,7 @@ router.get('/api/attendance-preferences', authenticate, async (req: any, res: an
     });
   } catch (err: any) {
     logger.error('GET /api/attendance-preferences error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -110,6 +110,7 @@ router.put('/api/attendance-preferences', authenticate, async (req: any, res: an
       showAttendanceTimeline: 'showAttendanceTimeline',
       allowEmployeeNotes: 'allowEmployeeNotes',
       allowAttendanceRegularization: 'allowAttendanceRegularization',
+      allowManualAttendanceFreeze: 'allowManualAttendanceFreeze',
       allowBreakTracking: 'allowBreakTracking',
       allowManualCheckout: 'allowManualCheckout',
       requireCheckoutReason: 'requireCheckoutReason',
@@ -194,7 +195,7 @@ router.put('/api/attendance-preferences', authenticate, async (req: any, res: an
     });
   } catch (err: any) {
     logger.error('PUT /api/attendance-preferences error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -219,7 +220,7 @@ router.get('/api/attendance-preferences/history', authenticate, async (req: any,
     });
   } catch (err: any) {
     logger.error('GET /api/attendance-preferences/history error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -275,7 +276,7 @@ router.post('/api/attendance-preferences/reset', authenticate, async (req: any, 
     });
   } catch (err: any) {
     logger.error('POST /api/attendance-preferences/reset error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });
 
@@ -322,6 +323,6 @@ router.get('/api/attendance-preferences/employee', authenticate, async (req: any
     });
   } catch (err: any) {
     logger.error('GET /api/attendance-preferences/employee error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
   }
 });

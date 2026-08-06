@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -72,7 +73,7 @@ router.get('/api/attendance/wfh/eligibility', authenticate, async (req: any, res
         homeLocation: homeLocation ? { latitude: homeLocation.latitude, longitude: homeLocation.longitude, address: homeLocation.address } : null,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -81,7 +82,7 @@ router.get('/api/attendance/wfh/home-location', authenticate, async (req: any, r
       const homeLocation = await getActiveHomeLocation(req.user.userId);
       res.json({ homeLocation });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -129,7 +130,7 @@ router.post('/api/attendance/wfh/register-home', authenticate, async (req: any, 
 
       res.json({ homeLocation: inserted[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -174,7 +175,7 @@ router.post('/api/attendance/wfh/location-change-request', authenticate, async (
 
       res.json({ request: inserted[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -185,7 +186,7 @@ router.get('/api/attendance/wfh/location-change-requests/mine', authenticate, as
         .orderBy(desc(schema.wfhLocationChangeRequests.createdAt));
       res.json({ requests: list });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -205,14 +206,17 @@ router.get('/api/tenant/wfh/location-change-requests', authenticate, async (req:
         )
         .orderBy(desc(schema.wfhLocationChangeRequests.createdAt));
 
-      const withNames = await Promise.all(list.map(async (r: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, r.userId));
-        return { ...r, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
-      }));
+      // Batched lookup instead of one query per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((r: any) => r.userId as number)));
+      const userRows = userIds.length > 0
+        ? await db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds))
+        : [];
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const withNames = list.map((r: any) => ({ ...r, userName: userById.get(r.userId)?.name || 'Unknown', userRole: userById.get(r.userId)?.role || '' }));
 
       res.json({ requests: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -226,13 +230,9 @@ router.post('/api/tenant/wfh/location-change-requests/action', authenticate, asy
         return res.status(400).json({ error: 'requestId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.wfhLocationChangeRequests).where(eq(schema.wfhLocationChangeRequests.id, requestId));
+      const list = await db.select().from(schema.wfhLocationChangeRequests).where(and(eq(schema.wfhLocationChangeRequests.id, requestId), eq(schema.wfhLocationChangeRequests.tenantId, req.user.tenantId)));
       if (list.length === 0) return res.status(404).json({ error: 'Request not found' });
       const changeRequest = list[0];
-
-      if (changeRequest.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (changeRequest.status !== 'pending') {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
@@ -272,7 +272,7 @@ router.post('/api/tenant/wfh/location-change-requests/action', authenticate, asy
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -344,7 +344,7 @@ router.get('/api/tenant/wfh/stats', authenticate, async (req: any, res: any) => 
         roleWiseWfhThisMonth: roleWiseCounts,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -399,7 +399,7 @@ router.get('/api/tenant/wfh/ledger', authenticate, async (req: any, res: any) =>
 
       res.json({ ledger });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });
 
@@ -424,12 +424,9 @@ router.post('/api/tenant/users/:id/wfh-access', authenticate, async (req: any, r
       const requesterPrivileges = await getEffectivePrivileges(req.user);
       const grantable = requesterPrivileges === 'ALL' ? requested : requested.filter((p: string) => requesterPrivileges.includes(p));
 
-      const targetList = await db.select().from(schema.users).where(eq(schema.users.id, targetId));
+      const targetList = await db.select().from(schema.users).where(and(eq(schema.users.id, targetId), eq(schema.users.tenantId, req.user.tenantId)));
       if (targetList.length === 0) return res.status(404).json({ error: 'User not found' });
       const target = targetList[0];
-      if (target.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This user does not belong to your organization.' });
-      }
 
       const existingPrivileges: string[] = Array.isArray(target.privileges) ? (target.privileges as string[]) : [];
       const withoutWfh = existingPrivileges.filter((p: string) => !wfhPermissionValues.includes(p));
@@ -447,6 +444,6 @@ router.post('/api/tenant/users/:id/wfh-access', authenticate, async (req: any, r
 
       res.json({ success: true, privileges: finalPrivileges });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "wfh.routes.ts");
     }
   });

@@ -161,6 +161,35 @@ export async function tryAcquireSchedulerLeadership(): Promise<boolean> {
   }
 }
 
+// --- Boot-time schema-sync mutual exclusion ---------------------------------
+// On a rolling/blue-green/autoscaled deploy, N replicas can start at once and
+// all run verifyAndSyncDatabase()'s CREATE TABLE IF NOT EXISTS / ALTER TABLE
+// ADD COLUMN IF NOT EXISTS statements concurrently against the same DB.
+// Postgres DDL under concurrent IF NOT EXISTS checks isn't fully race-proof
+// (two sessions can both pass the "does it exist" check before either commits
+// the create), so this takes a BLOCKING session-level advisory lock for the
+// duration of the sync — a different key from the scheduler's, held only
+// while syncing rather than for the process's whole lifetime, then released
+// so the connection returns to the pool. Every replica still runs the sync
+// (each is a no-op the second+ time thanks to IF NOT EXISTS), they just never
+// do it concurrently with each other.
+const BOOT_SYNC_ADVISORY_LOCK_KEY = 4820158; // arbitrary app-unique constant, one more than the scheduler's
+
+export async function withBootSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (postgresAvailable !== true) return fn(); // JSON fallback: single-instance by definition, nothing to coordinate
+
+  const client = await pool.connect();
+  try {
+    // Blocking acquire (not pg_try_advisory_lock) — a second replica should
+    // WAIT for the first to finish syncing, not skip its own sync attempt.
+    await client.query('SELECT pg_advisory_lock($1)', [BOOT_SYNC_ADVISORY_LOCK_KEY]);
+    return await fn();
+  } finally {
+    try { await client.query('SELECT pg_advisory_unlock($1)', [BOOT_SYNC_ADVISORY_LOCK_KEY]); } catch { /* connection may already be gone */ }
+    client.release();
+  }
+}
+
 // Cleanly release DB resources on shutdown (see the SIGTERM/SIGINT handlers in
 // server.ts). Releasing the advisory-lock connection lets a surviving instance
 // pick up scheduler leadership immediately instead of after a TCP timeout.

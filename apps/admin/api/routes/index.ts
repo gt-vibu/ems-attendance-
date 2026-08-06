@@ -22,6 +22,7 @@ import { router as employeesRouter } from './employees.routes';
 import { router as shiftOverridesRouter } from './shiftOverrides.routes';
 import { router as teamsRouter } from './teams.routes';
 import { router as serviceAccountsRouter } from './serviceAccounts.routes';
+import { router as federationClientsRouter } from './federationClients.routes';
 import { router as webhooksRouter } from './webhooks.routes';
 import { router as earningsRouter } from './earnings.routes';
 import { router as webauthnRouter } from './webauthn.routes';
@@ -40,6 +41,16 @@ import { router as delegationRouter } from './delegation.routes';
 import { router as businessCalendarRouter } from './businessCalendar.routes';
 import { router as attendancePreferencesRouter } from './attendancePreferences.routes';
 import { router as presenceRouter } from './presence.routes';
+import {
+  federationOauthRouter,
+  federationPlatformRouter,
+  federationTenantsRouter,
+  federationEmployeesRouter,
+  federationAttendanceRouter,
+  federationWebauthnRouter,
+  federationLeaveRouter,
+  federationPayrollRouter,
+} from './federation/index';
 
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
@@ -71,6 +82,7 @@ export function registerRoutes(app: Express) {
   app.use(shiftOverridesRouter);
   app.use(teamsRouter);
   app.use(serviceAccountsRouter);
+  app.use(federationClientsRouter);
   app.use(webhooksRouter);
   app.use(earningsRouter);
   app.use(webauthnRouter);
@@ -89,4 +101,16 @@ export function registerRoutes(app: Express) {
   app.use(businessCalendarRouter);
   app.use(attendancePreferencesRouter);
   app.use(presenceRouter);
+
+  // SmartTeams Federation Provider API (/v1/federation/*) — see
+  // api/routes/federation/index.ts. Mounted last, purely additive; every
+  // route above is completely unaffected by this block.
+  app.use(federationOauthRouter);
+  app.use(federationPlatformRouter);
+  app.use(federationTenantsRouter);
+  app.use(federationEmployeesRouter);
+  app.use(federationAttendanceRouter);
+  app.use(federationWebauthnRouter);
+  app.use(federationLeaveRouter);
+  app.use(federationPayrollRouter);
 }

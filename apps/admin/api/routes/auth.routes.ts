@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -82,7 +83,7 @@ router.post('/api/auth/login', authLimiter, async (req: any, res: any) => {
       if (result.ok === false) return res.status(result.status).json(result.body);
       res.json({ token: result.token, user: result.user });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });
 
@@ -146,7 +147,7 @@ router.post('/api/auth/reset-password', authLimiter, async (req: any, res: any) 
         }
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });
 
@@ -220,7 +221,7 @@ router.post('/api/auth/forgot-password/confirm', authLimiter, async (req: any, r
 
       res.json({ message: 'Password updated. You can now sign in.' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });
 
@@ -261,7 +262,7 @@ router.post('/api/auth/google', authLimiter, async (req: any, res: any) => {
       if (result.ok === false) return res.status(result.status).json(result.body);
       res.json({ token: result.token, user: result.user });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });
 
@@ -283,7 +284,7 @@ router.get('/api/auth/session', authenticate, async (req: any, res: any) => {
       }
       res.json({ user: buildSessionUser(user, tenant) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });
 
@@ -297,6 +298,6 @@ router.post('/api/auth/logout', authenticate, async (req: any, res: any) => {
         .where(eq(schema.users.id, req.user.userId));
       res.json({ message: 'Logged out.' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "auth.routes.ts");
     }
   });

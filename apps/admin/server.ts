@@ -48,12 +48,38 @@ async function startServer() {
   // the chain so it times the whole request. JSON lines in production.
   app.use(requestLogger);
 
+  // CSP is only enabled in production: dev mode runs behind Vite's own
+  // middleware (HMR client injection, inline React-refresh preamble), which
+  // a CSP would break — see the NODE_ENV branch below that swaps in Vite
+  // vs. the static production build. Scoped to what this app's frontend
+  // actually loads: same-origin scripts/API calls (the JWT-in-localStorage
+  // exposure this closes a backstop for), Tailwind's runtime inline styles,
+  // the OpenStreetMap tile layer (LocationPicker.tsx) and data:/blob: image
+  // sources (QR codes, document downloads), and the PWA service worker
+  // (main.tsx / public/sw.js). No remote script sources are allowed — that's
+  // the actual XSS backstop this exists for.
+  const isProd = process.env.NODE_ENV === 'production';
   app.use(helmet({
-    // Disabled: this app is served together with a Vite dev server / inline
-    // scripts in some environments, which a strict default CSP would break.
-    // Consider enabling a tailored CSP once the production asset pipeline
-    // is finalized.
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProd ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        // fonts.googleapis.com: index.css @imports the Google Fonts
+        // stylesheet directly (Vite leaves external @import URLs as-is,
+        // so the browser fetches it at page-load) — found by an actual
+        // browser console CSP violation during verification, not visible
+        // from a static grep of the source.
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+        fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        connectSrc: ["'self'"],
+        workerSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'self'"],
+        upgradeInsecureRequests: [],
+      },
+    } : false,
     crossOriginEmbedderPolicy: false,
   }));
 
@@ -77,7 +103,14 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
 
-  app.use(express.json({ limit: '50mb' }));
+  // Was 50mb — a generous global limit on every JSON endpoint, not just the
+  // one route that actually needs headroom. Document uploads
+  // (documents.routes.ts) go over this same global parser as base64-in-JSON
+  // and cap the underlying file at 15MB (MAX_FILE_BYTES), which base64-
+  // inflates to ~20.1MB of JSON — 25mb keeps real headroom for that one
+  // legitimate case while cutting the effective DoS/memory-pressure surface
+  // on every other endpoint roughly in half.
+  app.use(express.json({ limit: '25mb' }));
 
   // Versioned API surface for external integrations: /api/v1/* is a plain
   // rewrite to the existing /api/* routes below, not a duplicate route

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
@@ -193,7 +194,8 @@ router.get('/api/reports/data', authenticate, async (req: any, res: any) => {
     return res.json(data);
   } catch (err: any) {
     logger.error('Error generating report data:', err);
-    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to generate report data: ' + err.message });
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return sendServerError(res, err, 'reports.routes.ts (generate)');
   }
 });
 
@@ -304,7 +306,8 @@ router.get('/api/reports/export', authenticate, async (req: any, res: any) => {
     return res.send(buffer);
   } catch (err: any) {
     logger.error('Error exporting report:', err);
-    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Failed to export report: ' + err.message });
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return sendServerError(res, err, 'reports.routes.ts (export)');
   }
 });
 
@@ -320,7 +323,7 @@ router.get('/api/reports/saved-templates', authenticate, async (req: any, res: a
       .orderBy(desc(schema.reportSavedTemplates.createdAt));
     return res.json({ templates: list });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -337,21 +340,25 @@ router.post('/api/reports/saved-templates', authenticate, async (req: any, res: 
     }).returning();
     return res.json({ success: true, template: created });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
 router.delete('/api/reports/saved-templates/:id', authenticate, async (req: any, res: any) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.id, id)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId || rows[0].createdByUserId !== req.user.userId) {
+    const rows = await db.select().from(schema.reportSavedTemplates).where(and(
+      eq(schema.reportSavedTemplates.id, id),
+      eq(schema.reportSavedTemplates.tenantId, req.user.tenantId),
+      eq(schema.reportSavedTemplates.createdByUserId, req.user.userId),
+    )).limit(1);
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Template not found.' });
     }
     await db.delete(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.id, id));
     return res.json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -371,7 +378,7 @@ router.get('/api/reports/schedules', authenticate, async (req: any, res: any) =>
     const list = await db.select().from(schema.reportSchedules).where(eq(schema.reportSchedules.tenantId, req.user.tenantId)).orderBy(desc(schema.reportSchedules.createdAt));
     return res.json({ schedules: list });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -410,7 +417,7 @@ router.post('/api/reports/schedules', authenticate, async (req: any, res: any) =
 
     return res.json({ success: true, schedule: created });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -420,12 +427,12 @@ router.delete('/api/reports/schedules/:id', authenticate, async (req: any, res: 
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = parseInt(req.params.id, 10);
-    const rows = await db.select().from(schema.reportSchedules).where(eq(schema.reportSchedules.id, id)).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Schedule not found.' });
+    const rows = await db.select().from(schema.reportSchedules).where(and(eq(schema.reportSchedules.id, id), eq(schema.reportSchedules.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Schedule not found.' });
     await db.delete(schema.reportSchedules).where(eq(schema.reportSchedules.id, id));
     return res.json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, err, "reports.routes.ts");
   }
 });
 
@@ -471,7 +478,6 @@ router.post('/api/reports/export-email', authenticate, async (req: any, res: any
 
     return res.json({ success: true, message: `Report sent to ${emailTo}`, recordCount: data.rows.length });
   } catch (err: any) {
-    logger.error('Failed to email report:', err);
-    return res.status(500).json({ error: 'Failed to email report: ' + err.message });
+    return sendServerError(res, err, 'reports.routes.ts (email)');
   }
 });

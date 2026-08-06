@@ -70,9 +70,9 @@ export default function ConfigurationTemplate({
   };
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-200 pb-20">
+    <div className="space-y-6 animate-in fade-in duration-200 pb-20">
       {/* Configuration Header */}
-      <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-4 md:p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-5 md:p-6 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="space-y-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-lg md:text-xl font-bold text-[var(--color-nexus-ink)] tracking-tight">
@@ -127,13 +127,13 @@ export default function ConfigurationTemplate({
 
       {/* Policy Health / Metric Overview */}
       {healthMetrics && healthMetrics.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4">
           {healthMetrics.map((metric, idx) => {
             const Icon = metric.icon || ShieldCheck;
             return (
               <div
                 key={idx}
-                className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-3.5 shadow-xs"
+                className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-4 md:p-5 shadow-xs"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-[var(--color-nexus-muted)] truncate">
@@ -143,11 +143,11 @@ export default function ConfigurationTemplate({
                     <Icon size={14} />
                   </div>
                 </div>
-                <div className="mt-1.5 text-lg font-extrabold text-[var(--color-nexus-ink)]">
+                <div className="mt-2.5 text-lg font-extrabold text-[var(--color-nexus-ink)]">
                   {metric.value}
                 </div>
                 {metric.subtext && (
-                  <p className="text-[10.5px] text-[var(--color-nexus-muted)] truncate mt-0.5">
+                  <p className="text-[10.5px] text-[var(--color-nexus-muted)] truncate mt-1">
                     {metric.subtext}
                   </p>
                 )}
@@ -158,9 +158,9 @@ export default function ConfigurationTemplate({
       )}
 
       {/* Main Workspace Layout with Accordions + Side Preview */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Accordions Column */}
-        <div className="lg:col-span-2 space-y-3">
+        <div className="lg:col-span-2 space-y-4">
           {sections.map((sec) => {
             const isExpanded = expandedSections[sec.id] !== false;
             const Icon = sec.icon;
@@ -175,11 +175,11 @@ export default function ConfigurationTemplate({
                 <button
                   type="button"
                   onClick={() => toggleSection(sec.id)}
-                  className="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[var(--color-nexus-surface-alt)] transition-colors cursor-pointer border-b border-[var(--color-nexus-border)]/40"
+                  className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left hover:bg-[var(--color-nexus-surface-alt)] transition-colors cursor-pointer border-b border-[var(--color-nexus-border)]/40"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3.5 min-w-0">
                     {Icon ? (
-                      <div className="p-2 rounded-lg bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] shrink-0">
+                      <div className="p-2.5 rounded-lg bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] shrink-0">
                         <Icon size={16} />
                       </div>
                     ) : (
@@ -197,7 +197,7 @@ export default function ConfigurationTemplate({
                         )}
                       </div>
                       {sec.subtitle && (
-                        <p className="text-xs text-[var(--color-nexus-muted)] truncate mt-0.5">
+                        <p className="text-xs text-[var(--color-nexus-muted)] truncate mt-1">
                           {sec.subtitle}
                         </p>
                       )}
@@ -211,7 +211,7 @@ export default function ConfigurationTemplate({
 
                 {/* Accordion Content */}
                 {isExpanded && (
-                  <div className="p-4 md:p-5 border-t border-[var(--color-nexus-border)]/50 bg-[var(--color-nexus-surface)] animate-in slide-in-from-top-1 duration-150">
+                  <div className="p-5 md:p-6 border-t border-[var(--color-nexus-border)]/50 bg-[var(--color-nexus-surface)] animate-in slide-in-from-top-1 duration-150">
                     {sec.content}
                   </div>
                 )}
@@ -221,10 +221,10 @@ export default function ConfigurationTemplate({
         </div>
 
         {/* Side Preview / Audit Column */}
-        <div className="space-y-4">
+        <div className="space-y-5">
           {previewPanel && (
-            <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-4 shadow-xs sticky top-16">
-              <h4 className="text-xs font-mono font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-5 shadow-xs sticky top-16">
+              <h4 className="text-xs font-mono font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-4 flex items-center gap-2">
                 <ShieldCheck size={14} className="text-[var(--color-nexus-primary)]" />
                 Live Configuration Flow
               </h4>
@@ -233,8 +233,8 @@ export default function ConfigurationTemplate({
           )}
 
           {auditPanel && (
-            <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-4 shadow-xs">
-              <h4 className="text-xs font-mono font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-card)] p-5 shadow-xs">
+              <h4 className="text-xs font-mono font-bold text-[var(--color-nexus-muted)] uppercase tracking-wider mb-4 flex items-center gap-2">
                 <History size={14} className="text-[var(--color-nexus-secondary)]" />
                 Policy Audit History
               </h4>

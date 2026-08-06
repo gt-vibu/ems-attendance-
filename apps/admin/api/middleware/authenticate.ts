@@ -1,7 +1,28 @@
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { verifyToken } from '../../jwt';
 import { looksLikeApiKey, verifyServiceAccountKey } from '../auth/serviceAccounts';
+
+// idleTimeoutMinutes rarely changes (it's a tenant admin setting, not
+// per-request state) but was being re-queried from `tenants` on literally
+// every single authenticated request just to read one column — doubling the
+// baseline DB round-trips for auth bookkeeping at any real request volume.
+// Short TTL cache: worst case, a tenant admin's change to this setting takes
+// up to 60s to take effect for already-logged-in sessions, which is an
+// acceptable tradeoff for cutting a DB round-trip off every request.
+const IDLE_TIMEOUT_CACHE_TTL_MS = 60_000;
+const idleTimeoutCache = new Map<number, { value: number; expiresAt: number }>();
+
+async function getCachedIdleTimeoutMinutes(tenantId: number): Promise<number> {
+  const cached = idleTimeoutCache.get(tenantId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const tenantRows = await db.select({ idleTimeoutMinutes: schema.tenants.idleTimeoutMinutes })
+    .from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  const value = tenantRows[0]?.idleTimeoutMinutes || 0;
+  idleTimeoutCache.set(tenantId, { value, expiresAt: Date.now() + IDLE_TIMEOUT_CACHE_TTL_MS });
+  return value;
+}
 
   // Helper Auth Middleware
 export async function authenticate(req: any, res: any, next: any) {
@@ -64,9 +85,7 @@ export async function authenticate(req: any, res: any, next: any) {
         // Independent of the JWT's own 24h expiry: this can log someone out
         // much sooner if they've simply been inactive.
         if (rows[0].tenantId) {
-          const tenantRows = await db.select({ idleTimeoutMinutes: schema.tenants.idleTimeoutMinutes })
-            .from(schema.tenants).where(eq(schema.tenants.id, rows[0].tenantId)).limit(1);
-          const idleTimeoutMinutes = tenantRows[0]?.idleTimeoutMinutes || 0;
+          const idleTimeoutMinutes = await getCachedIdleTimeoutMinutes(rows[0].tenantId);
           if (idleTimeoutMinutes > 0 && rows[0].lastActivityAt) {
             const idleMs = Date.now() - new Date(rows[0].lastActivityAt).getTime();
             if (idleMs > idleTimeoutMinutes * 60 * 1000) {
@@ -82,9 +101,24 @@ export async function authenticate(req: any, res: any, next: any) {
           }
         }
       } catch (err: any) {
-        return res.status(500).json({ error: err.message });
+        return sendServerError(res, err, "authenticate middleware");
       }
     }
     req.user = decoded;
     next();
   }
+
+// Structural role gate — use as router.get(path, authenticate, requireRole('super_admin'), handler).
+// Previously super.routes.ts repeated `if (req.user.role !== 'super_admin') return res.status(403)...`
+// inline at 14 separate handlers; a new route that forgot the line would
+// be a full privilege-escalation bug with nothing to catch it. Centralizing
+// the check into middleware makes it a structural property of the route
+// registration instead of per-handler developer discipline.
+export function requireRole(...allowedRoles: string[]) {
+  return function (req: any, res: any, next: any) {
+    if (!allowedRoles.includes(req.user?.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    next();
+  };
+}

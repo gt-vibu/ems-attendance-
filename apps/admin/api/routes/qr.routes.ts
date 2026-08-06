@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray, gte } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -171,7 +172,7 @@ router.post('/api/qr/session/start', authenticate, async (req: any, res: any) =>
 
       res.json({ session, token, expiresAt: session.currentTokenExpiresAt, scansCount: 0, successCount: 0, failCount: 0, pendingCount: 0 });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -183,12 +184,9 @@ router.post('/api/qr/session/stop', authenticate, async (req: any, res: any) => 
       const { sessionId } = req.body;
       if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
 
-      const rows = await db.select().from(schema.qrSessions).where(eq(schema.qrSessions.id, sessionId));
+      const rows = await db.select().from(schema.qrSessions).where(and(eq(schema.qrSessions.id, sessionId), eq(schema.qrSessions.tenantId, req.user.tenantId)));
       if (rows.length === 0) return res.status(404).json({ error: 'Session not found' });
       const session = rows[0];
-      if (session.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This session does not belong to your organization.' });
-      }
 
       await db.update(schema.qrSessions).set({ status: 'closed', closedAt: new Date() }).where(eq(schema.qrSessions.id, sessionId));
 
@@ -202,7 +200,7 @@ router.post('/api/qr/session/stop', authenticate, async (req: any, res: any) => 
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -220,7 +218,7 @@ router.get('/api/qr/current', authenticate, async (req: any, res: any) => {
       const counts = await getQrSessionCounts(session.id);
       res.json({ session, token, expiresAt: session.currentTokenExpiresAt, ...counts });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -292,7 +290,7 @@ router.post('/api/qr/validate', authenticate, async (req: any, res: any) => {
         requiredChecks: { face: policy.requireFace, gps: policy.requireGps, wifi: policy.requireWifi, deviceTrust: policy.requireDeviceTrust },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -569,8 +567,7 @@ router.post('/api/attendance/mark-from-qr', authenticate, async (req: any, res: 
 
       res.json({ success: true, log: log[0], pendingApproval });
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -591,12 +588,9 @@ router.post('/api/qr/scans/:id/override', authenticate, async (req: any, res: an
         return res.status(400).json({ error: 'A reason is required to override a failed QR scan.' });
       }
 
-      const scanList = await db.select().from(schema.qrScans).where(eq(schema.qrScans.id, scanId));
+      const scanList = await db.select().from(schema.qrScans).where(and(eq(schema.qrScans.id, scanId), eq(schema.qrScans.tenantId, req.user.tenantId)));
       if (scanList.length === 0) return res.status(404).json({ error: 'Scan not found' });
       const scan = scanList[0];
-      if (scan.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This scan does not belong to your organization.' });
-      }
       if (scan.status !== 'failed') {
         return res.status(400).json({ error: 'Only a failed scan can be overridden.' });
       }
@@ -633,7 +627,7 @@ router.post('/api/qr/scans/:id/override', authenticate, async (req: any, res: an
 
       res.json({ success: true, log: log[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -678,7 +672,7 @@ router.get('/api/qr/history', authenticate, async (req: any, res: any) => {
 
       res.json({ sessions: withDetails });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -704,7 +698,7 @@ router.get('/api/qr/logs', authenticate, async (req: any, res: any) => {
 
       res.json({ scans: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -714,7 +708,7 @@ router.get('/api/qr/config', authenticate, async (req: any, res: any) => {
       if (tenantRec.length === 0) return res.status(404).json({ error: 'Tenant registration context not found.' });
       res.json({ policy: extractQrPolicy(tenantRec[0]) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });
 
@@ -744,6 +738,6 @@ router.put('/api/qr/config', authenticate, async (req: any, res: any) => {
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "qr.routes.ts");
     }
   });

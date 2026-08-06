@@ -6,6 +6,33 @@ import { isPlatformFeatureAllowed } from '../auth/rbac';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Statutory-rate fallback defaults (India) — used only when a tenant's
+// payroll_settings row has the corresponding field unset. Every one of
+// these is independently tenant-editable (see payroll.routes.ts's
+// POST /api/tenant/payroll/settings); these are just the values assumed
+// until a tenant explicitly configures their own. Pulled out to one place
+// specifically so a compliance review has a single spot to audit every
+// hardcoded statutory number in the payroll engine, rather than finding
+// them scattered as inline `?? 12` / `|| 21000` literals throughout
+// computeStatutoryDeductions() and computePayrollSummary() below.
+export const STATUTORY_DEFAULTS = {
+  /** % of monthly gross treated as "basic wage" when no explicit Basic salary component exists. */
+  BASIC_PERCENT_OF_GROSS: 50,
+  /** Provident Fund — employee & employer contribution rate, and the wage ceiling it's capped at. */
+  PF_EMPLOYEE_RATE_PERCENT: 12,
+  PF_EMPLOYER_RATE_PERCENT: 12,
+  PF_WAGE_CEILING: 15000,
+  /** Employee State Insurance — only applies at/below the wage ceiling. */
+  ESI_EMPLOYEE_RATE_PERCENT: 0.75,
+  ESI_EMPLOYER_RATE_PERCENT: 3.25,
+  ESI_WAGE_CEILING: 21000,
+  /** TDS — standard deduction subtracted from annual CTC before slab tax is applied. */
+  TDS_STANDARD_DEDUCTION: 50000,
+} as const;
+
+/** Working days assumed per calendar month when a tenant hasn't set workingDaysPerMonth. */
+export const DEFAULT_WORKING_DAYS_PER_MONTH = 26;
+
 export function parseDateOnly(value: string) {
   return new Date(`${value}T00:00:00Z`);
 }
@@ -200,19 +227,19 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
   const basicComponent = annualBreakdown.find((c) => String(c.componentName || '').trim().toLowerCase() === 'basic');
   const basicMonthly = basicComponent
     ? Number(basicComponent.monthlyAmount || 0)
-    : monthlyGross * (Number(settings.statutoryBasicPercentOfGross ?? 50) / 100);
+    : monthlyGross * (Number(settings.statutoryBasicPercentOfGross ?? STATUTORY_DEFAULTS.BASIC_PERCENT_OF_GROSS) / 100);
 
   let pfEmployeeDeduction = 0, pfEmployerContribution = 0;
   if (settings.pfEnabled) {
-    const pfWage = Math.min(basicMonthly, Number(settings.pfWageCeiling || 15000));
-    pfEmployeeDeduction = pfWage * (Number(settings.pfEmployeeRatePercent ?? 12) / 100);
-    pfEmployerContribution = pfWage * (Number(settings.pfEmployerRatePercent ?? 12) / 100);
+    const pfWage = Math.min(basicMonthly, Number(settings.pfWageCeiling || STATUTORY_DEFAULTS.PF_WAGE_CEILING));
+    pfEmployeeDeduction = pfWage * (Number(settings.pfEmployeeRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYEE_RATE_PERCENT) / 100);
+    pfEmployerContribution = pfWage * (Number(settings.pfEmployerRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYER_RATE_PERCENT) / 100);
   }
 
   let esiEmployeeDeduction = 0, esiEmployerContribution = 0;
-  if (settings.esiEnabled && monthlyGross <= Number(settings.esiWageCeiling || 21000)) {
-    esiEmployeeDeduction = monthlyGross * (Number(settings.esiEmployeeRatePercent ?? 0.75) / 100);
-    esiEmployerContribution = monthlyGross * (Number(settings.esiEmployerRatePercent ?? 3.25) / 100);
+  if (settings.esiEnabled && monthlyGross <= Number(settings.esiWageCeiling || STATUTORY_DEFAULTS.ESI_WAGE_CEILING)) {
+    esiEmployeeDeduction = monthlyGross * (Number(settings.esiEmployeeRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYEE_RATE_PERCENT) / 100);
+    esiEmployerContribution = monthlyGross * (Number(settings.esiEmployerRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYER_RATE_PERCENT) / 100);
   }
 
   const professionalTaxDeduction = settings.professionalTaxEnabled
@@ -221,7 +248,7 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
 
   let tdsDeduction = 0;
   if (settings.tdsEnabled) {
-    const taxableAnnualIncome = Math.max(0, annualCtc - Number(settings.tdsStandardDeduction || 50000));
+    const taxableAnnualIncome = Math.max(0, annualCtc - Number(settings.tdsStandardDeduction || STATUTORY_DEFAULTS.TDS_STANDARD_DEDUCTION));
     const annualTax = computeSlabTax(taxableAnnualIncome, settings.incomeTaxSlabs || []);
     tdsDeduction = annualTax / 12;
   }
@@ -287,7 +314,7 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   // calendar_days: total days in the period month (28..31)
   // working_days: actual working days in month excluding weekends/holidays
   const policy = settings?.lopCalculationPolicy || 'fixed_26';
-  let workingDays = Number(settings?.workingDaysPerMonth || 26);
+  let workingDays = Number(settings?.workingDaysPerMonth || DEFAULT_WORKING_DAYS_PER_MONTH);
   if (policy === 'calendar_days' && year && month) {
     workingDays = new Date(year, month, 0).getDate();
   } else if (policy === 'working_days' && attendanceDriven?.workingDays) {
@@ -308,13 +335,19 @@ export function buildPayrollSummary(profile: any, components: any[], settings: a
   const overtimeRate = Number(profile?.overtimeHourlyRate ?? settings?.overtimeHourlyRate ?? 0);
   const overtimePay = overtimeHours * overtimeRate;
   const earnedGross = Math.max(0, Math.round((monthlyGross - leaveDeduction - lopDeduction) * 100) / 100);
-  const preStatutoryNet = monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay;
+  // Floored at 0, same as earnedGross above — a month with heavy LOP/leave
+  // deduction should never produce a negative pre-statutory figure that
+  // then feeds a negative statutory base downstream.
+  const preStatutoryNet = Math.max(0, Math.round((monthlyBaseNet - leaveDeduction - lopDeduction + overtimePay) * 100) / 100);
 
   // Statutory deductions come out of pre-statutory net — they reduce actual
   // take-home pay, same as leave deductions do, so monthlyNet below is the
-  // real final figure an employee receives, not a subtotal.
+  // real final figure an employee receives, not a subtotal. Floored at 0:
+  // an employee should never be issued a payslip showing they owe the
+  // company money — a shortfall like that is a recovery/loan matter to
+  // handle explicitly, not something the payslip figure itself goes negative for.
   const statutory = computeStatutoryDeductions(monthlyGross, annualCtc, annualBreakdown, settings);
-  const monthlyNet = preStatutoryNet - statutory.totalEmployeeStatutory;
+  const monthlyNet = Math.max(0, Math.round((preStatutoryNet - statutory.totalEmployeeStatutory) * 100) / 100);
 
   return {
     annualCtc,
@@ -421,6 +454,47 @@ export async function getEffectiveDailyRate(tenantId: number, userId: number): P
 
   const summary = buildPayrollSummary(profile, effectiveComponents, settings, NO_LEAVE_DAYS, 0);
   return summary.dailyRate;
+}
+
+export interface FinalSettlementInputs {
+  dailyRate: number;
+  lastWorkingDate: string; // YYYY-MM-DD
+  encashableLeaveDays: number;
+  pendingBonusAmount: number;
+  loanAdvanceRecoveryAmount: number;
+  noticePeriodRecoveryAmount: number;
+}
+
+// Pure calculation, split out of the settlement-generation route handler
+// (previously ~40 lines of math inline in payrollExtras.routes.ts) so it
+// can be unit tested and read independently of the HTTP/persistence
+// concerns around it. All inputs are pre-fetched by the caller — this
+// function does no DB access itself.
+export function computeFinalSettlement(inputs: FinalSettlementInputs) {
+  const { dailyRate, lastWorkingDate, encashableLeaveDays, pendingBonusAmount, loanAdvanceRecoveryAmount, noticePeriodRecoveryAmount } = inputs;
+  const [, , d] = lastWorkingDate.split('-').map(Number);
+  const daysWorkedInExitMonth = d;
+  const remainingSalaryAmount = dailyRate * daysWorkedInExitMonth;
+  const leaveEncashmentAmount = dailyRate * encashableLeaveDays;
+  const noticeRecovery = Number(noticePeriodRecoveryAmount) || 0;
+  const grossSettlement = remainingSalaryAmount + leaveEncashmentAmount + pendingBonusAmount;
+  const netSettlement = grossSettlement - noticeRecovery - loanAdvanceRecoveryAmount;
+
+  return {
+    daysWorkedInExitMonth,
+    remainingSalaryAmount,
+    leaveEncashmentAmount,
+    noticeRecovery,
+    grossSettlement,
+    netSettlement,
+    breakdown: [
+      { type: 'remaining_salary', amount: remainingSalaryAmount, days: daysWorkedInExitMonth },
+      { type: 'leave_encashment', amount: leaveEncashmentAmount, days: encashableLeaveDays },
+      { type: 'pending_bonus', amount: pendingBonusAmount },
+      { type: 'notice_period_recovery', amount: -noticeRecovery },
+      { type: 'loan_advance_recovery', amount: -loanAdvanceRecoveryAmount },
+    ],
+  };
 }
 
 export async function getRoleCompensationDefault(tenantId: number, roleName: string) {

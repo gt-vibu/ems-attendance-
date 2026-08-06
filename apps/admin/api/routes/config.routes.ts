@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -38,7 +39,7 @@ router.get('/api/tenant/config', authenticate, async (req: any, res: any) => {
       const faceRecognitionEffective = isFaceIdEnabledForTenant(tenant[0] as any);
       res.json({ tenant: { ...tenant[0], faceRecognitionEffective } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "config.routes.ts");
     }
   });
 
@@ -164,7 +165,7 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
 
       res.json({ success: true, requiresReEnrollment: faceIdChanged });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "config.routes.ts");
     }
   });
 
@@ -181,7 +182,7 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
       }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1);
       res.json(tenant || { policyAnnouncement: null, policyAnnouncementUpdatedAt: null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "config.routes.ts");
     }
   });
 
@@ -197,6 +198,6 @@ router.post('/api/tenant/config/update', authenticate, async (req: any, res: any
         .where(eq(schema.tenants.id, req.user.tenantId));
       res.json({ success: true, policyAnnouncement: text || null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "config.routes.ts");
     }
   });

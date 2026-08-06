@@ -2,9 +2,10 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
-import { WEBHOOK_EVENTS } from '../services/webhooks';
+import { WEBHOOK_EVENTS, assertWebhookUrlIsSafe } from '../services/webhooks';
 
 export const router = Router();
 
@@ -36,7 +37,7 @@ router.get('/api/tenant/webhooks', authenticate, async (req: any, res: any) => {
       availableEvents: WEBHOOK_EVENTS,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webhooks.routes.ts");
   }
 });
 
@@ -58,6 +59,11 @@ router.post('/api/tenant/webhooks', authenticate, async (req: any, res: any) => 
     if (parsed.protocol !== 'https:' && process.env.NODE_ENV === 'production') {
       return res.status(400).json({ error: 'url must use https in production' });
     }
+    try {
+      await assertWebhookUrlIsSafe(url);
+    } catch (e: any) {
+      return res.status(400).json({ error: e?.message || 'Webhook URL is not allowed.' });
+    }
     if (!Array.isArray(events) || events.length === 0 || events.some((e: string) => !WEBHOOK_EVENTS.includes(e as any))) {
       return res.status(400).json({ error: `events must be a non-empty array from: ${WEBHOOK_EVENTS.join(', ')}` });
     }
@@ -78,7 +84,7 @@ router.post('/api/tenant/webhooks', authenticate, async (req: any, res: any) => 
       signingSecret,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webhooks.routes.ts");
   }
 });
 
@@ -96,6 +102,6 @@ router.delete('/api/tenant/webhooks/:id', authenticate, async (req: any, res: an
     await db.delete(schema.webhookSubscriptions).where(eq(schema.webhookSubscriptions.id, id));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "webhooks.routes.ts");
   }
 });

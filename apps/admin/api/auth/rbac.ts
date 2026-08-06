@@ -25,6 +25,7 @@ export const PLATFORM_FEATURES = [
   { key: 'payroll_lock_adjustments', label: 'Payroll Lock & Adjustments', description: 'Lets a payroll period be locked so it can never be silently recalculated.' },
   { key: 'unified_notifications', label: 'Unified Notification Policies', description: 'Routes attendance/leave/payroll/reports/approval events through one policy.' },
   { key: 'payroll_batches', label: 'Payroll Batches (Full Lifecycle)', description: 'Runs payroll for a whole period as a single tracked batch.' },
+  { key: 'smartteams_federation', label: 'SmartTeams Federation API', description: 'Exposes the /v1/federation/* provider API for a headless BlizBooks integration (Employees, Attendance, Leave, Payroll).' },
 ];
 
 export const PLATFORM_FEATURE_DEPENDENCIES: Record<string, string[]> = {

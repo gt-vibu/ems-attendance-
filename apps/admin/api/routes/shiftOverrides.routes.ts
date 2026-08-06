@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
-import { hasPrivilege, getScopedBranchIds, isPlatformFeatureAllowed } from '../auth/rbac';
+import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
-import { notifyUser } from '../services/notifications';
-import { notify } from '../services/notificationService';
+import { notifyOrFallback } from '../services/notificationService';
 import { localDateKey } from '../services/dateUtils';
 
 export const router = Router();
@@ -65,8 +65,8 @@ router.post('/api/tenant/employees/:id/shift-override', authenticate, async (req
       return res.status(400).json({ error: 'startDate cannot be after endDate.' });
     }
 
-    const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId)).limit(1);
-    if (shiftRows.length === 0 || shiftRows[0].tenantId !== req.user.tenantId) {
+    const shiftRows = await db.select().from(schema.shifts).where(and(eq(schema.shifts.id, shiftId), eq(schema.shifts.tenantId, req.user.tenantId))).limit(1);
+    if (shiftRows.length === 0) {
       return res.status(400).json({ error: 'Invalid shift ID.' });
     }
     const shift = shiftRows[0];
@@ -91,24 +91,15 @@ router.post('/api/tenant/employees/:id/shift-override', authenticate, async (req
       details: { employeeId: employee.id, overrideId: inserted.id, shiftId, startDate, endDate },
     });
 
-    const tenantRowForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-    if (isPlatformFeatureAllowed(tenantRowForNotify, 'unified_notifications')) {
-      await notify(req.user.tenantId, 'shift_changed', {
-        subjectUserId: employee.id,
-        subjectName: employee.name,
-        data: { shiftName: shift.name, range: formatDateRange(startDate, endDate) },
-      }).catch(() => undefined);
-    } else {
-      await notifyUser(
-        employee.id,
-        'Your shift has been temporarily changed',
-        `Your shift has been temporarily changed to ${shift.name} ${formatDateRange(startDate, endDate)}.`
-      );
-    }
+    await notifyOrFallback(req.user.tenantId, 'shift_changed', employee.id, employee.name,
+      { shiftName: shift.name, range: formatDateRange(startDate, endDate) },
+      'Your shift has been temporarily changed',
+      `Your shift has been temporarily changed to ${shift.name} ${formatDateRange(startDate, endDate)}.`
+    );
 
     res.json({ success: true, override: inserted });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });
 
@@ -150,7 +141,7 @@ router.get('/api/tenant/employees/:id/shift-overrides', authenticate, async (req
       })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });
 
@@ -167,8 +158,12 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
     if (!employee) return;
 
     const overrideId = parseInt(req.params.overrideId, 10);
-    const overrideRows = await db.select().from(schema.shiftOverrides).where(eq(schema.shiftOverrides.id, overrideId)).limit(1);
-    if (overrideRows.length === 0 || overrideRows[0].tenantId !== req.user.tenantId || overrideRows[0].userId !== employee.id) {
+    const overrideRows = await db.select().from(schema.shiftOverrides).where(and(
+      eq(schema.shiftOverrides.id, overrideId),
+      eq(schema.shiftOverrides.tenantId, req.user.tenantId),
+      eq(schema.shiftOverrides.userId, employee.id),
+    )).limit(1);
+    if (overrideRows.length === 0) {
       return res.status(404).json({ error: 'Shift override not found.' });
     }
     const override = overrideRows[0];
@@ -193,23 +188,14 @@ router.delete('/api/tenant/employees/:id/shift-overrides/:overrideId', authentic
       details: { employeeId: employee.id, overrideId, shiftId: override.shiftId, startDate: override.startDate, endDate: override.endDate },
     });
 
-    const tenantRowForCancelNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-    if (isPlatformFeatureAllowed(tenantRowForCancelNotify, 'unified_notifications')) {
-      await notify(req.user.tenantId, 'shift_changed', {
-        subjectUserId: employee.id,
-        subjectName: employee.name,
-        data: { shiftName: 'your regular shift', range: formatDateRange(override.startDate, override.endDate), cancelled: true },
-      }).catch(() => undefined);
-    } else {
-      await notifyUser(
-        employee.id,
-        'Your temporary shift change was cancelled',
-        `Your temporary shift change to ${shiftName} ${formatDateRange(override.startDate, override.endDate)} has been cancelled. Your regular shift applies again.`
-      );
-    }
+    await notifyOrFallback(req.user.tenantId, 'shift_changed', employee.id, employee.name,
+      { shiftName: 'your regular shift', range: formatDateRange(override.startDate, override.endDate), cancelled: true },
+      'Your temporary shift change was cancelled',
+      `Your temporary shift change to ${shiftName} ${formatDateRange(override.startDate, override.endDate)} has been cancelled. Your regular shift applies again.`
+    );
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "shiftOverrides.routes.ts");
   }
 });

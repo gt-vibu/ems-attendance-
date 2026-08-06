@@ -4,6 +4,7 @@ import { eq, and, asc, desc, sql, inArray, gte, lte, lt } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { verifyToken } from '../../jwt';
@@ -18,6 +19,7 @@ import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, isPlatformFeatureAllowed, getScopedBranchIds } from '../auth/rbac';
 import { notify } from '../services/notificationService';
 import { editAttendanceDay } from '../services/recordEdits';
+import { resolveAttendancePreferences } from '../services/attendancePreferencesService';
 import { raiseAttendanceAlert } from '../services/alerts';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
@@ -190,7 +192,7 @@ router.get('/api/attendance/today', authenticate, async (req: any, res: any) => 
         currentShift: { name: 'General Shift', checkInTime: '09:00', checkOutTime: '18:00' }
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 router.get('/api/attendance/percentage', authenticate, async (req: any, res: any) => {
@@ -203,7 +205,7 @@ router.get('/api/attendance/percentage', authenticate, async (req: any, res: any
       const result = await computeAttendancePercent(req.user.userId, tenant);
       res.json({ ...result, threshold: tenant.minAttendancePercent ?? 75 });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -246,7 +248,7 @@ router.get('/api/attendance/mine', authenticate, async (req: any, res: any) => {
           .limit(Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 30)));
       res.json({ logs });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -322,7 +324,7 @@ router.post('/api/attendance/checkout', authenticate, async (req: any, res: any)
       res.json({ success: true, log: log[0] });
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -365,7 +367,7 @@ router.post('/api/attendance/verify-location', authenticate, async (req: any, re
       }
       res.json({ passed: true, distanceMeters: distance });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -395,7 +397,7 @@ router.post('/api/attendance/verify-network', authenticate, async (req: any, res
       }
       res.json({ passed: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -825,8 +827,7 @@ router.post('/api/attendance', authenticate, async (req: any, res: any) => {
       res.json({ success: true, log: log[0], pendingApproval });
       });
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -920,7 +921,7 @@ router.post('/api/attendance/heartbeat', authenticate, async (req: any, res: any
 
       res.json({ success: true, status: 'ok' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -945,8 +946,8 @@ router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: a
         return res.status(400).json({ error: 'reason is required — this becomes part of the permanent attendance record.' });
       }
 
-      const targetRows = await db.select().from(schema.users).where(eq(schema.users.id, targetUserId)).limit(1);
-      if (targetRows.length === 0 || targetRows[0].tenantId !== req.user.tenantId) {
+      const targetRows = await db.select().from(schema.users).where(and(eq(schema.users.id, targetUserId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+      if (targetRows.length === 0) {
         return res.status(404).json({ error: 'Employee not found.' });
       }
       const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -970,7 +971,7 @@ router.patch('/api/tenant/attendance/:userId/:date', authenticate, async (req: a
 
       res.json({ success: true, ...result });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "attendance.routes.ts");
     }
   });
 
@@ -986,6 +987,12 @@ router.post('/api/tenant/attendance/freeze', authenticate, async (req: any, res:
     }
     if (!await isPlatformFeatureAllowed({ featuresAllowed: (await db.select({ featuresAllowed: schema.tenants.featuresAllowed }).from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0]?.featuresAllowed }, 'attendance_freeze')) {
       return res.status(403).json({ error: 'Attendance Freeze is not included in your organization\'s plan.' });
+    }
+    {
+      const freezePrefs = await resolveAttendancePreferences(req.user.tenantId);
+      if (!freezePrefs.allowManualAttendanceFreeze) {
+        return res.status(400).json({ error: 'Manual attendance freeze is turned off for this organization. Enable it in Attendance Preferences first.' });
+      }
     }
 
     const year = parseInt(req.body?.year, 10);
@@ -1020,7 +1027,7 @@ router.post('/api/tenant/attendance/freeze', authenticate, async (req: any, res:
 
     res.json({ freezePeriod: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "attendance.routes.ts");
   }
 });
 
@@ -1032,6 +1039,6 @@ router.get('/api/tenant/attendance/freeze', authenticate, async (req: any, res: 
     const periods = await db.select().from(schema.attendanceFreezePeriods).where(eq(schema.attendanceFreezePeriods.tenantId, req.user.tenantId));
     res.json({ periods });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "attendance.routes.ts");
   }
 });

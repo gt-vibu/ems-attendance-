@@ -2,10 +2,12 @@ import { Router } from 'express';
 import { and, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 import PDFDocument from 'pdfkit';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
-import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
+import { getScopedBranchIds, hasPrivilege, isPlatformFeatureAllowed, isPlatformFeatureAllowedForTenant } from '../auth/rbac';
 import { notifyUser, notifyUsers } from '../services/notifications';
-import { notify } from '../services/notificationService';
+import { notify, notifyOrFallback } from '../services/notificationService';
 import {
   buildPayrollSummary,
   getOrCreatePayrollSettings,
@@ -92,7 +94,7 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
     const summary = buildPayrollSummary(profile, effectiveComponents, settings, leaveDays, overtimeHours, attendanceDriven);
     res.json({ profile, components: effectiveComponents, summary, settings, period: { year, month }, source });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -115,7 +117,7 @@ router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
 
     res.json({ history });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -219,7 +221,7 @@ router.post('/api/tenant/payroll/process', authenticate, async (req: any, res: a
 
     res.json({ success: true, processedCount, year: Number(year), month: Number(month) });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -232,18 +234,43 @@ router.post('/api/tenant/payroll/:runId/lock', authenticate, async (req: any, re
     if (!await hasPrivilege(req.user, 'payroll.lock')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
+    if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments')) {
+      return res.status(403).json({ error: 'Payroll Lock & Adjustments is not included in your organization\'s plan.' });
+    }
+    const lockSettings = await getOrCreatePayrollSettings(req.user.tenantId);
+    if (!lockSettings.payrollLockingEnabled) {
+      return res.status(400).json({ error: 'Payroll locking is turned off for this organization. Enable it in Payroll Settings first.' });
+    }
     const runId = Number(req.params.runId);
-    const [run] = await db.select().from(schema.payrollRuns).where(eq(schema.payrollRuns.id, runId)).limit(1);
-    if (!run || run.tenantId !== req.user.tenantId) {
+    const locked = await db.transaction(async (tx: any) => {
+      const [run] = await tx.select().from(schema.payrollRuns).where(and(eq(schema.payrollRuns.id, runId), eq(schema.payrollRuns.tenantId, req.user.tenantId))).limit(1);
+      if (!run) {
+        return { notFound: true } as const;
+      }
+      if (run.status === 'locked') {
+        return { alreadyLocked: true } as const;
+      }
+      // Guard the UPDATE itself on status='generated' so a concurrent lock
+      // request racing this one is a no-op instead of a double-apply — the
+      // SELECT above is just for the friendly error message, not the safety.
+      const result = await tx.update(schema.payrollRuns)
+        .set({ status: 'locked' })
+        .where(and(eq(schema.payrollRuns.id, runId), eq(schema.payrollRuns.status, run.status)))
+        .returning({ id: schema.payrollRuns.id });
+      if (result.length === 0) {
+        return { alreadyLocked: true } as const;
+      }
+      return { ok: true } as const;
+    });
+    if ('notFound' in locked && locked.notFound) {
       return res.status(404).json({ error: 'Payroll run not found.' });
     }
-    if (run.status === 'locked') {
+    if ('alreadyLocked' in locked && locked.alreadyLocked) {
       return res.status(400).json({ error: 'This payroll run is already locked.' });
     }
-    await db.update(schema.payrollRuns).set({ status: 'locked' }).where(eq(schema.payrollRuns.id, runId));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -257,14 +284,26 @@ router.get('/api/tenant/payroll/adjustments', authenticate, async (req: any, res
     if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
-    const rows = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollAdjustments.createdAt));
-    const withNames = await Promise.all(rows.map(async (r: any) => {
-      const u = await db.select({ name: schema.users.name }).from(schema.users).where(eq(schema.users.id, r.userId)).limit(1);
-      return { ...r, userName: u[0]?.name || 'Unknown' };
-    }));
-    res.json({ adjustments: withNames });
+    const DEFAULT_LIST_LIMIT = 500;
+    const MAX_LIST_LIMIT = 2000;
+    const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIST_LIMIT));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const rows = await db.select().from(schema.payrollAdjustments)
+      .where(eq(schema.payrollAdjustments.tenantId, req.user.tenantId))
+      .orderBy(desc(schema.payrollAdjustments.createdAt))
+      .limit(limit)
+      .offset(offset);
+    // Batched name lookup instead of one query per row (N+1) — a single
+    // IN(...) query for every distinct userId on this page.
+    const userIds: number[] = Array.from(new Set<number>(rows.map((r: any) => r.userId as number)));
+    const nameRows = userIds.length > 0
+      ? await db.select({ id: schema.users.id, name: schema.users.name }).from(schema.users).where(inArray(schema.users.id, userIds))
+      : [];
+    const nameById = new Map(nameRows.map((u: any) => [u.id, u.name]));
+    const withNames = rows.map((r: any) => ({ ...r, userName: nameById.get(r.userId) || 'Unknown' }));
+    res.json({ adjustments: withNames, pagination: { limit, offset, returned: rows.length } });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -281,49 +320,69 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
     }
     const id = Number(req.params.id);
-    const [adjustment] = await db.select().from(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.id, id)).limit(1);
-    if (!adjustment || adjustment.tenantId !== req.user.tenantId) {
+    const applyToNextCycle = !!req.body?.applyToNextCycle;
+
+    const outcome = await db.transaction(async (tx: any) => {
+      const [adjustment] = await tx.select().from(schema.payrollAdjustments).where(and(eq(schema.payrollAdjustments.id, id), eq(schema.payrollAdjustments.tenantId, req.user.tenantId))).limit(1);
+      if (!adjustment) {
+        return { notFound: true } as const;
+      }
+      if (adjustment.status === 'applied') {
+        return { alreadyApplied: true } as const;
+      }
+      // Guard the UPDATE on status='pending' so a concurrent apply request
+      // for the same adjustment can't both pass the check above and both
+      // insert a superseding payroll run version below.
+      const claimed = await tx.update(schema.payrollAdjustments).set({
+        status: 'applied',
+        appliedToNextCycle: applyToNextCycle,
+        appliedAt: new Date(),
+      }).where(and(eq(schema.payrollAdjustments.id, id), eq(schema.payrollAdjustments.status, adjustment.status)))
+        .returning({ id: schema.payrollAdjustments.id });
+      if (claimed.length === 0) {
+        return { alreadyApplied: true } as const;
+      }
+
+      // Versioned Payslips: applying an adjustment against an already-
+      // released/locked period never overwrites the original payslip row —
+      // it inserts a new version pointing back at the one it supersedes, so
+      // both the original and the revised payslip stay downloadable (see
+      // GET /api/payroll/history/:runId/pdf, which is keyed by runId and
+      // therefore already works unchanged for either version). Skipped
+      // entirely when applyToNextCycle is true — that path intentionally
+      // folds into the NEXT period's calculation instead of revising this one.
+      if (!applyToNextCycle) {
+        const latestVersions = await tx.select().from(schema.payrollRuns)
+          .where(eq(schema.payrollRuns.id, adjustment.payrollRunId))
+          .limit(1);
+        const originalRun = latestVersions[0];
+        if (originalRun) {
+          const allVersions = await tx.select().from(schema.payrollRuns).where(
+            and(eq(schema.payrollRuns.userId, originalRun.userId), eq(schema.payrollRuns.year, originalRun.year), eq(schema.payrollRuns.month, originalRun.month))
+          ).orderBy(desc(schema.payrollRuns.version));
+          const latest = allVersions[0] || originalRun;
+          const newBreakdown = [...(Array.isArray(latest.breakdown) ? latest.breakdown : []), { type: 'adjustment', amount: adjustment.amountDelta, reason: adjustment.reason }];
+          await tx.insert(schema.payrollRuns).values({
+            tenantId: latest.tenantId, userId: latest.userId, profileId: latest.profileId, year: latest.year, month: latest.month,
+            batchId: latest.batchId, version: latest.version + 1, supersedesRunId: latest.id,
+            workingDays: latest.workingDays, approvedLeaveDays: latest.approvedLeaveDays, unpaidAbsenceDays: latest.unpaidAbsenceDays,
+            lopDeduction: latest.lopDeduction, overtimeHours: latest.overtimeHours, grossPay: latest.grossPay,
+            leaveDeduction: latest.leaveDeduction, overtimePay: latest.overtimePay,
+            netPay: latest.netPay + adjustment.amountDelta, breakdown: newBreakdown, status: latest.status,
+          });
+        }
+      }
+
+      return { ok: true, adjustment } as const;
+    });
+
+    if ('notFound' in outcome && outcome.notFound) {
       return res.status(404).json({ error: 'Adjustment not found.' });
     }
-    if (adjustment.status === 'applied') {
+    if ('alreadyApplied' in outcome && outcome.alreadyApplied) {
       return res.status(400).json({ error: 'This adjustment has already been applied.' });
     }
-    const applyToNextCycle = !!req.body?.applyToNextCycle;
-    await db.update(schema.payrollAdjustments).set({
-      status: 'applied',
-      appliedToNextCycle: applyToNextCycle,
-      appliedAt: new Date(),
-    }).where(eq(schema.payrollAdjustments.id, id));
-
-    // Versioned Payslips: applying an adjustment against an already-
-    // released/locked period never overwrites the original payslip row —
-    // it inserts a new version pointing back at the one it supersedes, so
-    // both the original and the revised payslip stay downloadable (see
-    // GET /api/payroll/history/:runId/pdf, which is keyed by runId and
-    // therefore already works unchanged for either version). Skipped
-    // entirely when applyToNextCycle is true — that path intentionally
-    // folds into the NEXT period's calculation instead of revising this one.
-    if (!applyToNextCycle) {
-      const latestVersions = await db.select().from(schema.payrollRuns)
-        .where(eq(schema.payrollRuns.id, adjustment.payrollRunId))
-        .limit(1);
-      const originalRun = latestVersions[0];
-      if (originalRun) {
-        const allVersions = await db.select().from(schema.payrollRuns).where(
-          and(eq(schema.payrollRuns.userId, originalRun.userId), eq(schema.payrollRuns.year, originalRun.year), eq(schema.payrollRuns.month, originalRun.month))
-        ).orderBy(desc(schema.payrollRuns.version));
-        const latest = allVersions[0] || originalRun;
-        const newBreakdown = [...(Array.isArray(latest.breakdown) ? latest.breakdown : []), { type: 'adjustment', amount: adjustment.amountDelta, reason: adjustment.reason }];
-        await db.insert(schema.payrollRuns).values({
-          tenantId: latest.tenantId, userId: latest.userId, profileId: latest.profileId, year: latest.year, month: latest.month,
-          batchId: latest.batchId, version: latest.version + 1, supersedesRunId: latest.id,
-          workingDays: latest.workingDays, approvedLeaveDays: latest.approvedLeaveDays, unpaidAbsenceDays: latest.unpaidAbsenceDays,
-          lopDeduction: latest.lopDeduction, overtimeHours: latest.overtimeHours, grossPay: latest.grossPay,
-          leaveDeduction: latest.leaveDeduction, overtimePay: latest.overtimePay,
-          netPay: latest.netPay + adjustment.amountDelta, breakdown: newBreakdown, status: latest.status,
-        });
-      }
-    }
+    const adjustment = outcome.adjustment;
 
     await logToAuditLedger({
       tenantId: req.user.tenantId,
@@ -335,21 +394,16 @@ router.post('/api/tenant/payroll/adjustments/:id/apply', authenticate, async (re
 
     const employeeRowsAdj = await db.select().from(schema.users).where(eq(schema.users.id, adjustment.userId)).limit(1);
     if (employeeRowsAdj.length > 0) {
-      const tenantRowAdj = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRowAdj, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'payroll_salary_changed', {
-          subjectUserId: adjustment.userId,
-          subjectName: employeeRowsAdj[0].name,
-          data: { amountDelta: adjustment.amountDelta, applyToNextCycle, reason: 'Payroll adjustment applied' },
-        }).catch(() => undefined);
-      } else {
-        await notifyUser(adjustment.userId, 'Payroll adjustment applied', `A payroll adjustment of ${adjustment.amountDelta} has been applied to your record${applyToNextCycle ? ' and will be reflected in your next payroll cycle' : ''}.`);
-      }
+      await notifyOrFallback(req.user.tenantId, 'payroll_salary_changed', adjustment.userId, employeeRowsAdj[0].name,
+        { amountDelta: adjustment.amountDelta, applyToNextCycle, reason: 'Payroll adjustment applied' },
+        'Payroll adjustment applied',
+        `A payroll adjustment of ${adjustment.amountDelta} has been applied to your record${applyToNextCycle ? ' and will be reflected in your next payroll cycle' : ''}.`,
+      );
     }
 
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -401,7 +455,7 @@ router.get('/api/payroll/history/:runId/pdf', authenticate, async (req: any, res
 
     doc.end();
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -411,9 +465,10 @@ router.get('/api/tenant/payroll/settings', authenticate, async (req: any, res: a
       return res.status(403).json({ error: 'Access denied.' });
     }
     const settings = await getOrCreatePayrollSettings(req.user.tenantId);
-    res.json({ settings });
+    const lockingFeatureAllowed = await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments');
+    res.json({ settings, lockingFeatureAllowed });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -424,6 +479,7 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
     }
     const current = await getOrCreatePayrollSettings(req.user.tenantId);
     const patch = {
+      payrollLockingEnabled: req.body?.payrollLockingEnabled !== undefined ? !!req.body.payrollLockingEnabled : (current.payrollLockingEnabled ?? true),
       workingDaysPerMonth: Number(req.body?.workingDaysPerMonth || current.workingDaysPerMonth),
       lopCalculationPolicy: ['fixed_26', 'calendar_days', 'working_days'].includes(req.body?.lopCalculationPolicy) ? req.body.lopCalculationPolicy : (current.lopCalculationPolicy || 'fixed_26'),
       monthlySalaryBasis: ['30_days', 'actual_calendar_days', 'working_days'].includes(req.body?.monthlySalaryBasis) ? req.body.monthlySalaryBasis : (current.monthlySalaryBasis || 'actual_calendar_days'),
@@ -458,7 +514,7 @@ router.post('/api/tenant/payroll/settings', authenticate, async (req: any, res: 
     const [updated] = await db.update(schema.payrollSettings).set(patch).where(eq(schema.payrollSettings.id, current.id)).returning();
     res.json({ success: true, settings: updated });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -475,8 +531,8 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
     if (userId === req.user.userId && req.user.role !== 'tenant_admin' && req.user.role !== 'super_admin') {
       return res.status(403).json({ error: 'Access denied: You cannot set up your own payroll. Ask a tenant admin or another payroll manager to configure it.' });
     }
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
 
@@ -542,19 +598,14 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       fieldChanges,
     });
 
-    const tenantForNotify = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-    if (isPlatformFeatureAllowed(tenantForNotify, 'unified_notifications')) {
-      await notify(req.user.tenantId, 'payroll_salary_changed', {
-        subjectUserId: userId,
-        subjectName: employeeRows[0].name,
-        data: { effectiveFrom: payload.effectiveFrom },
-      }).catch(() => undefined);
-    } else {
-      await notifyUser(userId, 'Your salary has been updated', `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`);
-    }
+    await notifyOrFallback(req.user.tenantId, 'payroll_salary_changed', userId, employeeRows[0].name,
+      { effectiveFrom: payload.effectiveFrom },
+      'Your salary has been updated',
+      `Your compensation has been updated, effective ${payload.effectiveFrom}. Check Payroll for the new breakdown.`,
+    );
     res.json({ success: true, profile, components: freshComponents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -563,8 +614,8 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
 // the two — same query, same fields, just a different caller/target pairing
 // and privilege check at each route.
 async function buildCompensationHistoryResponse(tenantId: number, userId: number) {
-  const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-  if (employeeRows.length === 0 || employeeRows[0].tenantId !== tenantId) {
+  const employee = await getByIdForTenant(schema.users, userId, tenantId);
+  if (!employee) {
     return null;
   }
 
@@ -579,7 +630,7 @@ async function buildCompensationHistoryResponse(tenantId: number, userId: number
   const changedByName = new Map(changedByUsers.map((u: any) => [u.id, u.name || u.email]));
 
   return {
-    employee: { id: employeeRows[0].id, name: employeeRows[0].name, email: employeeRows[0].email, role: employeeRows[0].role },
+    employee: { id: employee.id, name: employee.name, email: employee.email, role: employee.role },
     history: rows.map((r: any) => ({
       id: r.id,
       changedAt: r.createdAt,
@@ -610,7 +661,7 @@ router.get('/api/tenant/payroll/employee/:userId/history', authenticate, async (
     if (!result) return res.status(404).json({ error: 'Employee not found.' });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -624,7 +675,7 @@ router.get('/api/payroll/compensation-history/mine', authenticate, async (req: a
     if (!result) return res.status(404).json({ error: 'User not found.' });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -638,8 +689,8 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     const tPartsEarly = tenantParts(tenantRowEarly, new Date());
     const year = Number(req.query.year || tPartsEarly.year);
     const month = Number(req.query.month || tPartsEarly.month);
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    if (employeeRows.length === 0 || employeeRows[0].tenantId !== req.user.tenantId) {
+    const employeeRows = await db.select().from(schema.users).where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (employeeRows.length === 0) {
       return res.status(404).json({ error: 'Employee not found.' });
     }
     const employee = employeeRows[0];
@@ -688,7 +739,7 @@ router.get('/api/tenant/payroll/employee/:userId', authenticate, async (req: any
     const dayStatuses = Object.fromEntries(await resolveMonthStatuses(req.user.tenantId, userId, year, month));
     res.json({ employee, profile, components: effectiveComponents, summary, settings, leaveRows, attendanceRows, dayStatuses, period: { year, month }, source });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -881,7 +932,7 @@ router.get('/api/tenant/payroll/overview', authenticate, async (req: any, res: a
       period: { year, month },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -958,7 +1009,7 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
 
     res.json({ roleDefaults, roles: roleNames });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1024,7 +1075,7 @@ router.post('/api/tenant/payroll/role-defaults/:roleName', authenticate, async (
 
     res.json({ success: true, roleDefault, components: freshComponents });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1041,7 +1092,7 @@ router.delete('/api/tenant/payroll/role-defaults/:roleName', authenticate, async
     await db.delete(schema.roleCompensationDefaults).where(eq(schema.roleCompensationDefaults.id, existing[0].id));
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1071,7 +1122,7 @@ router.get('/api/tenant/payroll/calendar', authenticate, async (req: any, res: a
     const rows = await db.select().from(schema.payrollCalendars).where(eq(schema.payrollCalendars.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollCalendars.year), desc(schema.payrollCalendars.month));
     res.json({ calendars: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1093,7 +1144,7 @@ router.post('/api/tenant/payroll/calendar', authenticate, async (req: any, res: 
     }
     res.json({ calendar: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1105,7 +1156,7 @@ router.get('/api/tenant/payroll/batches', authenticate, async (req: any, res: an
     const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.tenantId, req.user.tenantId)).orderBy(desc(schema.payrollBatches.year), desc(schema.payrollBatches.month));
     res.json({ batches: rows });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1114,8 +1165,8 @@ router.get('/api/tenant/payroll/batches/:id/exceptions', authenticate, async (re
     if (!await hasPrivilege(req.user, 'payroll.read') && !await hasPrivilege(req.user, 'payroll.manage')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-    if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const rows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+    if (rows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
     const exceptions = await scanBatchExceptions(req.user.tenantId, rows[0].year, rows[0].month);
 
     // Pending Payroll Adjustments (e.g. an attendance correction approved
@@ -1136,7 +1187,7 @@ router.get('/api/tenant/payroll/batches/:id/exceptions', authenticate, async (re
 
     res.json({ exceptions, blockingCount: exceptions.filter((e) => e.blocking).length, pendingAdjustments: pendingAdjustments.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1159,7 +1210,7 @@ router.post('/api/tenant/payroll/batches', authenticate, async (req: any, res: a
     await logToAuditLedger({ tenantId: req.user.tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'PAYROLL_BATCH_CREATED', details: { batchId: batch.id, year, month } });
     res.json({ batch });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1176,8 +1227,8 @@ router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (re
     if (!await hasPrivilege(req.user, 'payroll.batch.create')) {
       return res.status(403).json({ error: 'Access denied.' });
     }
-    const batchRows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-    if (batchRows.length === 0 || batchRows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+    const batchRows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+    if (batchRows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
     const batch = batchRows[0];
     if (batch.status !== 'draft' && batch.status !== 'calculated') {
       return res.status(400).json({ error: `Cannot calculate a batch in status '${batch.status}'.` });
@@ -1190,7 +1241,7 @@ router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (re
 
     res.json({ batch: { ...batch, status: 'calculating' }, queued: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "payroll.routes.ts");
   }
 });
 
@@ -1215,8 +1266,8 @@ function makeTransitionRoute(opts: {
       if (!await hasPrivilege(req.user, opts.privilege)) {
         return res.status(403).json({ error: 'Access denied.' });
       }
-      const rows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(req.params.id))).limit(1);
-      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId) return res.status(404).json({ error: 'Batch not found.' });
+      const rows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
+      if (rows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
       const batch = rows[0];
       if (batch.status !== opts.fromStatus) {
         return res.status(400).json({ error: `This batch is in status '${batch.status}'; expected '${opts.fromStatus}' for this action.` });
@@ -1245,6 +1296,16 @@ function makeTransitionRoute(opts: {
         await finalizePayrollBatchFinancials(batch.id);
       }
 
+      if (opts.path === 'lock') {
+        if (!await isPlatformFeatureAllowedForTenant(req.user.tenantId, 'payroll_lock_adjustments')) {
+          return res.status(403).json({ error: 'Payroll Lock & Adjustments is not included in your organization\'s plan.' });
+        }
+        const lockSettings = await getOrCreatePayrollSettings(req.user.tenantId);
+        if (!lockSettings.payrollLockingEnabled) {
+          return res.status(400).json({ error: 'Payroll locking is turned off for this organization. Enable it in Payroll Settings first.' });
+        }
+      }
+
       const updateSet: Record<string, any> = { status: opts.toStatus };
       if (opts.reviewerField) updateSet[opts.reviewerField] = req.user.userId;
       if (opts.reviewerAtField) updateSet[opts.reviewerAtField] = new Date();
@@ -1270,7 +1331,7 @@ function makeTransitionRoute(opts: {
 
       res.json({ batch: updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "payroll.routes.ts");
     }
   });
 }

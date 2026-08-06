@@ -1,10 +1,19 @@
 import crypto from 'crypto';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
-import { db, schema } from '../../db';
+import { db, schema, withBootSyncLock } from '../../db';
 import { logger } from '../../logger';
 import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
 
-export async function verifyAndSyncDatabase() {
+// Public entry point — held for the WHOLE sync under a blocking Postgres
+// advisory lock (db.ts's withBootSyncLock) so N replicas starting at once on
+// a rolling/autoscaled deploy don't race each other's concurrent
+// CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS
+// statements — they queue up and run one at a time instead.
+export async function verifyAndSyncDatabase(): Promise<void> {
+  await withBootSyncLock(runSchemaSync);
+}
+
+async function runSchemaSync() {
   try {
     console.log('Synchronizing database tables...');
     await db.execute(sql`
@@ -29,68 +38,68 @@ export async function verifyAndSyncDatabase() {
     `);
     
     // Add columns if they do not exist
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS office_ip TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Kolkata';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'Basic';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS features_allowed JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_start TEXT DEFAULT '09:00';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_end TEXT DEFAULT '18:00';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS grace_period_mins INTEGER DEFAULT 15;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS checkout_grace_mins INTEGER DEFAULT 15;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS half_day_mins INTEGER DEFAULT 240;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS weekend_config JSONB DEFAULT '["Saturday", "Sunday"]';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS daily_break_budget_mins INTEGER DEFAULT 60;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wifi_check_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS min_attendance_percent INTEGER DEFAULT 75;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS arrival_policy TEXT DEFAULT 'buffered';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS working_hours_policy TEXT DEFAULT 'fixed_shift_end';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS overtime_payroll_enabled BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS office_ip TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'Asia/Kolkata';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'Basic';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS features_allowed JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_start TEXT DEFAULT '09:00';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS shift_end TEXT DEFAULT '18:00';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS grace_period_mins INTEGER DEFAULT 15;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS checkout_grace_mins INTEGER DEFAULT 15;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS half_day_mins INTEGER DEFAULT 240;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS weekend_config JSONB DEFAULT '["Saturday", "Sunday"]';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS daily_break_budget_mins INTEGER DEFAULT 60;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wifi_check_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS min_attendance_percent INTEGER DEFAULT 75;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS arrival_policy TEXT DEFAULT 'buffered';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS working_hours_policy TEXT DEFAULT 'fixed_shift_end';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS overtime_payroll_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     // No DEFAULT — stays NULL ("no explicit admin choice yet, defer to the
     // platform allow-list") for every existing row. See schema.ts.
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS face_id_enabled BOOLEAN;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS arrival_policy TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS working_hours_policy TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS face_id_enabled BOOLEAN;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS arrival_policy TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS working_hours_policy TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS required_working_mins INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS hybrid_max_checkout_time TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Work From Home (WFH) policy columns — additive; wfh_enabled defaults
     // false so existing tenants are entirely unaffected until an admin opts in.
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_allowed_roles JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_max_days_per_month INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_allowed_weekdays JSONB DEFAULT '["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_radius_meters INTEGER DEFAULT 200;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_approval_required BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_require_reason BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_late_login_grace_mins INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_allowed_roles JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_max_days_per_month INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_allowed_weekdays JSONB DEFAULT '["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_radius_meters INTEGER DEFAULT 200;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_approval_required BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_require_reason BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wfh_late_login_grace_mins INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Dynamic QR Attendance policy columns — additive; qr_enabled defaults
     // false so existing tenants are entirely unaffected until an admin opts in.
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_rotation_seconds INTEGER DEFAULT 30;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_gps BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_wifi BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_face BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_geofence_radius_meters INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_device_trust BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_rotation_seconds INTEGER DEFAULT 30;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_gps BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_wifi BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_face BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_geofence_radius_meters INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS qr_require_device_trust BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Company-wide KYC toggle and first-login branch-setup-wizard flag.
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kyc_enabled BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS branch_setup_completed BOOLEAN DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS kyc_enabled BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS branch_setup_completed BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Company-wide policy announcement banner, admin-editable (gated behind
     // the tenant.policy.manage privilege), shown on both admin and employee dashboards.
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement_updated_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS documents_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_expiry_days INTEGER DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_minutes INTEGER DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS attendance_retention_months INTEGER DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_logo_url TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_address TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS policy_announcement_updated_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS documents_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password_expiry_days INTEGER DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_minutes INTEGER DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS attendance_retention_months INTEGER DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_logo_url TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS report_address TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Departments must exist
     await db.execute(sql`
@@ -187,31 +196,31 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'employee';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS privileges JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_action_log JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lat REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lng REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_id TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS session_expires_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS shift_id INTEGER REFERENCES shifts(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS designation TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employment_type TEXT DEFAULT 'full_time';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_joining TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_status TEXT DEFAULT 'active';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP DEFAULT NOW();`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_history JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS data_erased_at TIMESTAMP;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'employee';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS privileges JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS temp_password TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS kyc_action_log JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_method TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lat REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_lng REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS active_session_id TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS session_expires_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS shift_id INTEGER REFERENCES shifts(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS designation TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employment_type TEXT DEFAULT 'full_time';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS manager_id INTEGER REFERENCES users(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_joining TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_status TEXT DEFAULT 'active';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP DEFAULT NOW();`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_history JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS data_erased_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS role_privilege_defaults (
@@ -279,15 +288,44 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS break_type TEXT DEFAULT 'General';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS start_lat REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS start_lng REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS end_lat REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS end_lng REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS is_violation BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS outside_geofence BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS note TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES tenants(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS break_type TEXT DEFAULT 'General';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS start_lat REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS start_lng REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS end_lat REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS end_lng REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS is_violation BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS outside_geofence BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ADD COLUMN IF NOT EXISTS note TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    // Backfill any pre-existing null tenant_id from the owning user's
+    // tenant before tightening the column to NOT NULL below — every user
+    // row has a tenant_id, so this always has something to backfill from.
+    try { await db.execute(sql`UPDATE break_sessions bs SET tenant_id = u.tenant_id FROM users u WHERE bs.user_id = u.id AND bs.tenant_id IS NULL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE break_sessions ALTER COLUMN tenant_id SET NOT NULL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    // departments.head_user_id / users.manager_id were plain integer
+    // columns with only a comment claiming the FK relationship, never
+    // actually enforced at the DB level (schema.ts now declares both as
+    // real deferred references). Add the constraints if not already
+    // present; ON DELETE SET NULL so deleting a manager/department-head
+    // user doesn't get blocked by their own subordinates/department row.
+    try {
+      await db.execute(sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'departments_head_user_id_users_id_fk') THEN
+            ALTER TABLE departments ADD CONSTRAINT departments_head_user_id_users_id_fk FOREIGN KEY (head_user_id) REFERENCES users(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try {
+      await db.execute(sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_manager_id_users_id_fk') THEN
+            ALTER TABLE users ADD CONSTRAINT users_manager_id_users_id_fk FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_alerts (
@@ -303,9 +341,9 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS current_assignee_user_id INTEGER REFERENCES users(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS last_assigned_at TIMESTAMP DEFAULT NOW();`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS current_assignee_user_id INTEGER REFERENCES users(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_alerts ADD COLUMN IF NOT EXISTS last_assigned_at TIMESTAMP DEFAULT NOW();`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS holidays (
@@ -318,18 +356,18 @@ export async function verifyAndSyncDatabase() {
     `);
     // Branch/department scoping — NULL/NULL (the default for every existing
     // row) still means "everyone in the tenant," identical to before.
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS department TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     // Mandatory (default) vs optional/floater holiday. Every pre-existing
     // row defaults to false (mandatory) — a deliberate behavior change from
     // before this column existed, when every holiday was implicitly part of
     // the optional-selection pool regardless.
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_optional BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS last_escalated_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_by_user_id INTEGER REFERENCES users(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_optional BOOLEAN NOT NULL DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS escalation_level INTEGER NOT NULL DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS last_escalated_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE holidays ADD COLUMN IF NOT EXISTS archived_by_user_id INTEGER REFERENCES users(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`
       CREATE TABLE IF NOT EXISTS delegations (
         id SERIAL PRIMARY KEY,
@@ -345,7 +383,7 @@ export async function verifyAndSyncDatabase() {
         revoked_at TIMESTAMP,
         revoked_by_user_id INTEGER REFERENCES users(id)
       );
-    `); } catch(e){}
+    `); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shift_history (
         id SERIAL PRIMARY KEY,
@@ -358,7 +396,7 @@ export async function verifyAndSyncDatabase() {
         actor_name TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
-    `); } catch(e){}
+    `); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`
       CREATE TABLE IF NOT EXISTS holiday_history (
         id SERIAL PRIMARY KEY,
@@ -370,7 +408,7 @@ export async function verifyAndSyncDatabase() {
         actor_name TEXT,
         created_at TIMESTAMP DEFAULT NOW()
       );
-    `); } catch(e){}
+    `); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     try { await db.execute(sql`
       CREATE TABLE IF NOT EXISTS leave_escalation_history (
         id SERIAL PRIMARY KEY,
@@ -382,7 +420,7 @@ export async function verifyAndSyncDatabase() {
         reason TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
-    `); } catch(e){}
+    `); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // One-time backfill: unified_notifications now ships on by default for
     // new tenants (see super.routes.ts tenant creation), and every
@@ -400,7 +438,7 @@ export async function verifyAndSyncDatabase() {
         UPDATE tenants SET features_allowed = COALESCE(features_allowed, '[]'::jsonb) || '["unified_notifications"]'::jsonb
         WHERE NOT (COALESCE(features_allowed, '[]'::jsonb) @> '["unified_notifications"]'::jsonb);
       `);
-    } catch (e) {}
+    } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS notification_recipient_groups (
@@ -446,7 +484,7 @@ export async function verifyAndSyncDatabase() {
     // once attendance_logs/employee_documents exist) the FK columns linking
     // a request to the document attached to it and the attendance_logs row
     // approving it actually produced.
-    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS review_remarks TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS review_remarks TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS leave_policies (
@@ -467,10 +505,10 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS accrual_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS carry_forward_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS max_carry_forward_days REAL NOT NULL DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS encashment_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS accrual_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS carry_forward_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS max_carry_forward_days REAL NOT NULL DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS encashment_enabled BOOLEAN NOT NULL DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS leave_encashment_requests (
@@ -538,27 +576,28 @@ export async function verifyAndSyncDatabase() {
         updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_compliance_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employee_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employer_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_wage_ceiling REAL NOT NULL DEFAULT 15000;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employee_rate_percent REAL NOT NULL DEFAULT 0.75;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employer_rate_percent REAL NOT NULL DEFAULT 3.25;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_wage_ceiling REAL NOT NULL DEFAULT 21000;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_slabs JSONB DEFAULT '[]';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_enabled BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS income_tax_slabs JSONB DEFAULT '[{"upTo":300000,"ratePercent":0},{"upTo":600000,"ratePercent":5},{"upTo":900000,"ratePercent":10},{"upTo":1200000,"ratePercent":15},{"upTo":1500000,"ratePercent":20},{"upTo":null,"ratePercent":30}]';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_standard_deduction REAL NOT NULL DEFAULT 50000;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_basic_percent_of_gross REAL NOT NULL DEFAULT 50;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS block_payroll_release_on_pending_adjustments BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS lop_calculation_policy TEXT DEFAULT 'fixed_26';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS monthly_salary_basis TEXT DEFAULT 'actual_calendar_days';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_holidays BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_weekends BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_approved_paid_leave BOOLEAN DEFAULT true;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_compliance_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employee_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_employer_rate_percent REAL NOT NULL DEFAULT 12;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS pf_wage_ceiling REAL NOT NULL DEFAULT 15000;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employee_rate_percent REAL NOT NULL DEFAULT 0.75;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_employer_rate_percent REAL NOT NULL DEFAULT 3.25;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS esi_wage_ceiling REAL NOT NULL DEFAULT 21000;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS professional_tax_slabs JSONB DEFAULT '[]';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_enabled BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS income_tax_slabs JSONB DEFAULT '[{"upTo":300000,"ratePercent":0},{"upTo":600000,"ratePercent":5},{"upTo":900000,"ratePercent":10},{"upTo":1200000,"ratePercent":15},{"upTo":1500000,"ratePercent":20},{"upTo":null,"ratePercent":30}]';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS tds_standard_deduction REAL NOT NULL DEFAULT 50000;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS statutory_basic_percent_of_gross REAL NOT NULL DEFAULT 50;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS block_payroll_release_on_pending_adjustments BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS lop_calculation_policy TEXT DEFAULT 'fixed_26';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS monthly_salary_basis TEXT DEFAULT 'actual_calendar_days';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_holidays BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_paid_weekends BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS include_approved_paid_leave BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS payroll_locking_enabled BOOLEAN NOT NULL DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_compensation_profiles (
@@ -636,9 +675,9 @@ export async function verifyAndSyncDatabase() {
     `);
     // Backs the idempotent "INSERT ... ON CONFLICT DO NOTHING" in
     // GET /api/payroll/history — one snapshot per employee per period, ever.
-    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_unique ON payroll_runs (user_id, year, month);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS unpaid_absence_days REAL NOT NULL DEFAULT 0;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS lop_deduction REAL NOT NULL DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_unique ON payroll_runs (user_id, year, month);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS unpaid_absence_days REAL NOT NULL DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS lop_deduction REAL NOT NULL DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS payroll_adjustments (
@@ -657,22 +696,22 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
-    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS previous_value TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS new_value TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_by_user_id INTEGER REFERENCES users(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS audit_id INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS previous_value TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS new_value TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_by_user_id INTEGER REFERENCES users(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_adjustments ADD COLUMN IF NOT EXISTS audit_id INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
-    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS batch_id INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS supersedes_run_id INTEGER;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS batch_id INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS supersedes_run_id INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     // Versioned Payslips (P3/P7 fix) — the old per-(user,year,month) unique
     // index blocked ever recording more than one payslip for a period,
     // which meant a post-release adjustment couldn't produce a v2 payslip.
     // Dropped in favor of a per-(user,year,month,version) index, only
     // possible now that the version column above actually exists.
-    try { await db.execute(sql`DROP INDEX IF EXISTS payroll_runs_user_period_unique;`); } catch(e){}
-    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_version_unique ON payroll_runs (user_id, year, month, version);`); } catch(e){}
+    try { await db.execute(sql`DROP INDEX IF EXISTS payroll_runs_user_period_unique;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS payroll_runs_user_period_version_unique ON payroll_runs (user_id, year, month, version);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS payroll_calendars (
@@ -842,29 +881,29 @@ export async function verifyAndSyncDatabase() {
       );
     `);
 
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'check_in';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS client_timestamp TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS challenge JSONB;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS explanation TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'check_in';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS client_timestamp TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS challenge JSONB;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS explanation TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Work From Home (WFH) columns on attendance_logs — attendance_mode
     // defaults 'office' so every existing row (and every existing query that
     // doesn't know this column exists) keeps its current meaning.
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS attendance_mode TEXT NOT NULL DEFAULT 'office';`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS home_lat REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS home_lng REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS distance_from_home_meters REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS wfh_reason TEXT;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS checkout_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS worked_minutes REAL;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_late BOOLEAN;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS late_by_minutes INTEGER;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS expected_checkout_at TIMESTAMP;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_short_day BOOLEAN;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS pending_verification BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime_minutes REAL;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS attendance_mode TEXT NOT NULL DEFAULT 'office';`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS home_lat REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS home_lng REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS distance_from_home_meters REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS wfh_reason TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS checkout_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS worked_minutes REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_late BOOLEAN;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS late_by_minutes INTEGER;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS expected_checkout_at TIMESTAMP;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_half_day BOOLEAN;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS is_short_day BOOLEAN;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS pending_verification BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS overtime_minutes REAL;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS employee_home_locations (
@@ -996,7 +1035,7 @@ export async function verifyAndSyncDatabase() {
         hash TEXT NOT NULL
       );
     `);
-    try { await db.execute(sql`ALTER TABLE audit_ledger ADD COLUMN IF NOT EXISTS request_id TEXT;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE audit_ledger ADD COLUMN IF NOT EXISTS request_id TEXT;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS service_accounts (
@@ -1087,8 +1126,8 @@ export async function verifyAndSyncDatabase() {
 
     // attendance_corrections FK columns that depend on tables not yet
     // created earlier in this script (attendance_logs, employee_documents).
-    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES employee_documents(id);`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS applied_log_id INTEGER REFERENCES attendance_logs(id);`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES employee_documents(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_corrections ADD COLUMN IF NOT EXISTS applied_log_id INTEGER REFERENCES attendance_logs(id);`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS shift_swap_requests (
@@ -1211,20 +1250,20 @@ export async function verifyAndSyncDatabase() {
         UNIQUE (tenant_id, event_type)
       );
     `);
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS scope_hr_to_department BOOLEAN NOT NULL DEFAULT false;`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS scope_hr_to_department BOOLEAN NOT NULL DEFAULT false;`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
     // Per-recipient delivery mode + priority tier (Notification Center /
     // digest layer) — see schema.ts notificationPolicies comment. Defaulting
     // every mode to 'immediate' and priority to 'medium' preserves exactly
     // today's behavior for every existing row until an admin reclassifies
     // an event.
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS employee_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS manager_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS hr_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS admin_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium';`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT;`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT;`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_channel_prefs JSONB DEFAULT '{"email":true,"in_app":true}';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS employee_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS manager_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS hr_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS admin_mode TEXT NOT NULL DEFAULT 'immediate';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_policies ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'medium';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_start TEXT;`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS quiet_hours_end TEXT;`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_channel_prefs JSONB DEFAULT '{"email":true,"in_app":true}';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS notification_log (
@@ -1239,9 +1278,9 @@ export async function verifyAndSyncDatabase() {
       );
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS notification_log_tenant_idx ON notification_log(tenant_id, created_at DESC);`);
-    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1;`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS subject_name TEXT;`); } catch (e) {}
-    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}';`); } catch (e) {}
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1;`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS subject_name TEXT;`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}';`); } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     // Digest queue — holds 'digest'-mode notifications until digestDispatcher
     // rolls them into one summary per recipient. Same-day duplicates of the
@@ -1304,7 +1343,7 @@ export async function verifyAndSyncDatabase() {
             (${tid}, 'executive_daily', 'daily', '19:00', '[{"type":"role","role":"tenant_admin"}]')
         `);
       }
-    } catch (e) {}
+    } catch (e) { logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_logs_archive (
@@ -1484,19 +1523,20 @@ export async function verifyAndSyncDatabase() {
     `);
 
     // ALTER TABLE for presence columns in case table was previously created
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_engine_enabled BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_grace_period_mins INTEGER DEFAULT 30;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_heartbeat_interval_sec INTEGER DEFAULT 60;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_delay_mins INTEGER DEFAULT 15;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_confidence_threshold INTEGER DEFAULT 40;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS max_session_duration_hours INTEGER DEFAULT 14;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_heartbeat BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_activity_tracking BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_gps_evaluation BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_wifi_evaluation BOOLEAN DEFAULT false;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_face_evaluation BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS ignore_gps_during_break BOOLEAN DEFAULT true;`); } catch(e){}
-    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS overtime_threshold_mins INTEGER DEFAULT 0;`); } catch(e){}
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_engine_enabled BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_grace_period_mins INTEGER DEFAULT 30;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS presence_heartbeat_interval_sec INTEGER DEFAULT 60;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_delay_mins INTEGER DEFAULT 15;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS auto_checkout_confidence_threshold INTEGER DEFAULT 40;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS max_session_duration_hours INTEGER DEFAULT 14;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_heartbeat BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_browser_activity_tracking BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_gps_evaluation BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_wifi_evaluation BOOLEAN DEFAULT false;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS enable_face_evaluation BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS ignore_gps_during_break BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS overtime_threshold_mins INTEGER DEFAULT 0;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
+    try { await db.execute(sql`ALTER TABLE attendance_preferences ADD COLUMN IF NOT EXISTS allow_manual_attendance_freeze BOOLEAN DEFAULT true;`); } catch(e){ logger.warn('boot schema-sync: statement failed', { error: (e as any)?.message }); }
 
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS attendance_preference_history (
@@ -1542,6 +1582,151 @@ export async function verifyAndSyncDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+
+    // ------------------------------------------------------------------
+    // SmartTeams Federation Provider API (/v1/federation/*) — additive
+    // tables only, same CREATE TABLE IF NOT EXISTS pattern as everything
+    // above. See packages/database/src/schema.ts's matching block for the
+    // Drizzle definitions and field-by-field comments.
+    // ------------------------------------------------------------------
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_clients (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        name TEXT NOT NULL,
+        client_id TEXT NOT NULL UNIQUE,
+        client_secret_hash TEXT NOT NULL,
+        environment TEXT NOT NULL DEFAULT 'sandbox',
+        scopes JSONB NOT NULL DEFAULT '["attendance","leave","payroll","employees"]',
+        status TEXT NOT NULL DEFAULT 'active',
+        last_used_at TIMESTAMP,
+        revoked_at TIMESTAMP,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_external_id_mappings (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        entity_type TEXT NOT NULL,
+        internal_id INTEGER NOT NULL,
+        external_id TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_ext_id_entity_external_unique ON federation_external_id_mappings (entity_type, external_id);`); } catch (e) { console.error('Index sync failed (federation_ext_id_entity_external_unique):', e); }
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_ext_id_entity_internal_unique ON federation_external_id_mappings (tenant_id, entity_type, internal_id);`); } catch (e) { console.error('Index sync failed (federation_ext_id_entity_internal_unique):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_idempotency_keys (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        client_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        response_status INTEGER,
+        response_body JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP NOT NULL
+      );
+    `);
+    try { await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS federation_idempotency_client_key_unique ON federation_idempotency_keys (client_id, idempotency_key);`); } catch (e) { console.error('Index sync failed (federation_idempotency_client_key_unique):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_webhook_outbox (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        event_id TEXT NOT NULL UNIQUE,
+        event_type TEXT NOT NULL,
+        schema_version TEXT NOT NULL DEFAULT '1.0',
+        aggregate_type TEXT NOT NULL,
+        aggregate_id TEXT NOT NULL,
+        aggregate_version INTEGER NOT NULL DEFAULT 1,
+        occurred_at TIMESTAMP NOT NULL,
+        business_date TEXT,
+        data JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        delivery_attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at TIMESTAMP,
+        last_error TEXT,
+        delivered_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_status_idx ON federation_webhook_outbox (tenant_id, status);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS federation_outbox_tenant_created_idx ON federation_webhook_outbox (tenant_id, created_at);`); } catch (e) { console.error('Index sync failed (federation_outbox_tenant_created_idx):', e); }
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_signing_keys (
+        id SERIAL PRIMARY KEY,
+        key_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        private_key_ref TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        activated_at TIMESTAMP DEFAULT NOW(),
+        retired_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_webhook_subscriptions (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL UNIQUE,
+        callback_url TEXT NOT NULL,
+        event_types JSONB,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        last_delivery_at TIMESTAMP,
+        last_delivery_status TEXT
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_employee_access_grants (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
+        grant_version INTEGER NOT NULL DEFAULT 0,
+        grants JSONB NOT NULL DEFAULT '[]',
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS federation_break_glass_audit (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) NOT NULL,
+        actor_user_id INTEGER REFERENCES users(id),
+        reason TEXT NOT NULL,
+        action TEXT NOT NULL,
+        before_json JSONB,
+        after_json JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Hot-path composite indexes (architecture audit, 2026-08-05) — Postgres
+    // does not auto-index FK columns, and every list/lookup query above
+    // filters by (tenant_id, ...), so without these the attendance/leave/
+    // payroll endpoints degrade to sequential scans as tenants grow. Each
+    // is wrapped individually, same as the ALTER TABLE statements above, so
+    // one failing (e.g. table not yet created on a fresh boot ordering
+    // issue) never blocks the rest of sync.
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS attendance_logs_tenant_user_created_idx ON attendance_logs (tenant_id, user_id, created_at);`); } catch (e) { console.error('Index sync failed (attendance_logs_tenant_user_created_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS attendance_logs_tenant_created_idx ON attendance_logs (tenant_id, created_at);`); } catch (e) { console.error('Index sync failed (attendance_logs_tenant_created_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS leave_requests_tenant_status_idx ON leave_requests (tenant_id, status);`); } catch (e) { console.error('Index sync failed (leave_requests_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS leave_requests_tenant_user_idx ON leave_requests (tenant_id, user_id);`); } catch (e) { console.error('Index sync failed (leave_requests_tenant_user_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_runs_tenant_year_month_idx ON payroll_runs (tenant_id, year, month);`); } catch (e) { console.error('Index sync failed (payroll_runs_tenant_year_month_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_adjustments_tenant_status_idx ON payroll_adjustments (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_adjustments_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_loans_tenant_status_idx ON payroll_loans (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_loans_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_advances_tenant_status_idx ON payroll_advances (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_advances_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_reimbursements_tenant_status_idx ON payroll_reimbursements (tenant_id, status);`); } catch (e) { console.error('Index sync failed (payroll_reimbursements_tenant_status_idx):', e); }
+    try { await db.execute(sql`CREATE INDEX IF NOT EXISTS payroll_ledger_entries_tenant_year_month_idx ON payroll_ledger_entries (tenant_id, year, month);`); } catch (e) { console.error('Index sync failed (payroll_ledger_entries_tenant_year_month_idx):', e); }
 
     console.log('Database tables verified and synchronized successfully.');
   } catch (err) {

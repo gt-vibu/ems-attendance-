@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege } from '../auth/rbac';
 import { getOrCreatePayrollSettings } from './leavePayrollShared';
@@ -24,7 +25,7 @@ router.get('/api/tenant/holidays/optional', authenticate, async (req: any, res: 
       holidays: holidays.map((holiday: any) => ({ ...holiday, selected: selectedHolidayIds.has(holiday.id) })),
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "holidays.routes.ts");
   }
 });
 
@@ -60,7 +61,7 @@ router.post('/api/tenant/holidays/optional', authenticate, async (req: any, res:
     }
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "holidays.routes.ts");
   }
 });
 
@@ -92,6 +93,6 @@ router.post('/api/tenant/holidays/import-public', authenticate, async (req: any,
     if (values.length > 0) await db.insert(schema.holidays).values(values);
     res.json({ success: true, imported: values.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "holidays.routes.ts");
   }
 });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, and, or, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getEffectivePrivileges } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -29,8 +30,8 @@ router.post('/api/tenant/delegations', authenticate, async (req: any, res: any) 
     if (Number(delegatedToUserId) === req.user.userId) {
       return res.status(400).json({ error: 'You cannot delegate to yourself.' });
     }
-    const toUserRows = await db.select().from(schema.users).where(eq(schema.users.id, Number(delegatedToUserId))).limit(1);
-    if (toUserRows.length === 0 || toUserRows[0].tenantId !== req.user.tenantId) {
+    const toUserRows = await db.select().from(schema.users).where(and(eq(schema.users.id, Number(delegatedToUserId)), eq(schema.users.tenantId, req.user.tenantId))).limit(1);
+    if (toUserRows.length === 0) {
       return res.status(404).json({ error: 'Delegate not found in your organization.' });
     }
 
@@ -67,7 +68,7 @@ router.post('/api/tenant/delegations', authenticate, async (req: any, res: any) 
 
     res.json({ delegation: created });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });
 
@@ -99,16 +100,15 @@ router.get('/api/tenant/delegations', authenticate, async (req: any, res: any) =
 
     res.json({ delegations: enriched });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });
 
 router.post('/api/tenant/delegations/:id/revoke', authenticate, async (req: any, res: any) => {
   try {
-    const rows = await db.select().from(schema.delegations).where(eq(schema.delegations.id, parseInt(req.params.id, 10)));
+    const rows = await db.select().from(schema.delegations).where(and(eq(schema.delegations.id, parseInt(req.params.id, 10)), eq(schema.delegations.tenantId, req.user.tenantId)));
     if (rows.length === 0) return res.status(404).json({ error: 'Delegation not found.' });
     const delegation = rows[0];
-    if (delegation.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
     // Only the delegator, the tenant admin (via hasPrivilege bypass — this
     // route intentionally also allows any tenant_admin), or the delegate
     // themself (declining) can revoke.
@@ -130,6 +130,6 @@ router.post('/api/tenant/delegations/:id/revoke', authenticate, async (req: any,
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err, "delegation.routes.ts");
   }
 });

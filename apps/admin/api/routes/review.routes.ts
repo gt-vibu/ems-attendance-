@@ -4,6 +4,7 @@ import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -58,9 +59,16 @@ router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
       const effective = await getEffectivePrivileges(req.user);
       const holds = (key: string) => effective === 'ALL' || effective.includes(key);
 
+      // Visibility is a privilege-based filter applied in-memory below (it
+      // depends on per-caller assignment/privilege, not something a single
+      // WHERE clause can express), so true offset-based pagination isn't
+      // possible here without restructuring that check into SQL. Capping
+      // the pre-filter fetch at the most recent 1000 alerts still closes
+      // the unbounded-full-table-scan risk for the common case.
       const alerts = await db.select().from(schema.attendanceAlerts)
         .where(eq(schema.attendanceAlerts.tenantId, req.user.tenantId))
-        .orderBy(desc(schema.attendanceAlerts.createdAt));
+        .orderBy(desc(schema.attendanceAlerts.createdAt))
+        .limit(1000);
 
       const visible = alerts.filter((a: any) => {
         if (a.currentAssigneeUserId === req.user.userId) return true;
@@ -82,7 +90,7 @@ router.get('/api/tenant/alerts', authenticate, async (req: any, res: any) => {
 
       res.json({ alerts: withNames });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -99,17 +107,14 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
         return res.status(400).json({ error: 'alertId and a valid action (accept|reject) are required' });
       }
 
-      const alertList = await db.select().from(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.id, alertId));
+      // SECURITY: tenant isolation — never let someone resolve another
+      // tenant's alert just by guessing an ID; scoped in the query itself
+      // rather than fetch-then-check.
+      const alertList = await db.select().from(schema.attendanceAlerts).where(and(eq(schema.attendanceAlerts.id, alertId), eq(schema.attendanceAlerts.tenantId, req.user.tenantId)));
       if (alertList.length === 0) {
         return res.status(404).json({ error: 'Alert not found' });
       }
       const alert = alertList[0];
-
-      // SECURITY: tenant isolation — never let someone resolve another
-      // tenant's alert just by guessing an ID.
-      if (alert.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This alert does not belong to your organization.' });
-      }
       if (alert.status !== 'pending') {
         return res.status(400).json({ error: 'This alert has already been resolved.' });
       }
@@ -124,13 +129,21 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
         return res.status(403).json({ error: `Access denied: You have not been granted permission to resolve this alert type.` });
       }
 
-      await db.update(schema.attendanceAlerts)
+      // Guard the UPDATE itself on status='pending' — closes the race where
+      // two people resolve the same alert concurrently and both pass the
+      // check above before either write lands (both would otherwise
+      // double-fire the audit-ledger entry below).
+      const claimed = await db.update(schema.attendanceAlerts)
         .set({
           status: action === 'accept' ? 'accepted' : 'rejected',
           resolvedByUserId: req.user.userId,
           resolvedAt: new Date()
         })
-        .where(eq(schema.attendanceAlerts.id, alertId));
+        .where(and(eq(schema.attendanceAlerts.id, alertId), eq(schema.attendanceAlerts.status, 'pending')))
+        .returning({ id: schema.attendanceAlerts.id });
+      if (claimed.length === 0) {
+        return res.status(400).json({ error: 'This alert has already been resolved.' });
+      }
 
       await logToAuditLedger({
         tenantId: req.user.tenantId,
@@ -142,7 +155,7 @@ router.post('/api/tenant/alerts/action', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -165,7 +178,7 @@ router.get('/api/tenant/holidays', authenticate, async (req: any, res: any) => {
         .orderBy(schema.holidays.date);
       res.json({ holidays: list });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -214,7 +227,7 @@ router.post('/api/tenant/holidays', authenticate, async (req: any, res: any) => 
       );
       res.json({ holiday: created[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -223,12 +236,9 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      const holidayList = await db.select().from(schema.holidays).where(and(eq(schema.holidays.id, parseInt(req.params.id)), eq(schema.holidays.tenantId, req.user.tenantId)));
       if (holidayList.length === 0) {
         return res.status(404).json({ error: 'Holiday not found' });
-      }
-      if (holidayList[0].tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This holiday does not belong to your organization.' });
       }
       const holiday = holidayList[0];
       if (holiday.isArchived) {
@@ -250,7 +260,7 @@ router.delete('/api/tenant/holidays/:id', authenticate, async (req: any, res: an
       });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -259,10 +269,9 @@ router.post('/api/tenant/holidays/:id/restore', authenticate, async (req: any, r
       if (!await hasPrivilege(req.user, 'holiday.manage')) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
-      const holidayList = await db.select().from(schema.holidays).where(eq(schema.holidays.id, parseInt(req.params.id)));
+      const holidayList = await db.select().from(schema.holidays).where(and(eq(schema.holidays.id, parseInt(req.params.id)), eq(schema.holidays.tenantId, req.user.tenantId)));
       if (holidayList.length === 0) return res.status(404).json({ error: 'Holiday not found' });
       const holiday = holidayList[0];
-      if (holiday.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Access denied.' });
       if (!holiday.isArchived) return res.status(400).json({ error: 'This holiday is not archived.' });
       await db.update(schema.holidays).set({ isArchived: false, archivedAt: null, archivedByUserId: null }).where(eq(schema.holidays.id, holiday.id));
       await db.insert(schema.holidayHistory).values({
@@ -272,7 +281,7 @@ router.post('/api/tenant/holidays/:id/restore', authenticate, async (req: any, r
       });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -286,7 +295,7 @@ router.get('/api/tenant/holidays/:id/history', authenticate, async (req: any, re
       ).orderBy(desc(schema.holidayHistory.createdAt));
       res.json({ history: rows });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -332,8 +341,12 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
         if (!(await documentsEnabledForTenant(req.user.tenantId))) {
           return res.status(403).json({ error: 'Document attachments are not enabled for this organization.' });
         }
-        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, Number(documentId))).limit(1);
-        if (docRows.length === 0 || docRows[0].tenantId !== req.user.tenantId || docRows[0].userId !== req.user.userId) {
+        const docRows = await db.select().from(schema.employeeDocuments).where(and(
+          eq(schema.employeeDocuments.id, Number(documentId)),
+          eq(schema.employeeDocuments.tenantId, req.user.tenantId),
+          eq(schema.employeeDocuments.userId, req.user.userId),
+        )).limit(1);
+        if (docRows.length === 0) {
           return res.status(400).json({ error: 'Invalid document attachment.' });
         }
         verifiedDocumentId = docRows[0].id;
@@ -382,7 +395,7 @@ router.post('/api/attendance/corrections', authenticate, async (req: any, res: a
 
       res.json({ correction: created[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -392,14 +405,16 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
       const list = await db.select().from(schema.attendanceCorrections)
         .where(eq(schema.attendanceCorrections.userId, req.user.userId))
         .orderBy(desc(schema.attendanceCorrections.createdAt));
-      const withAttachments = await Promise.all(list.map(async (c: any) => {
-        if (c.documentId == null) return { ...c, attachmentFileName: null };
-        const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
-        return { ...c, attachmentFileName: docRows[0]?.fileName || null };
-      }));
+      // Batched lookup instead of one query per correction (N+1).
+      const documentIds: number[] = Array.from(new Set<number>(list.filter((c: any) => c.documentId != null).map((c: any) => c.documentId as number)));
+      const docRows = documentIds.length > 0
+        ? await db.select({ id: schema.employeeDocuments.id, fileName: schema.employeeDocuments.fileName }).from(schema.employeeDocuments).where(inArray(schema.employeeDocuments.id, documentIds))
+        : [];
+      const fileNameById = new Map(docRows.map((d: any) => [d.id, d.fileName]));
+      const withAttachments = list.map((c: any) => ({ ...c, attachmentFileName: c.documentId != null ? (fileNameById.get(c.documentId) || null) : null }));
       res.json({ corrections: withAttachments });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -409,8 +424,8 @@ router.get('/api/attendance/corrections/mine', authenticate, async (req: any, re
   // 'attendance.approve.corrections' shouldn't imply general document access.
 router.get('/api/attendance/corrections/:id/attachment', authenticate, async (req: any, res: any) => {
     try {
-      const rows = await db.select().from(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.id, parseInt(req.params.id, 10))).limit(1);
-      if (rows.length === 0 || rows[0].tenantId !== req.user.tenantId || !rows[0].documentId) {
+      const rows = await db.select().from(schema.attendanceCorrections).where(and(eq(schema.attendanceCorrections.id, parseInt(req.params.id, 10)), eq(schema.attendanceCorrections.tenantId, req.user.tenantId))).limit(1);
+      if (rows.length === 0 || !rows[0].documentId) {
         return res.status(404).json({ error: 'No attachment found for this request.' });
       }
       const correction = rows[0];
@@ -429,7 +444,7 @@ router.get('/api/attendance/corrections/:id/attachment', authenticate, async (re
       res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName.replace(/["\r\n]/g, '')}"`);
       res.send(buffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -440,23 +455,34 @@ router.get('/api/tenant/corrections', authenticate, async (req: any, res: any) =
       if (!await hasAnyPrivilege(req.user, ['attendance.approve.corrections', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
+      const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 500));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
       const list = await db.select().from(schema.attendanceCorrections)
         .where(eq(schema.attendanceCorrections.tenantId, req.user.tenantId))
-        .orderBy(desc(schema.attendanceCorrections.createdAt));
+        .orderBy(desc(schema.attendanceCorrections.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-      const withNames = await Promise.all(list.map(async (c: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, c.userId));
-        let attachmentFileName: string | null = null;
-        if (c.documentId != null) {
-          const docRows = await db.select().from(schema.employeeDocuments).where(eq(schema.employeeDocuments.id, c.documentId));
-          attachmentFileName = docRows[0]?.fileName || null;
-        }
-        return { ...c, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '', attachmentFileName };
+      // Batched lookups instead of two queries per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((c: any) => c.userId as number)));
+      const documentIds: number[] = Array.from(new Set<number>(list.filter((c: any) => c.documentId != null).map((c: any) => c.documentId as number)));
+      const [userRows, docRows] = await Promise.all([
+        userIds.length > 0 ? db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds)) : Promise.resolve([] as { id: number; name: string; role: string }[]),
+        documentIds.length > 0 ? db.select({ id: schema.employeeDocuments.id, fileName: schema.employeeDocuments.fileName }).from(schema.employeeDocuments).where(inArray(schema.employeeDocuments.id, documentIds)) : Promise.resolve([] as { id: number; fileName: string }[]),
+      ]);
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const fileNameById = new Map<number, any>(docRows.map((d: any) => [d.id, d.fileName]));
+
+      const withNames = list.map((c: any) => ({
+        ...c,
+        userName: userById.get(c.userId)?.name || 'Unknown',
+        userRole: userById.get(c.userId)?.role || '',
+        attachmentFileName: c.documentId != null ? (fileNameById.get(c.documentId) || null) : null,
       }));
 
-      res.json({ corrections: withNames });
+      res.json({ corrections: withNames, pagination: { limit, offset, returned: list.length } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -470,16 +496,47 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         return res.status(400).json({ error: 'correctionId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.id, correctionId));
+      const list = await db.select().from(schema.attendanceCorrections).where(and(eq(schema.attendanceCorrections.id, correctionId), eq(schema.attendanceCorrections.tenantId, req.user.tenantId)));
       if (list.length === 0) {
         return res.status(404).json({ error: 'Correction request not found' });
       }
       const correction = list[0];
-
-      if (correction.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (correction.status !== 'pending') {
+        return res.status(400).json({ error: 'This request has already been resolved.' });
+      }
+
+      // Re-check the freeze guard at APPROVAL time, not just at submission
+      // time (review.routes.ts:331 above checks it when the correction is
+      // requested). If the period got frozen in the time between request
+      // and approval, approving now would silently mutate attendance data
+      // inside what should already be an immutable period — the same
+      // override privilege used at submission time is required here too.
+      if (action === 'approve'
+        && await isDateFrozen(req.user.tenantId, correction.requestedDate)
+        && !(await hasPrivilege(req.user, 'attendance.override_without_approval'))) {
+        return res.status(400).json({ error: `${correction.requestedDate} was frozen after this correction was requested and can no longer be approved directly. Use a payroll adjustment instead, or ask someone with override privileges.` });
+      }
+
+      // Claim the correction now, atomically, before doing any of the
+      // side-effecting work below — closes the race where two approvers
+      // both pass the status check above before either write lands (which
+      // would otherwise regularize the attendance day and/or create a
+      // payroll adjustment twice). Set straight to the real terminal status
+      // rather than a placeholder: if the process crashes partway through
+      // the side effects below, the row is left in its correct final status
+      // rather than stuck in a made-up intermediate one with no recovery
+      // path (same category of non-transactional risk this flow already
+      // had — see the "not fully transactional" note below — not a new one).
+      const claimed = await db.update(schema.attendanceCorrections)
+        .set({
+          status: action === 'approve' ? 'approved' : 'rejected',
+          reviewedByUserId: req.user.userId,
+          reviewedAt: new Date(),
+          reviewRemarks: remarks || null,
+        })
+        .where(and(eq(schema.attendanceCorrections.id, correctionId), eq(schema.attendanceCorrections.status, 'pending')))
+        .returning({ id: schema.attendanceCorrections.id });
+      if (claimed.length === 0) {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
 
@@ -548,15 +605,15 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
         }
       }
 
-      await db.update(schema.attendanceCorrections)
-        .set({
-          status: action === 'approve' ? 'approved' : 'rejected',
-          reviewedByUserId: req.user.userId,
-          reviewedAt: new Date(),
-          reviewRemarks: remarks || null,
-          appliedLogId,
-        })
-        .where(eq(schema.attendanceCorrections.id, correctionId));
+      // status/reviewedByUserId/reviewedAt/reviewRemarks were already set by
+      // the claim UPDATE above (before the side effects ran); this just
+      // fills in appliedLogId, which editAttendanceDay() only produces
+      // after that claim.
+      if (appliedLogId != null) {
+        await db.update(schema.attendanceCorrections)
+          .set({ appliedLogId })
+          .where(eq(schema.attendanceCorrections.id, correctionId));
+      }
 
       await logToAuditLedger({
         tenantId: req.user.tenantId,
@@ -586,7 +643,7 @@ router.post('/api/tenant/corrections/action', authenticate, async (req: any, res
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -597,6 +654,8 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
       if (!await hasAnyPrivilege(req.user, ['attendance.approve.late_arrival', 'attendance.approve'])) {
         return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
       }
+      const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 500));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
       const list = await db.select().from(schema.attendanceLogs)
         .where(
           and(
@@ -604,16 +663,21 @@ router.get('/api/tenant/attendance/pending', authenticate, async (req: any, res:
             eq(schema.attendanceLogs.status, 'pending')
           )
         )
-        .orderBy(desc(schema.attendanceLogs.createdAt));
+        .orderBy(desc(schema.attendanceLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
 
-      const withNames = await Promise.all(list.map(async (l: any) => {
-        const u = await db.select().from(schema.users).where(eq(schema.users.id, l.userId));
-        return { ...l, userName: u[0]?.name || 'Unknown', userRole: u[0]?.role || '' };
-      }));
+      // Batched lookup instead of one query per row (N+1).
+      const userIds: number[] = Array.from(new Set<number>(list.map((l: any) => l.userId as number)));
+      const userRows = userIds.length > 0
+        ? await db.select({ id: schema.users.id, name: schema.users.name, role: schema.users.role }).from(schema.users).where(inArray(schema.users.id, userIds))
+        : [];
+      const userById = new Map<number, any>(userRows.map((u: any) => [u.id, u]));
+      const withNames = list.map((l: any) => ({ ...l, userName: userById.get(l.userId)?.name || 'Unknown', userRole: userById.get(l.userId)?.role || '' }));
 
-      res.json({ logs: withNames });
+      res.json({ logs: withNames, pagination: { limit, offset, returned: list.length } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });
 
@@ -627,15 +691,11 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
         return res.status(400).json({ error: 'logId and a valid action (approve|reject) are required' });
       }
 
-      const list = await db.select().from(schema.attendanceLogs).where(eq(schema.attendanceLogs.id, logId));
+      const list = await db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.id, logId), eq(schema.attendanceLogs.tenantId, req.user.tenantId)));
       if (list.length === 0) {
         return res.status(404).json({ error: 'Attendance log not found' });
       }
       const log = list[0];
-
-      if (log.tenantId !== req.user.tenantId) {
-        return res.status(403).json({ error: 'Access denied: This request does not belong to your organization.' });
-      }
       if (log.status !== 'pending') {
         return res.status(400).json({ error: 'This request has already been resolved.' });
       }
@@ -647,13 +707,20 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
       // 'approved', so updating it in place here doesn't touch an audit
       // trail the way editing an already-approved log would (that's what
       // attendanceCorrections is for instead).
-      await db.update(schema.attendanceLogs)
+      // Guarded on status='pending' so two concurrent approvals of the same
+      // log can't both pass the check above and both fire the audit-ledger/
+      // notification side effects below.
+      const claimed = await db.update(schema.attendanceLogs)
         .set(
           action === 'approve'
             ? { status: 'approved' }
             : { status: 'rejected', type: 'absent' }
         )
-        .where(eq(schema.attendanceLogs.id, logId));
+        .where(and(eq(schema.attendanceLogs.id, logId), eq(schema.attendanceLogs.status, 'pending')))
+        .returning({ id: schema.attendanceLogs.id });
+      if (claimed.length === 0) {
+        return res.status(400).json({ error: 'This request has already been resolved.' });
+      }
 
       const isWfh = log.attendanceMode === 'wfh';
       await logToAuditLedger({
@@ -702,6 +769,6 @@ router.post('/api/tenant/attendance/action', authenticate, async (req: any, res:
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "review.routes.ts");
     }
   });

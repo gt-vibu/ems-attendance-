@@ -1,28 +1,33 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
-import swaggerUi from 'swagger-ui-express';
-import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
+import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
-import { openApiSpec } from '../../openapi.js';
-import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
-import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
-import { sendEmail, sendPasswordResetEmail, sendAttendanceCorrectionEmail, sendBreakViolationAlert, sendManagerEscalationEmail, sendLateArrivalApprovalRequestEmail, sendLateArrivalDecisionEmail, sendLowAttendanceAlertEmail, sendBreakLocationViolationEmail, sendWfhApprovalRequestEmail, sendWfhDecisionEmail, sendWfhLocationChangeRequestEmail, sendWfhLocationChangeDecisionEmail } from '../../mail.js';
-import { extractWfhPolicy, isRoleAllowedForWfh, haversineMeters as wfhHaversineMeters, evaluateWfhEligibility, evaluateWfhLocation, todayWeekdayName, WFH_PERMISSIONS } from '../../wfh.js';
-import { reverseGeocode } from '../../geocoding.js';
-import { extractQrPolicy, evaluateQrGeofence, evaluateQrScan, shouldRotateQrToken, QR_ROTATION_OPTIONS, QR_PERMISSIONS, QR_TOKEN_PURPOSE, QR_SCAN_PASS_PURPOSE } from '../../qr.js';
-import { authenticate } from '../middleware/authenticate';
+import { hashPassword } from '../../password.js';
+import { sendEmail } from '../../mail.js';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { authLimiter } from '../middleware/rateLimit';
 import { hasPrivilege, getEffectivePrivileges, getUsersWithPrivilege, getDefaultPrivilegesForRole, PLATFORM_FEATURES, PLATFORM_FEATURE_DEPENDENCIES, isPlatformFeatureAllowed } from '../auth/rbac';
 import { STARTER_ROLE_DEFAULTS } from '../auth/starterRoles';
 import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
-import { haversineMeters, resolveActiveIp } from '../services/geo';
-import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 
 export const router = Router();
 
+// companyName originates from the public, unauthenticated
+// /api/tenancy/request endpoint below (validated only for truthiness) and
+// is later interpolated into HTML email bodies and returned from
+// GET /api/super/tenants — escape it everywhere it lands in HTML so a
+// company name containing <script>/<img onerror=...> can't execute.
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
   // Tenancy Request Endpoint (Public onboarding submission)
 router.post('/api/tenancy/request', authLimiter, async (req, res) => {
@@ -52,46 +57,37 @@ router.post('/api/tenancy/request', authLimiter, async (req, res) => {
         to: email,
         subject: 'Smart Teams Tenancy Request Received',
         text: `Hello ${companyName},\n\nWe have received your request to join Smart Teams under the ${plan} Plan. Our Super Admin will review your application and onboard you shortly.\n\nBest Regards,\nSmart Teams Team`,
-        html: `<h3>Hello ${companyName},</h3><p>We have received your request to join Smart Teams under the <strong>${plan} Plan</strong>. Our Super Admin will review your application and onboard you shortly.</p><br/><p>Best Regards,<br/>Smart Teams Team</p>`
+        html: `<h3>Hello ${escapeHtml(companyName)},</h3><p>We have received your request to join Smart Teams under the <strong>${escapeHtml(plan)} Plan</strong>. Our Super Admin will review your application and onboard you shortly.</p><br/><p>Best Regards,<br/>Smart Teams Team</p>`
       });
 
       res.json({ success: true, request: request[0] });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
   // SUPER ADMIN API: Get Requests & Notifications
-router.get('/api/super/requests', authenticate, async (req: any, res: any) => {
+router.get('/api/super/requests', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const requests = await db.select().from(schema.tenancyRequests).orderBy(desc(schema.tenancyRequests.createdAt));
       res.json({ requests });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
-router.get('/api/super/notifications', authenticate, async (req: any, res: any) => {
+router.get('/api/super/notifications', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const notifyList = await db.select().from(schema.notifications).where(sql`user_id IS NULL`).orderBy(desc(schema.notifications.createdAt));
       res.json({ notifications: notifyList });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
   // SUPER ADMIN API: Approve Tenancy & Onboard Tenant
-router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
+router.post('/api/super/approve', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { requestId, featuresAllowed, plan } = req.body;
       
       const reqDetails = await db.select().from(schema.tenancyRequests).where(eq(schema.tenancyRequests.id, requestId));
@@ -173,7 +169,7 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
         to: request.email,
         subject: 'Welcome to Smart Teams - Access Granted',
         text: `Hello ${request.companyName} Admin,\n\nYour tenancy has been approved by the Super Admin under the ${tenant[0].plan} plan.\n\nYour credentials:\nUsername: ${request.email}\nTemporary Password: ${userCredentialsTemplate(tempPassword)}\n\nLogin and set your permanent password here: ${activationLink}\n\nBest Regards,\nSmart Teams Onboarding`,
-        html: `<h3>Hello ${request.companyName} Admin,</h3><p>Your tenancy has been approved by the Super Admin under the <strong>${tenant[0].plan} plan</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${request.email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#7B5CFA;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Activate Your Account</a></p><br/><p>Best Regards,<br/>Smart Teams Onboarding</p>`
+        html: `<h3>Hello ${escapeHtml(request.companyName)} Admin,</h3><p>Your tenancy has been approved by the Super Admin under the <strong>${escapeHtml(tenant[0].plan)} plan</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${escapeHtml(request.email)}</code><br/>Temporary Password: <code>${escapeHtml(tempPassword)}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#7B5CFA;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Activate Your Account</a></p><br/><p>Best Regards,<br/>Smart Teams Onboarding</p>`
       });
 
       // Email is the ONLY channel this credential ever went out through
@@ -188,7 +184,7 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
       // level as everything else on this endpoint.
       res.json({ success: true, activationLink, emailDelivered: emailResult.delivered });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -202,39 +198,30 @@ router.post('/api/super/approve', authenticate, async (req: any, res: any) => {
   // The server-driven list of platform-level module keys — same list used
   // to validate /api/super/approve and /api/super/tenants/features, exposed
   // so the frontend never hardcodes its own copy.
-router.get('/api/super/platform-features', authenticate, async (req: any, res: any) => {
-    if (req.user.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+router.get('/api/super/platform-features', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     res.json({ features: PLATFORM_FEATURES, dependencies: PLATFORM_FEATURE_DEPENDENCIES });
   });
 
-router.get('/api/super/tenants', authenticate, async (req: any, res: any) => {
+router.get('/api/super/tenants', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const tenantsList = await db.select().from(schema.tenants).orderBy(desc(schema.tenants.createdAt));
 
-      const withCounts = await Promise.all(tenantsList.map(async (t: any) => {
-        const employees = await db.select().from(schema.users).where(eq(schema.users.tenantId, t.id));
-        return { ...t, employeeCount: employees.length };
-      }));
+      // Single grouped count instead of one query per tenant (N+1).
+      const countRows = await db.select({ tenantId: schema.users.tenantId, count: sql<number>`count(*)` }).from(schema.users).groupBy(schema.users.tenantId);
+      const countByTenant = new Map(countRows.map((r: any) => [r.tenantId, Number(r.count)]));
+      const withCounts = tenantsList.map((t: any) => ({ ...t, employeeCount: countByTenant.get(t.id) || 0 }));
 
       res.json({ tenants: withCounts });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
   // SUPER ADMIN API: Suspend or reactivate a tenant. Suspending immediately
   // blocks that tenant's users from logging in or logging attendance —
   // enforced in /api/auth/login and /api/attendance below.
-router.post('/api/super/tenants/status', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/status', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId, status } = req.body;
       if (!tenantId || !['active', 'suspended'].includes(status)) {
         return res.status(400).json({ error: 'tenantId and a valid status (active|suspended) are required' });
@@ -259,7 +246,7 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -268,11 +255,8 @@ router.post('/api/super/tenants/status', authenticate, async (req: any, res: any
   // /api/super/approve. This is the top layer of the toggle cascade:
   // whatever a tenant admin can turn on/delegate is bounded by what's in
   // this list (see isPlatformFeatureAllowed() in rbac.ts).
-router.post('/api/super/tenants/features', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/features', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId, featuresAllowed } = req.body;
       if (!tenantId || !Array.isArray(featuresAllowed) || featuresAllowed.some((f: any) => typeof f !== 'string')) {
         return res.status(400).json({ error: 'tenantId and featuresAllowed (a string array) are required' });
@@ -298,7 +282,7 @@ router.post('/api/super/tenants/features', authenticate, async (req: any, res: a
 
       res.json({ success: true, featuresAllowed: cleaned });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -312,11 +296,8 @@ router.post('/api/super/tenants/features', authenticate, async (req: any, res: a
   // Deletion runs in a single transaction, deleting child rows in FK-safe
   // order; audit-ledger entries are detached (tenantId/actorId set to null)
   // rather than deleted, preserving the hash chain's integrity.
-router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { tenantId } = req.body;
       if (!tenantId) {
         return res.status(400).json({ error: 'tenantId is required' });
@@ -437,7 +418,7 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -448,11 +429,8 @@ router.post('/api/super/tenants/delete', authenticate, async (req: any, res: any
 // table the Postgres-backed queue (services/queue/postgresQueue.ts)
 // already reads/writes. This adds visibility, not new state: no job here
 // is created or mutated by this route, only summarized and listed.
-router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) => {
+router.get('/api/super/job-scheduler', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const rows = await db.select().from(schema.backgroundJobs).orderBy(desc(schema.backgroundJobs.createdAt)).limit(500);
 
       const byStatus: Record<string, number> = { pending: 0, running: 0, done: 0, failed: 0 };
@@ -473,7 +451,7 @@ router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) 
         recentJobs: rows.slice(0, 50).map((j: any) => ({ id: j.id, jobType: j.jobType, tenantId: j.tenantId, status: j.status, attempts: j.attempts, createdAt: j.createdAt, completedAt: j.completedAt })),
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -488,11 +466,8 @@ router.get('/api/super/job-scheduler', authenticate, async (req: any, res: any) 
 // Healthy" line — this deployment doesn't use Redis for anything but the
 // optional rate limiter, which already degrades to in-memory without it,
 // so there's no real Redis health signal to report.
-router.get('/api/super/system-health', authenticate, async (req: any, res: any) => {
+router.get('/api/super/system-health', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const now = Date.now();
       const dbStart = now;
@@ -536,22 +511,24 @@ router.get('/api/super/system-health', authenticate, async (req: any, res: any) 
 
       res.json({ checks, checkedAt: new Date().toISOString() });
     } catch (err: any) {
-      // If we got here, the database check itself is what failed —
-      // report that directly instead of a generic 500.
-      res.status(500).json({ error: err.message, checks: [{ id: 'database', label: 'Database', status: 'unhealthy', detail: err.message }] });
+      // If we got here, the database check itself is what failed. Logged
+      // server-side (with full detail) via logger.error inside
+      // sendServerError below rather than echoing the raw error text back
+      // in the response — this is still an authenticated response body,
+      // not a server log, so it follows the same sanitization convention
+      // as every other endpoint even though the audience is super_admin only.
+      logger.error('super.routes.ts (system-health) check failed', { error: err?.message, stack: err?.stack });
+      res.status(500).json({ error: 'Health check failed to run.', checks: [{ id: 'database', label: 'Database', status: 'unhealthy', detail: 'Health check failed to run — see server logs.' }] });
     }
   });
 
-router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any, res: any) => {
+router.get('/api/super/tenants/:tenantId/admins', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const tenantId = parseInt(req.params.tenantId, 10);
       const admins = await db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.role, 'tenant_admin')));
       res.json({ admins: admins.map(a => ({ id: a.id, name: a.name, email: a.email, createdAt: a.createdAt })) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -569,11 +546,8 @@ router.get('/api/super/tenants/:tenantId/admins', authenticate, async (req: any,
   // payroll adjustment), Postgres rejects the delete with a foreign-key
   // error and the whole transaction rolls back — reported back as a 409
   // rather than silently destroying that data.
-router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, res: any) => {
+router.post('/api/super/tenant-admins/delete', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
       const { userId } = req.body;
       if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
@@ -634,16 +608,13 @@ router.post('/api/super/tenant-admins/delete', authenticate, async (req: any, re
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
   // SUPER ADMIN API: Organization-wide analytics dashboard.
-router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
+router.get('/api/super/analytics', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const tenantsList = await db.select().from(schema.tenants);
       const allUsers = await db.select().from(schema.users);
@@ -691,7 +662,7 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
         }, {})
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });
 
@@ -702,11 +673,8 @@ router.get('/api/super/analytics', authenticate, async (req: any, res: any) => {
 // through it (real usage, read from the tables that module actually
 // writes to). A feature can be "enabled" with zero real usage — that gap is
 // the whole point of building this, not something to paper over.
-router.get('/api/super/feature-usage', authenticate, async (req: any, res: any) => {
+router.get('/api/super/feature-usage', authenticate, requireRole('super_admin'), async (req: any, res: any) => {
     try {
-      if (req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
       const tenantsList = await db.select().from(schema.tenants);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -755,6 +723,6 @@ router.get('/api/super/feature-usage', authenticate, async (req: any, res: any) 
 
       res.json({ features, totalTenants: tenantsList.length, windowDays: 30 });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err, "super.routes.ts");
     }
   });

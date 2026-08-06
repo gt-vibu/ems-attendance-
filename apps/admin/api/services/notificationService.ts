@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db, schema } from '../../db';
-import { getUsersWithPrivilege } from '../auth/rbac';
+import { getUsersWithPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
 import { resolveEscalationAssignee } from './escalation';
 import { renderNotificationTemplate } from './notificationTemplates';
 import { notifyUser } from './notifications';
@@ -277,6 +277,52 @@ export async function notify(tenantId: number, eventType: string, ctx: NotifyCon
         data: ctx.data || {},
       }, { tenantId });
     }
+  }
+}
+
+// Shared by every route that needs to notify one specific person about one
+// event and doesn't already know whether the tenant has the unified
+// notification policy engine ('unified_notifications' platform feature)
+// turned on. Previously hand-rolled near-identically (fetch tenant row,
+// branch on isPlatformFeatureAllowed) in at least 8 route files — this is
+// the one place that logic should live. Falls back to the plain
+// notifyUser() single-notification path when the tenant hasn't opted into
+// unified_notifications.
+export async function notifyOrFallback(
+  tenantId: number,
+  eventType: string,
+  subjectUserId: number,
+  subjectName: string,
+  data: Record<string, any>,
+  fallbackTitle: string,
+  fallbackMessage: string,
+): Promise<void> {
+  await notifyOrFallbackCustom(tenantId, eventType, subjectUserId, subjectName, data, () => notifyUser(subjectUserId, fallbackTitle, fallbackMessage));
+}
+
+// Same unified_notifications branch as notifyOrFallback() above, but for
+// call sites whose "off" fallback needs to be something richer than a
+// generic in-app notification — e.g. a specifically-templated email
+// (sendLeaveDecisionEmail, sendLeaveApprovalRequestEmail) with real
+// leaveType/date/etc. content, which notifyUser()'s plain title/message
+// can't express. Without this, those call sites had no way to reuse the
+// shared "fetch tenant row, check the feature flag" logic without either
+// duplicating it by hand (the original problem) or silently downgrading
+// their fallback to a bare in-app notification (a real feature regression
+// for tenants that haven't opted into unified_notifications).
+export async function notifyOrFallbackCustom(
+  tenantId: number,
+  eventType: string,
+  subjectUserId: number,
+  subjectName: string,
+  data: Record<string, any>,
+  fallbackFn: () => Promise<any>,
+): Promise<void> {
+  const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
+  if (isPlatformFeatureAllowed(tenantRow as any, 'unified_notifications')) {
+    await notify(tenantId, eventType, { subjectUserId, subjectName, data }).catch(() => undefined);
+  } else {
+    await fallbackFn().catch(() => undefined);
   }
 }
 

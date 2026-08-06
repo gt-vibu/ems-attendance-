@@ -22,6 +22,7 @@ import { notify, notifyDirectRecipient, registerNotificationDeliveryHandler } fr
 import { dispatchDueDigests } from '../services/digestDispatcher';
 import { registerPayrollBatchCalculationHandler } from '../services/payrollBatchCalculation';
 import { processPresenceAutoCheckout } from '../services/presenceEngine';
+import { registerFederationOutboxDispatchHandler } from '../services/federation/outbox';
 
 export function runBackgroundScheduler() {
   console.log('Background Scheduler initialized.');
@@ -48,6 +49,7 @@ export function runBackgroundScheduler() {
   registerReportSchedulerHandler();
   registerNotificationDeliveryHandler();
   registerPayrollBatchCalculationHandler();
+  registerFederationOutboxDispatchHandler();
 
   // 0. Background job queue poll (services/queue) — runs only on this
   // (leader) instance, same guarantee every other job in this function
