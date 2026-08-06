@@ -3954,11 +3954,6 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
           <NotificationsTab notifications={notifications} />
         )}
 
-        {/* Teams Tab */}
-        {activeTab === 'teams' && (
-          <TeamsPage user={user} embedded />
-        )}
-
         {/* Immutable Audit Ledger Tab */}
         {activeTab === 'administration' && adminSubTab === 'ledger' && (
           <LedgerTab

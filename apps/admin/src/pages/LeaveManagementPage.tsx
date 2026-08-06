@@ -32,6 +32,27 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
+  // Policy creation — POST /api/tenant/leave/policies already existed on the
+  // backend with nothing in this UI ever calling it, so there was no way to
+  // add a leave type/policy short of a direct API call. seedingDefaults
+  // drives the companion one-click "seed the standard starter set" action
+  // (POST /api/tenant/leave/policies/seed-defaults), also previously unused
+  // by any frontend.
+  const [showCreatePolicyModal, setShowCreatePolicyModal] = useState(false);
+  const [creatingPolicy, setCreatingPolicy] = useState(false);
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
+  const [policyForm, setPolicyForm] = useState({
+    name: '',
+    code: '',
+    maxDaysPerYear: 12,
+    allowHalfDay: true,
+    requiresApproval: true,
+    accrualEnabled: false,
+    carryForwardEnabled: false,
+    maxCarryForwardDays: 0,
+    encashmentEnabled: false,
+  });
+
   const refresh = async () => {
     setLoading(true);
     try {
@@ -75,6 +96,53 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
       setError(err.message || 'Failed to action request.');
+    }
+  };
+
+  const handleCreatePolicy = async () => {
+    if (!policyForm.name.trim() || !policyForm.code.trim()) {
+      setError('Policy name and code are required.');
+      return;
+    }
+    setCreatingPolicy(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/leave/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(policyForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to create leave policy.');
+      setSuccess(`"${policyForm.name}" policy created.`);
+      setShowCreatePolicyModal(false);
+      setPolicyForm({ name: '', code: '', maxDaysPerYear: 12, allowHalfDay: true, requiresApproval: true, accrualEnabled: false, carryForwardEnabled: false, maxCarryForwardDays: 0, encashmentEnabled: false });
+      refresh();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to create leave policy.');
+    } finally {
+      setCreatingPolicy(false);
+    }
+  };
+
+  const handleSeedDefaults = async () => {
+    setSeedingDefaults(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/leave/policies/seed-defaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to seed standard leave policies.');
+      setSuccess(`Added ${data.policies?.length || 0} standard leave type(s).`);
+      refresh();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to seed standard leave policies.');
+    } finally {
+      setSeedingDefaults(false);
     }
   };
 
@@ -225,7 +293,41 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       )}
 
       {activeTab === 'policies' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h4 className="font-bold text-sm text-[var(--color-nexus-ink)]">Leave Types &amp; Policies</h4>
+            <div className="flex items-center gap-2">
+              {leavePolicies.length === 0 && (
+                <button
+                  type="button"
+                  onClick={handleSeedDefaults}
+                  disabled={seedingDefaults}
+                  className="px-3 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] text-xs font-bold transition-colors disabled:opacity-50"
+                >
+                  {seedingDefaults ? 'Adding…' : 'Seed Standard Policies'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCreatePolicyModal(true)}
+                className="px-3 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <Plus size={14} /> Add Policy
+              </button>
+            </div>
+          </div>
+
+          {leavePolicies.length === 0 && (
+            <div className="p-8 text-center bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl">
+              <CalendarDays size={32} className="mx-auto text-[var(--color-nexus-muted)] mb-2" />
+              <p className="text-sm font-bold text-[var(--color-nexus-ink)]">No leave types configured yet</p>
+              <p className="text-xs text-[var(--color-nexus-muted)] mt-1 max-w-sm mx-auto">
+                Employees can't request leave until at least one policy exists. Seed the standard starter set (Casual, Sick, Earned, LWP, Paternity, Sabbatical) or add your own.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {leavePolicies.map((pol, idx) => {
             const palette = POLICY_PALETTE[idx % POLICY_PALETTE.length];
             const Icon = palette.icon;
@@ -246,6 +348,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -264,6 +367,101 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {showCreatePolicyModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => !creatingPolicy && setShowCreatePolicyModal(false)}>
+          <div className="nexus-card rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[var(--color-nexus-ink)]">Add Leave Policy</h3>
+              <button type="button" onClick={() => setShowCreatePolicyModal(false)} className="p-1 text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Name</label>
+                <input
+                  type="text"
+                  value={policyForm.name}
+                  onChange={(e) => setPolicyForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Casual Leave"
+                  className="w-full px-3 py-2 border border-[var(--color-nexus-border)] rounded-lg text-sm"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Code</label>
+                <input
+                  type="text"
+                  value={policyForm.code}
+                  onChange={(e) => setPolicyForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. CASUAL"
+                  className="w-full px-3 py-2 border border-[var(--color-nexus-border)] rounded-lg text-sm font-mono"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Max Days / Year</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={policyForm.maxDaysPerYear}
+                  onChange={(e) => setPolicyForm((f) => ({ ...f, maxDaysPerYear: Number(e.target.value) }))}
+                  className="w-full px-3 py-2 border border-[var(--color-nexus-border)] rounded-lg text-sm"
+                />
+              </div>
+
+              {[
+                { key: 'allowHalfDay' as const, label: 'Allow half-day requests' },
+                { key: 'requiresApproval' as const, label: 'Requires manager approval' },
+                { key: 'accrualEnabled' as const, label: 'Accrues monthly (not available all at once)' },
+                { key: 'carryForwardEnabled' as const, label: 'Unused days carry forward to next year' },
+                { key: 'encashmentEnabled' as const, label: 'Employees can encash unused days for pay' },
+              ].map(({ key, label }) => (
+                <label key={key} className="col-span-2 flex items-center gap-2 text-xs text-[var(--color-nexus-ink)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={policyForm[key]}
+                    onChange={(e) => setPolicyForm((f) => ({ ...f, [key]: e.target.checked }))}
+                    className="w-4 h-4"
+                  />
+                  {label}
+                </label>
+              ))}
+
+              {policyForm.carryForwardEnabled && (
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Max Carry-Forward Days</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={policyForm.maxCarryForwardDays}
+                    onChange={(e) => setPolicyForm((f) => ({ ...f, maxCarryForwardDays: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 border border-[var(--color-nexus-border)] rounded-lg text-sm"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreatePolicyModal(false)}
+                className="flex-1 bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreatePolicy}
+                disabled={creatingPolicy}
+                className="flex-1 bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition-all disabled:opacity-50"
+              >
+                {creatingPolicy ? 'Creating…' : 'Create Policy'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -64,6 +64,20 @@ export function registerPayrollBatchCalculationHandler() {
         const batchRows = await db.select().from(schema.payrollBatches).where(eq(schema.payrollBatches.id, payload.batchId)).limit(1);
         const batch = batchRows[0];
         if (batch) {
+          // BUG FIX: this notified tenant_admin on permanent failure but
+          // never reset the BATCH's own status column — POST .../calculate
+          // sets status='calculating' BEFORE enqueueing the job (see
+          // payroll.routes.ts), and that route only accepts 'draft' or
+          // 'calculated' as a starting status. A permanently-failed job
+          // left the batch stuck at 'calculating' forever with no way to
+          // retry through the UI (exactly what "Calculating..." forever
+          // with 0 employees/$0 looks like from the outside). Reverting to
+          // 'draft' — only if it's still 'calculating', so this never
+          // clobbers a batch a *later*, successful run already advanced —
+          // makes it recoverable via the same Calculate button.
+          if (batch.status === 'calculating') {
+            await db.update(schema.payrollBatches).set({ status: 'draft' }).where(and(eq(schema.payrollBatches.id, batch.id), eq(schema.payrollBatches.status, 'calculating')));
+          }
           await notify(batch.tenantId, 'payroll_batch_calculation_failed', {
             subjectUserId: payload.actorId,
             subjectName: payload.actorName,

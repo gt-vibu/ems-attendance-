@@ -1230,7 +1230,14 @@ router.post('/api/tenant/payroll/batches/:id/calculate', authenticate, async (re
     const batchRows = await db.select().from(schema.payrollBatches).where(and(eq(schema.payrollBatches.id, Number(req.params.id)), eq(schema.payrollBatches.tenantId, req.user.tenantId))).limit(1);
     if (batchRows.length === 0) return res.status(404).json({ error: 'Batch not found.' });
     const batch = batchRows[0];
-    if (batch.status !== 'draft' && batch.status !== 'calculated') {
+    // 'calculating' is included here as a manual-retry escape hatch: if a
+    // previous calculation job permanently failed (queue retries exhausted
+    // — see payrollBatchCalculation.ts) before this codebase reverted the
+    // batch's own status on that path, it could get stuck at 'calculating'
+    // forever with no way to try again. Safe to allow re-triggering from
+    // here regardless of cause — the calculation itself is idempotent
+    // (recomputes fresh, doesn't append to prior partial results).
+    if (batch.status !== 'draft' && batch.status !== 'calculated' && batch.status !== 'calculating') {
       return res.status(400).json({ error: `Cannot calculate a batch in status '${batch.status}'.` });
     }
     const gateMsg = await checkCalendarGate(req.user.tenantId, batch.year, batch.month, 'calculating');

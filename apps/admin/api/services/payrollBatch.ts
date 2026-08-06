@@ -57,12 +57,23 @@ export async function scanBatchExceptions(tenantId: number, year: number, month:
     : [];
   const profiledUserIds = new Set(profiles.map((p: any) => p.userId));
 
+  // BUG FIX: each `${}` inside a drizzle sql`` template becomes its own
+  // separately-bound SQL parameter — `${year}-${month}-${day}` here
+  // previously produced three parameters joined by LITERAL hyphen
+  // characters in the generated SQL text (`start_date <= $1-$2-$3`),
+  // which Postgres rejects outright (a bound param can't be the left side
+  // of a bare `-` in that position) — every call to this function 500'd.
+  // Building the complete date string in JS first means each sql``
+  // interpolation carries exactly one parameter, same pattern
+  // leave.routes.ts's own date-range overlap query already uses correctly.
+  const monthStartStr = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEndStr = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
   const pendingLeave = userIds.length > 0
     ? await db.select().from(schema.leaveRequests).where(and(
       inArray(schema.leaveRequests.userId, userIds),
       eq(schema.leaveRequests.status, 'pending'),
-      sql`${schema.leaveRequests.startDate} <= ${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`,
-      sql`${schema.leaveRequests.endDate} >= ${year}-${String(month).padStart(2, '0')}-01`
+      sql`${schema.leaveRequests.startDate} <= ${monthEndStr}`,
+      sql`${schema.leaveRequests.endDate} >= ${monthStartStr}`
     ))
     : [];
   const pendingLeaveByUser = new Map<number, number>();

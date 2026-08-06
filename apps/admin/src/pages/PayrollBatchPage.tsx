@@ -79,6 +79,12 @@ export default function PayrollBatchPage({ user }: PayrollBatchPageProps) {
 
   const nextActionForStatus: Record<string, { path: string; label: string; disabled?: boolean }> = {
     draft: { path: 'calculate', label: 'Calculate', disabled: false },
+    // A batch can get stuck here if a previous calculation job failed
+    // permanently (queue retries exhausted) before reaching the step that
+    // moves it to 'calculated' — recalculating is safe to re-run (it
+    // recomputes fresh each time, never appends to a partial result), so
+    // this is a real recovery path, not just a cosmetic label.
+    calculating: { path: 'calculate', label: 'Retry Calculation', disabled: false },
     calculated: { path: 'submit-hr', label: 'Submit for HR Review', disabled: blockingExceptions.length > 0 },
     pending_hr_review: { path: 'submit-finance', label: 'Submit for Finance Review' },
     pending_finance_review: { path: 'approve', label: 'Approve Batch' },
