@@ -36,15 +36,10 @@ async function startServer() {
   // unchanged.
   const PORT = Number(process.env.PORT) || 3000;
 
-  // Resolve real-Postgres-vs-JSON-fallback exactly once, before any query
-  // runs — everything below this line assumes db already knows which one
-  // it's talking to.
-  await detectPostgres();
-
-  // Initialize DB and Seed
-  await verifyAndSyncDatabase();
-  await seedSuperAdmin();
-  await startSchedulerWithLeadership();
+  // Root health check endpoint for cloud orchestrators & Render port scanners
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
 
   // Structured per-request logging (method, path, status, latency) — first in
   // the chain so it times the whole request. JSON lines in production.
@@ -66,11 +61,6 @@ async function startServer() {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        // fonts.googleapis.com: index.css @imports the Google Fonts
-        // stylesheet directly (Vite leaves external @import URLs as-is,
-        // so the browser fetches it at page-load) — found by an actual
-        // browser console CSP violation during verification, not visible
-        // from a static grep of the source.
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
         fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
@@ -85,15 +75,6 @@ async function startServer() {
     crossOriginEmbedderPolicy: false,
   }));
 
-  // Third-party/partner integrations call this API from a different origin
-  // than the bundled frontend, which browsers block by default without
-  // explicit CORS headers. CORS_ALLOWED_ORIGINS is a comma-separated
-  // allowlist (e.g. "https://partner.example.com,https://app.example.com");
-  // unset means "same-origin only", the safe default. '*' opts in to any
-  // origin — only use that for a genuinely public, unauthenticated API
-  // surface (this one requires a bearer token per-request regardless, but
-  // a wildcard still exposes it to browser-based CSRF-style abuse from any
-  // page, so it's opt-in, not the default).
   const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
   app.use(cors({
     origin: corsAllowedOrigins.length === 0
@@ -105,22 +86,8 @@ async function startServer() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   }));
 
-  // Was 50mb — a generous global limit on every JSON endpoint, not just the
-  // one route that actually needs headroom. Document uploads
-  // (documents.routes.ts) go over this same global parser as base64-in-JSON
-  // and cap the underlying file at 15MB (MAX_FILE_BYTES), which base64-
-  // inflates to ~20.1MB of JSON — 25mb keeps real headroom for that one
-  // legitimate case while cutting the effective DoS/memory-pressure surface
-  // on every other endpoint roughly in half.
   app.use(express.json({ limit: '25mb' }));
 
-  // Versioned API surface for external integrations: /api/v1/* is a plain
-  // rewrite to the existing /api/* routes below, not a duplicate route
-  // table — so every current and future /api/* endpoint is automatically
-  // available at /api/v1/* too, with zero risk of the two drifting apart.
-  // The bundled frontend keeps calling /api/* directly (unchanged); this
-  // exists so external partners have a version-prefixed contract to
-  // integrate against without depending on unprefixed paths.
   app.use((req, _res, next) => {
     if (req.url.startsWith('/api/v1/')) {
       req.url = req.url.replace('/api/v1/', '/api/');
@@ -129,10 +96,6 @@ async function startServer() {
     }
     next();
   });
-  // Generous general-purpose limiter (defined in api/middleware/rateLimit)
-  // — a safety net against abuse/DoS without getting in the way of normal
-  // use (dashboards polling, or many employees behind one office IP all
-  // checking in around the same time).
   app.use('/api/', generalLimiter);
 
   // Every API route, grouped by domain under api/routes/*. Mounted before the
@@ -160,22 +123,26 @@ async function startServer() {
     });
   }
 
-  // Final safety net: every route handler in api/routes/* already wraps its
-  // body in try/catch and returns a JSON error, so this exists for the
-  // narrow gap that isn't covered — a synchronous throw in middleware itself,
-  // or an async handler that forgot the try/catch. Must be registered last
-  // (Express identifies error middleware by its 4-arg signature, not
-  // position, but convention is last) and after the SPA catch-all so it
-  // still catches errors from within that too.
   app.use((err: any, req: any, res: any, _next: any) => {
     captureException(err, { method: req.method, path: req.originalUrl || req.url });
     if (res.headersSent) return;
     res.status(500).json({ error: 'Internal server error' });
   });
 
+  // Bind server IMMEDIATELY so Render's port detection scanner finds open TCP port instantly on boot
   const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development' });
   });
+
+  // Resolve real-Postgres-vs-JSON-fallback, run migrations, seed & start background scheduler
+  try {
+    await detectPostgres();
+    await verifyAndSyncDatabase();
+    await seedSuperAdmin();
+    await startSchedulerWithLeadership();
+  } catch (err: any) {
+    logger.error('Error during database initialization/sync:', { error: err?.message });
+  }
 
   // Graceful shutdown: SIGTERM/SIGINT is how orchestrators (Docker, Railway,
   // Fly, Kubernetes) ask a container to stop. Stop accepting new connections,
