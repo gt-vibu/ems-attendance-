@@ -297,11 +297,32 @@ export async function notifyOrFallback(
   fallbackTitle: string,
   fallbackMessage: string,
 ): Promise<void> {
+  await notifyOrFallbackCustom(tenantId, eventType, subjectUserId, subjectName, data, () => notifyUser(subjectUserId, fallbackTitle, fallbackMessage));
+}
+
+// Same unified_notifications branch as notifyOrFallback() above, but for
+// call sites whose "off" fallback needs to be something richer than a
+// generic in-app notification — e.g. a specifically-templated email
+// (sendLeaveDecisionEmail, sendLeaveApprovalRequestEmail) with real
+// leaveType/date/etc. content, which notifyUser()'s plain title/message
+// can't express. Without this, those call sites had no way to reuse the
+// shared "fetch tenant row, check the feature flag" logic without either
+// duplicating it by hand (the original problem) or silently downgrading
+// their fallback to a bare in-app notification (a real feature regression
+// for tenants that haven't opted into unified_notifications).
+export async function notifyOrFallbackCustom(
+  tenantId: number,
+  eventType: string,
+  subjectUserId: number,
+  subjectName: string,
+  data: Record<string, any>,
+  fallbackFn: () => Promise<any>,
+): Promise<void> {
   const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1))[0];
   if (isPlatformFeatureAllowed(tenantRow as any, 'unified_notifications')) {
     await notify(tenantId, eventType, { subjectUserId, subjectName, data }).catch(() => undefined);
   } else {
-    await notifyUser(subjectUserId, fallbackTitle, fallbackMessage);
+    await fallbackFn().catch(() => undefined);
   }
 }
 

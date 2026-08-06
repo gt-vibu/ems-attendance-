@@ -4,7 +4,7 @@ import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
 import { getScopedBranchIds, getUsersWithPrivilege, hasPrivilege, isPlatformFeatureAllowed } from '../auth/rbac';
-import { notify, notifyOrFallback } from '../services/notificationService';
+import { notify, notifyOrFallback, notifyOrFallbackCustom } from '../services/notificationService';
 import { STARTER_LEAVE_POLICIES } from '../auth/starterLeavePolicies';
 import { sendLeaveApprovalRequestEmail, sendLeaveDecisionEmail } from '../../mail.js';
 import { parseDateOnly, toDateOnly, computeLeaveDays, uniqueById, getOrCreatePayrollSettings, getEffectiveDailyRate } from './leavePayrollShared';
@@ -395,16 +395,14 @@ router.post('/api/tenant/leave/requests/action', authenticate, async (req: any, 
     const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, leaveRequest.userId)).limit(1);
     if (employeeRows.length > 0) {
       const employee = employeeRows[0];
-      const tenantRow = (await db.select().from(schema.tenants).where(eq(schema.tenants.id, req.user.tenantId)).limit(1))[0];
-      if (isPlatformFeatureAllowed(tenantRow, 'unified_notifications')) {
-        await notify(req.user.tenantId, 'leave_decided', {
-          subjectUserId: employee.id,
-          subjectName: employee.name,
-          data: { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
-        }).catch(() => undefined);
-      } else {
-        await sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment).catch(() => undefined);
-      }
+      await notifyOrFallbackCustom(
+        req.user.tenantId,
+        'leave_decided',
+        employee.id,
+        employee.name,
+        { leaveType: leaveRequest.leaveType, startDate: leaveRequest.startDate, endDate: leaveRequest.endDate, status: action === 'approve' ? 'approved' : 'rejected', comment: comment || '' },
+        () => sendLeaveDecisionEmail(employee.email, employee.name, leaveRequest.leaveType, leaveRequest.startDate, leaveRequest.endDate, action === 'approve' ? 'approved' : 'rejected', comment),
+      );
     }
     dispatchWebhookEvent(req.user.tenantId, action === 'approve' ? 'leave.approved' : 'leave.rejected', {
       requestId: updated.id,
