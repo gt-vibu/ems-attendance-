@@ -1,10 +1,19 @@
 import crypto from 'crypto';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
-import { db, schema } from '../../db';
+import { db, schema, withBootSyncLock } from '../../db';
 import { logger } from '../../logger';
 import { hashPassword, verifyPassword, isPasswordHashed } from '../../password.js';
 
-export async function verifyAndSyncDatabase() {
+// Public entry point — held for the WHOLE sync under a blocking Postgres
+// advisory lock (db.ts's withBootSyncLock) so N replicas starting at once on
+// a rolling/autoscaled deploy don't race each other's concurrent
+// CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS
+// statements — they queue up and run one at a time instead.
+export async function verifyAndSyncDatabase(): Promise<void> {
+  await withBootSyncLock(runSchemaSync);
+}
+
+async function runSchemaSync() {
   try {
     console.log('Synchronizing database tables...');
     await db.execute(sql`
