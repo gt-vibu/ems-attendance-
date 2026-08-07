@@ -257,6 +257,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     undeliveredActivation, setUndeliveredActivation,
     fetchSuperAdminData, handleToggleTenantStatus, handleDeleteTenant, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
+    connectedAppsTenant, setConnectedAppsTenant, connectedApps, connectedAppsExternalOrgId, connectedAppsLoading,
+    availableFederationApps, authorizeAppId, setAuthorizeAppId,
+    authorizeExternalOrgIdInput, setAuthorizeExternalOrgIdInput, authorizing,
+    openConnectedApps, handleAuthorizeApp, handleRevokeApp,
   } = useSuperAdminData(token, setLoading, setError, setSuccess, setNotifications);
 
   // ==========================================
@@ -2186,7 +2190,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
                                   Edit Features
                                 </button>
                                 <button
-                                  onClick={() => navigate('/super/integration-hub')}
+                                  onClick={() => openConnectedApps(t)}
                                   className="font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)]"
                                 >
                                   Connected Apps
@@ -2441,6 +2445,105 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
               <button
                 onClick={() => setManageAdminsTenant(null)}
+                className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Connected Apps modal — the actual per-tenant federation-authorization
+            screen. Authorizing a platform-wide app here also links the
+            externalOrganizationId a partner's real API calls must include
+            (see tenantConnectedApps.routes.ts); without that id, an
+            authorized-looking connection still 403s every real request with
+            TENANT_CONTEXT_REQUIRED. */}
+        {connectedAppsTenant && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setConnectedAppsTenant(null)}>
+            <div className="nexus-card rounded-xl p-6 max-w-lg w-full shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] mb-2 font-sans">Connected Apps — {connectedAppsTenant.name}</h3>
+              <p className="text-xs text-[var(--color-nexus-muted)] mb-4">
+                Third-party apps authorized here can call the SmartTeams federation API on behalf of this tenant only. This tenant is never merged into or treated as the app — authorizing just records a scoped, revocable grant.
+              </p>
+
+              <div className="mb-5 p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-1">External Organization ID</p>
+                {connectedAppsExternalOrgId ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-xs font-mono text-[var(--color-nexus-ink)] break-all">{connectedAppsExternalOrgId}</code>
+                    <button
+                      onClick={() => navigator.clipboard?.writeText(connectedAppsExternalOrgId).catch(() => {})}
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-lg bg-[var(--color-nexus-border)] hover:brightness-110 text-[var(--color-nexus-ink)]"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--color-nexus-muted)]">Not set yet — authorize an app below to generate one, or type your own.</p>
+                )}
+                <p className="text-[10px] text-[var(--color-nexus-muted)] mt-2">Give this exact value to the partner — every real API call they make must include it to identify this tenant.</p>
+              </div>
+
+              <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-2">Currently Authorized</p>
+              {connectedAppsLoading ? (
+                <p className="text-sm text-[var(--color-nexus-muted)] text-center py-6">Loading…</p>
+              ) : connectedApps.length === 0 ? (
+                <p className="text-xs text-[var(--color-nexus-muted)] text-center py-4 mb-4">No apps authorized for this tenant yet.</p>
+              ) : (
+                <div className="space-y-2 mb-5">
+                  {connectedApps.map((a: any) => (
+                    <div key={a.authorizationId} className="flex items-center justify-between p-3 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl">
+                      <div>
+                        <p className="text-sm font-bold text-[var(--color-nexus-ink)]">{a.appName}</p>
+                        <p className="text-[10px] text-[var(--color-nexus-muted)] font-mono">{a.clientId}</p>
+                        <p className="text-[10px] text-[var(--color-nexus-muted)]">{(a.authorizedScopes || []).join(', ')}</p>
+                      </div>
+                      <button
+                        onClick={() => handleRevokeApp(a.appId, a.appName)}
+                        disabled={loading}
+                        className="bg-[var(--color-nexus-error)] hover:brightness-110 text-white text-xs font-bold uppercase tracking-wider py-1.5 px-4 rounded-lg transition-colors disabled:opacity-50 shrink-0"
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[10px] uppercase font-bold tracking-wider text-[var(--color-nexus-muted)] mb-2">Authorize an App</p>
+              <div className="space-y-3 mb-5">
+                <select
+                  value={authorizeAppId}
+                  onChange={(e) => setAuthorizeAppId(e.target.value)}
+                  className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg py-2.5 px-3 text-sm text-[var(--color-nexus-ink)]"
+                >
+                  <option value="">Select a registered app…</option>
+                  {availableFederationApps.map((a: any) => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.clientId})</option>
+                  ))}
+                </select>
+                <div>
+                  <input
+                    type="text"
+                    value={authorizeExternalOrgIdInput}
+                    onChange={(e) => setAuthorizeExternalOrgIdInput(e.target.value)}
+                    placeholder="externalOrganizationId (leave blank to auto-generate)"
+                    className="w-full bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-lg py-2.5 px-3 text-sm text-[var(--color-nexus-ink)] font-mono"
+                  />
+                  <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Agree on this value with the partner ahead of time if you have one — otherwise one is generated for you.</p>
+                </div>
+                <button
+                  onClick={handleAuthorizeApp}
+                  disabled={authorizing || !authorizeAppId}
+                  className="w-full bg-[var(--color-nexus-primary)] hover:brightness-110 text-white font-bold text-xs uppercase tracking-wider py-3 rounded-xl transition-all disabled:opacity-50"
+                >
+                  {authorizing ? 'Authorizing…' : 'Authorize App'}
+                </button>
+              </div>
+
+              <button
+                onClick={() => setConnectedAppsTenant(null)}
                 className="w-full bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] font-bold text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all"
               >
                 Close

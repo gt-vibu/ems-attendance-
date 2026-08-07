@@ -264,6 +264,95 @@ export function useSuperAdminData(
     }
   };
 
+  // --- Connected Apps modal (per-tenant federation authorization) —
+  // the actual "link this tenant to a 3rd-party platform app" screen. The
+  // "Connected Apps" button previously just navigated to the generic
+  // Integration Hub with no tenant context at all — this is the real
+  // per-tenant equivalent, wired to the tenantConnectedApps.routes.ts
+  // endpoints (GET/authorize/revoke), including the externalOrganizationId
+  // a platform-wide app needs to resolve which tenant a request is about.
+  const [connectedAppsTenant, setConnectedAppsTenant] = useState<any>(null);
+  const [connectedApps, setConnectedApps] = useState<any[]>([]);
+  const [connectedAppsExternalOrgId, setConnectedAppsExternalOrgId] = useState<string | null>(null);
+  const [connectedAppsLoading, setConnectedAppsLoading] = useState(false);
+  const [availableFederationApps, setAvailableFederationApps] = useState<any[]>([]);
+  const [authorizeAppId, setAuthorizeAppId] = useState<string>('');
+  const [authorizeExternalOrgIdInput, setAuthorizeExternalOrgIdInput] = useState('');
+  const [authorizing, setAuthorizing] = useState(false);
+
+  const openConnectedApps = async (tenant: any) => {
+    setConnectedAppsTenant(tenant);
+    setConnectedApps([]);
+    setConnectedAppsExternalOrgId(null);
+    setAuthorizeAppId('');
+    setAuthorizeExternalOrgIdInput('');
+    setConnectedAppsLoading(true);
+    try {
+      const [connectedRes, appsRes] = await Promise.all([
+        fetch(`/api/super/tenants/${tenant.id}/connected-apps`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/super/platform-federation-clients', { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      const connectedData = await connectedRes.json();
+      if (connectedRes.ok) {
+        setConnectedApps(connectedData.connectedApps || []);
+        setConnectedAppsExternalOrgId(connectedData.externalOrganizationId ?? null);
+        setAuthorizeExternalOrgIdInput(connectedData.externalOrganizationId || '');
+      }
+      const appsData = await appsRes.json();
+      if (appsRes.ok) setAvailableFederationApps(Array.isArray(appsData.federationClients) ? appsData.federationClients : []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConnectedAppsLoading(false);
+    }
+  };
+
+  const handleAuthorizeApp = async () => {
+    if (!connectedAppsTenant || !authorizeAppId) return;
+    setAuthorizing(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/super/tenants/${connectedAppsTenant.id}/connected-apps/${authorizeAppId}/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          externalOrganizationId: authorizeExternalOrgIdInput.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to authorize application');
+      setSuccess(`App authorized for "${connectedAppsTenant.name}".`);
+      await openConnectedApps(connectedAppsTenant);
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to authorize application');
+    } finally {
+      setAuthorizing(false);
+    }
+  };
+
+  const handleRevokeApp = async (appId: number, appName: string) => {
+    if (!connectedAppsTenant) return;
+    if (!window.confirm(`Revoke "${appName}"'s access to "${connectedAppsTenant.name}"? It will immediately stop being able to call the API on this tenant's behalf.`)) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/super/tenants/${connectedAppsTenant.id}/connected-apps/${appId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to revoke access');
+      setSuccess(`"${appName}" revoked.`);
+      await openConnectedApps(connectedAppsTenant);
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to revoke access');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     tenancyRequests,
     showApprovalModal, setShowApprovalModal,
@@ -289,5 +378,9 @@ export function useSuperAdminData(
     handleDeleteTenantAdmin,
     editFeaturesTenant, setEditFeaturesTenant, editFeaturesSelected, editFeaturesSaving,
     openEditFeatures, toggleEditFeature, handleSaveEditFeatures,
+    connectedAppsTenant, setConnectedAppsTenant, connectedApps, connectedAppsExternalOrgId, connectedAppsLoading,
+    availableFederationApps, authorizeAppId, setAuthorizeAppId,
+    authorizeExternalOrgIdInput, setAuthorizeExternalOrgIdInput, authorizing,
+    openConnectedApps, handleAuthorizeApp, handleRevokeApp,
   };
 }
