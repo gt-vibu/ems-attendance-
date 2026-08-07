@@ -7,7 +7,7 @@ policy-driven Express + PostgreSQL backend.
 
 > This README replaces an earlier placeholder left over from the project's
 > initial scaffold — it previously referenced an unrelated 
-> that this app does not use..
+> that this app does not use...
 
 ## Project layout
 
