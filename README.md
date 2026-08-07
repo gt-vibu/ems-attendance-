@@ -3,11 +3,8 @@
 A multi-tenant HRMS attendance module that verifies check-ins via GPS
 geofencing, WebAuthn device identity (Windows Hello, Touch ID, Android
 biometric/PIN, or a security key), and Wi-Fi/network context, backed by a
-policy-driven Express + PostgreSQL backend.
+policy-driven Express + PostgreSQL backend..
 
-> This README replaces an earlier placeholder left over from the project's
-> initial scaffold — it previously referenced an unrelated 
-> that this app does not use.
 
 ## Project layout
 
