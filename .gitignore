@@ -65,3 +65,25 @@ Thumbs.db
 # --- Documentation / Artifacts ------------------------------------------------
 RELEASE_NOTES.md
 release_notes.md
+
+# --- Dead one-off scratch scripts from early scaffolding ----------------------
+# Confirmed unreferenced by any package.json/turbo.json script, CI workflow, or
+# deploy config (render.yaml/fly.toml/vercel.json/docker-compose/Caddyfile) —
+# get_wizard.sh even greps a src/components/EnterpriseSandbox.tsx that no
+# longer exists. Kept out of the repo rather than left to look like part of
+# the live build.
+/check_drizzle_eq.ts
+/create-packages.cjs
+/fix-pnpm.cjs
+/get_wizard.sh
+/update-packages.cjs
+/wait.sh
+/test-build.sh
+
+# --- Stale scaffold metadata ---------------------------------------------------
+# Leftover from the project's original placeholder scaffold (same one the
+# README already calls out for a stray GEMINI_API_KEY reference this app
+# never used) — name "Perimeter", camera/geolocation framing, and a
+# SERVER_SIDE_GEMINI_API capability claim that don't match the shipped
+# WebAuthn-based product. Not read by any app code.
+/metadata.json
