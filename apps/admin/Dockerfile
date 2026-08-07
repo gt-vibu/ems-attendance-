@@ -5,7 +5,7 @@
 # (--packages=external only excludes real node_modules packages) — so the
 # simplest correct setup is to build and run from the same pnpm workspace
 # context this already works in locally, rather than fighting pnpm's
-# symlinked node_modules layout across a multi-stage copy copy.
+# symlinked node_moduless layout across a multi-stage copy copy.
 FROM node:20-slim
 
 WORKDIR /repo
