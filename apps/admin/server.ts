@@ -87,6 +87,14 @@ async function startServer() {
   }));
 
   app.use(express.json({ limit: '25mb' }));
+  // OAuth 2.1 client-credentials token requests (POST /v1/federation/oauth/token)
+  // are required by RFC 6749 §4.4 to use application/x-www-form-urlencoded —
+  // and it's what virtually every off-the-shelf OAuth client library sends by
+  // default. Without this, that body was silently never parsed: req.body was
+  // always {}, so a spec-correct partner call failed with a misleading
+  // "unsupported_grant_type" instead of ever reaching the actual grant-type
+  // check. json() alone was never enough for an OAuth-shaped endpoint.
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   app.use((req, _res, next) => {
     if (req.url.startsWith('/api/v1/')) {

@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { getTableName as drizzleGetTableName } from 'drizzle-orm';
 import pkg from 'pg';
 const { Pool } = pkg;
 import * as schema from '../../packages/database/src/schema';
@@ -325,10 +326,24 @@ function writeLocalDB(data: any) {
   fs.renameSync(tmpFile, DB_FILE);
 }
 
+// Was previously checking `table?.name` first — which doesn't hold the SQL
+// table name for a Drizzle Table object, it holds whatever COLUMN is
+// literally named `name` (tenants.name, users.name, teams.name, ...),
+// since PgTable exposes every column as a same-named property on the table
+// object itself. Any table with a `name` column silently resolved to that
+// column object instead of its real table name, which stringified to the
+// literal key "[object Object]" in the JSON store — merging inserts/reads
+// for every such table into one shared, wrong bucket instead of their own.
+// drizzle-orm's own getTableName() reads the table's internal Symbol
+// unambiguously and is exactly what this should have used from the start.
 function getTableName(table: any): string {
   if (typeof table === 'string') return table;
-  const name = table?.name || table?.[Symbol.for('drizzle:Name')];
-  if (name) return name;
+  try {
+    const name = drizzleGetTableName(table);
+    if (name) return name;
+  } catch { /* not a real Table object — fall through */ }
+  const symbolName = table?.[Symbol.for('drizzle:Name')];
+  if (symbolName) return symbolName;
   return 'unknown';
 }
 
@@ -340,10 +355,17 @@ class QueryBuilder {
   private action: 'select' | 'insert' | 'update' | 'delete';
   private insertValues: any = null;
   private updateValues: any = null;
+  private selectFields: any = null;
+  private groupByClause: any = null;
 
   constructor(table: any, action: 'select' | 'insert' | 'update' | 'delete') {
     this.table = table;
     this.action = action;
+  }
+
+  setFields(fields: any) {
+    this.selectFields = fields;
+    return this;
   }
 
   from(table: any) {
@@ -370,6 +392,18 @@ class QueryBuilder {
     return this;
   }
 
+  // Scoped, not a general SQL aggregation engine: covers exactly the one
+  // shape this codebase actually uses today — `.select({ col, count:
+  // sql\`count(*)\` }).from(t).groupBy(col)` (see GET /api/super/tenants'
+  // employee-count-per-tenant query). Groups the already-loaded rows by the
+  // given column and, for any selected field that isn't a plain column
+  // reference (i.e. a raw sql`` aggregate expression), reports the group's
+  // row count under that field's key — the only aggregate this shape needs.
+  groupBy(clause: any) {
+    this.groupByClause = clause;
+    return this;
+  }
+
   values(val: any) {
     this.insertValues = val;
     return this;
@@ -393,6 +427,24 @@ class QueryBuilder {
       if (onrejected) return onrejected(err);
       throw err;
     }
+  }
+
+  // A thenable needs .catch/.finally too, not just .then — this codebase's
+  // fire-and-forget writes (e.g. authenticate.ts's throttled last-activity
+  // heartbeat: `db.update(...).where(...).catch(() => {})`) call .catch()
+  // directly on the query builder without ever awaiting it first. Without
+  // this, every such call threw "catch is not a function" synchronously,
+  // which — for the heartbeat specifically — broke authentication on every
+  // single request once JSON-fallback mode was in use.
+  catch(onrejected?: (reason: any) => any) {
+    return this.then(undefined, onrejected);
+  }
+
+  finally(onfinally?: () => void) {
+    return this.then(
+      (value: any) => { onfinally?.(); return value; },
+      (err: any) => { onfinally?.(); throw err; },
+    );
   }
 
   private async execute() {
@@ -477,6 +529,9 @@ class QueryBuilder {
     if (this.whereClause) {
       resultRows = resultRows.filter((row: any) => this.matchesWhere(row));
     }
+    if (this.groupByClause) {
+      resultRows = this.applyGroupBy(resultRows);
+    }
     if (this.orderByClause) {
       resultRows.sort((a: any, b: any) => b.id - a.id);
     }
@@ -484,6 +539,49 @@ class QueryBuilder {
       resultRows = resultRows.slice(0, this.limitCount);
     }
     return resultRows;
+  }
+
+  private resolveColumnName(colRef: any): string | null {
+    if (!colRef) return null;
+    if (typeof colRef === 'string') return colRef;
+    return colRef.name || null;
+  }
+
+  private readColumnValue(row: any, colName: string | null): any {
+    if (!colName || !row) return undefined;
+    if (row[colName] !== undefined) return row[colName];
+    const camel = this.snakeToCamel(colName);
+    return row[camel];
+  }
+
+  private applyGroupBy(rows: any[]): any[] {
+    const groupColName = this.resolveColumnName(this.groupByClause);
+    const groups = new Map<string, any[]>();
+    for (const row of rows) {
+      const key = String(this.readColumnValue(row, groupColName));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
+    }
+
+    const fieldEntries = this.selectFields ? Object.entries(this.selectFields) : [];
+    return Array.from(groups.values()).map((groupRows) => {
+      const out: any = {};
+      if (fieldEntries.length > 0) {
+        for (const [alias, ref] of fieldEntries) {
+          const refColName = this.resolveColumnName(ref);
+          // A plain column reference (has a resolvable .name, e.g. the
+          // groupBy key itself) is read off the group's first row. Anything
+          // else — this fallback's one real use case is a raw sql`count(*)`
+          // aggregate — reports the group's row count, the only aggregate
+          // shape this codebase actually asks the fallback for.
+          out[alias] = refColName ? this.readColumnValue(groupRows[0], refColName) : groupRows.length;
+        }
+      } else {
+        out[groupColName || 'group'] = this.readColumnValue(groupRows[0], groupColName);
+        out.count = groupRows.length;
+      }
+      return out;
+    });
   }
 
   private extractConditions(clause: any, conditions: Array<{ column: string, value: any }> = []): Array<{ column: string, value: any }> {
@@ -624,6 +722,27 @@ class QueryBuilder {
   }
 }
 
+// Same select/insert/update/delete/execute surface as the fallback `db`
+// proxy below, handed to a db.transaction() callback as its `tx` argument.
+// The JSON fallback has no real atomicity — every QueryBuilder write already
+// commits straight to disk the moment it runs — but callers (federation
+// domain routes, tenant deletion, payroll batch calculation) still need
+// `tx.select/insert/update/delete` to exist and work, or the callback itself
+// throws immediately. Without this, `db.transaction` fell through to the
+// real Drizzle instance bound to the real (unconfigured) Postgres pool,
+// which threw ECONNREFUSED as soon as anything inside the callback ran —
+// even though every other query on the same request was correctly using
+// the JSON fallback.
+function makeFallbackTxHandle(): any {
+  return {
+    select: (fields?: any) => new QueryBuilder(null, 'select').setFields(fields),
+    insert: (table: any) => new QueryBuilder(table, 'insert'),
+    update: (table: any) => new QueryBuilder(table, 'update'),
+    delete: (table: any) => new QueryBuilder(table, 'delete'),
+    execute: async (_sqlQuery: any) => ({ rows: [] }),
+  };
+}
+
 export const db = new Proxy({} as any, {
   get(target, prop) {
     // Resolved once at startup by detectPostgres() actually attempting a
@@ -637,7 +756,7 @@ export const db = new Proxy({} as any, {
     } else {
       if (prop === 'select') {
         return (fields?: any) => {
-          return new QueryBuilder(null, 'select');
+          return new QueryBuilder(null, 'select').setFields(fields);
         };
       }
       if (prop === 'insert') {
@@ -658,6 +777,11 @@ export const db = new Proxy({} as any, {
       if (prop === 'execute') {
         return async (sqlQuery: any) => {
           return { rows: [] };
+        };
+      }
+      if (prop === 'transaction') {
+        return async (callback: (tx: any) => Promise<any>) => {
+          return await callback(makeFallbackTxHandle());
         };
       }
       return (realDb as any)[prop];
