@@ -304,6 +304,12 @@ router.get('/v1/federation/payroll/runs', resolveFederationTenantContext(), asyn
     const runs = rows.map((b: any) => ({
       runId: String(b.id), periodStart: `${b.year}-${String(b.month).padStart(2, '0')}-01`,
       periodEnd: `${b.year}-${String(b.month).padStart(2, '0')}-28`, status: b.status, version: 1, supersedesRunId: null,
+      employeeCount: b.employeeCount,
+      grossAmountMinor: Math.round(Number(b.totalGross || 0) * MINOR_UNIT_MULTIPLIER),
+      deductionAmountMinor: Math.round(Math.max(0, Number(b.totalGross || 0) - Number(b.totalNet || 0)) * MINOR_UNIT_MULTIPLIER),
+      netAmountMinor: Math.round(Number(b.totalNet || 0) * MINOR_UNIT_MULTIPLIER),
+      currencyCode: 'INR',
+      processedAt: b.releasedAt || b.calculatedAt || null,
     }));
     const nextCursor = rows.length === limit
       ? encodeCursor({ clientId: req.federation.clientId, filtersHash: hashFilters(filters), sort: 'id_asc', asOf: new Date().toISOString(), lastId: rows[rows.length - 1].id })
@@ -343,14 +349,34 @@ router.get('/v1/federation/payroll/ledger', resolveFederationTenantContext(), as
     conditions.push(gt(schema.payrollLedgerEntries.id, afterId));
 
     const rows = await db.select().from(schema.payrollLedgerEntries).where(and(...conditions)).orderBy(asc(schema.payrollLedgerEntries.id)).limit(limit);
-    const entries = await Promise.all(rows.map(async (r: any) => ({
-      runId: r.batchId ? String(r.batchId) : null,
-      runVersion: 1,
-      externalEmployeeId: await getOrAssignExternalId(tenantId, 'employee', r.userId),
-      currencyCode: 'INR',
-      amountMinor: Math.round((r.amount ?? r.netSalary ?? r.grossSalary ?? 0) * MINOR_UNIT_MULTIPLIER),
-      entryType: r.entryType,
-    })));
+    const payrollRunIds = Array.from(new Set<number>(
+      rows.flatMap((row) => Number.isInteger(row.payrollRunId) ? [Number(row.payrollRunId)] : []),
+    ));
+    const payrollRunRows: Array<typeof schema.payrollRuns.$inferSelect> = payrollRunIds.length > 0
+      ? await db.select().from(schema.payrollRuns).where(inArray(schema.payrollRuns.id, payrollRunIds))
+      : [];
+    const payrollRunById = new Map(payrollRunRows.map((run) => [run.id, run] as const));
+    const entries = await Promise.all(rows.map(async (r: any) => {
+      const payrollRun = r.entryType === 'salary' && r.payrollRunId
+        ? payrollRunById.get(r.payrollRunId)
+        : undefined;
+      return {
+        providerLedgerEntryId: String(r.id),
+        runId: r.batchId ? String(r.batchId) : null,
+        runVersion: 1,
+        externalEmployeeId: await getOrAssignExternalId(tenantId, 'employee', r.userId),
+        currencyCode: 'INR',
+        amountMinor: Math.round((r.amount ?? r.netSalary ?? r.grossSalary ?? 0) * MINOR_UNIT_MULTIPLIER),
+        entryType: r.entryType,
+        ...(payrollRun
+          ? {
+              grossPayMinor: Math.round(Number(payrollRun.grossPay || 0) * MINOR_UNIT_MULTIPLIER),
+              deductionAmountMinor: Math.round(Math.max(0, Number(payrollRun.grossPay || 0) - Number(payrollRun.netPay || 0)) * MINOR_UNIT_MULTIPLIER),
+              netPayMinor: Math.round(Number(payrollRun.netPay || 0) * MINOR_UNIT_MULTIPLIER),
+            }
+          : {}),
+      };
+    }));
     const nextCursor = rows.length === limit
       ? encodeCursor({ clientId: req.federation.clientId, filtersHash: hashFilters(filters), sort: 'id_asc', asOf: new Date().toISOString(), lastId: rows[rows.length - 1].id })
       : null;

@@ -50,6 +50,7 @@ async function runSchemaSync() {
     }
   } catch (err) {
     console.error('Failed to apply database migrations:', err);
+    throw err;
   }
 }
 
