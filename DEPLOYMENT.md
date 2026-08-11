@@ -219,8 +219,8 @@ SQL_DB_NAME=<neon database>
 SQL_SSL=true
 APP_BASE_URL=<your vercel url>
 CORS_ALLOWED_ORIGINS=<your vercel url>
-SEED_SUPER_ADMIN_EMAIL=vibudarshan1717@gmail.com
-SEED_SUPER_ADMIN_PASSWORD=Bakyalakshmi@18
+SEED_SUPER_ADMIN_EMAIL=<super-admin-email-from-secret-manager>
+SEED_SUPER_ADMIN_PASSWORD=<strong-random-password-from-secret-manager>
 # email — pick one:
 RESEND_API_KEY=...      RESEND_FROM=...
 # or: SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
