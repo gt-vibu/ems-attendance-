@@ -72,17 +72,12 @@ ALTER TABLE "federation_clients" ADD COLUMN "contact_email" text;--> statement-b
 ALTER TABLE "federation_clients" ADD COLUMN "webhook_url" text;--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "webhook_events" jsonb DEFAULT '[]';--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "webhook_status" text DEFAULT 'active' NOT NULL;--> statement-breakpoint
-ALTER TABLE "federation_clients" ADD COLUMN "token_lifetime_seconds" integer DEFAULT 3600 NOT NULL;--> statement-breakpoint
-ALTER TABLE "federation_clients" ADD COLUMN "refresh_token_policy" text DEFAULT 'sliding' NOT NULL;--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "rate_limit_per_min" integer DEFAULT 1000 NOT NULL;--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "api_version" text DEFAULT 'v1.0' NOT NULL;--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "is_marketplace_app" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "rating" text DEFAULT '4.9';--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "category" text DEFAULT 'General';--> statement-breakpoint
 ALTER TABLE "federation_clients" ADD COLUMN "install_count" integer DEFAULT 0;--> statement-breakpoint
-ALTER TABLE "federation_clients" ADD COLUMN "credential_history" jsonb DEFAULT '[]';--> statement-breakpoint
-ALTER TABLE "federation_webhook_outbox" ADD COLUMN "external_organization_id" text;--> statement-breakpoint
-ALTER TABLE "federation_webhook_outbox" ADD COLUMN "external_branch_id" text;--> statement-breakpoint
 ALTER TABLE "federation_employee_access_grants" ADD CONSTRAINT "federation_employee_access_grants_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "federation_employee_access_grants" ADD CONSTRAINT "federation_employee_access_grants_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "federation_tokens" ADD CONSTRAINT "federation_tokens_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

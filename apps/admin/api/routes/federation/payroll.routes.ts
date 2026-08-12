@@ -98,6 +98,69 @@ router.get('/v1/federation/payroll/calendars', resolveFederationTenantContext(),
   }
 });
 
+router.put('/v1/federation/payroll/calendars/:year/:month', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
+  try {
+    const tenantId = req.federation.tenantId;
+    const year = Number(req.params.year);
+    const month = Number(req.params.month);
+    const { requestedByExternalUserId } = req.body || {};
+    if (!Number.isInteger(year) || year < 2000 || year > 2200 || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(422).json({ error: 'year and month must identify a valid payroll period.' });
+    }
+    if (!requestedByExternalUserId) return res.status(422).json({ error: 'requestedByExternalUserId is required.' });
+    const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
+    if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+
+    const dateFields = [
+      'attendanceFreezeDate', 'calculationDate', 'hrReviewDate',
+      'financeReviewDate', 'releaseDate', 'salaryCreditDate',
+    ] as const;
+    const values: Record<string, string | null> = {};
+    for (const field of dateFields) {
+      const value = req.body?.[field];
+      if (value === undefined || value === null || value === '') {
+        values[field] = null;
+        continue;
+      }
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00.000Z`))) {
+        return res.status(422).json({ error: `${field} must be a valid YYYY-MM-DD date.` });
+      }
+      values[field] = value;
+    }
+    const orderedDates = dateFields.flatMap((field) => values[field] ? [values[field] as string] : []);
+    if (orderedDates.some((value, index) => index > 0 && value < orderedDates[index - 1])) {
+      return res.status(422).json({ error: 'Payroll calendar dates must be in workflow order.' });
+    }
+
+    const existing = (await db.select().from(schema.payrollCalendars).where(and(
+      eq(schema.payrollCalendars.tenantId, tenantId),
+      eq(schema.payrollCalendars.year, year),
+      eq(schema.payrollCalendars.month, month),
+    )).limit(1))[0];
+    const saved = await db.transaction(async (tx: any) => {
+      const [calendar] = existing
+        ? await tx.update(schema.payrollCalendars).set(values).where(eq(schema.payrollCalendars.id, existing.id)).returning()
+        : await tx.insert(schema.payrollCalendars).values({ tenantId, year, month, ...values }).returning();
+      await writeOutboxEvent({
+        tenantId,
+        eventType: existing ? 'payroll.calendar.updated' : 'payroll.calendar.created',
+        aggregateType: 'payroll_calendar',
+        aggregateId: String(calendar.id),
+        businessDate: `${year}-${String(month).padStart(2, '0')}-01`,
+        data: { year, month, requestedByExternalUserId, requestedByUserId: actorUserId },
+      }, tx);
+      return calendar;
+    });
+    res.json({
+      year,
+      month,
+      calendar: Object.fromEntries(dateFields.map((field) => [field, saved[field] ?? null])),
+    });
+  } catch (err: any) {
+    sendServerError(res, err, 'federation/payroll.routes.ts');
+  }
+});
+
 router.post('/v1/federation/payroll/runs', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;
@@ -304,6 +367,12 @@ router.get('/v1/federation/payroll/runs', resolveFederationTenantContext(), asyn
     const runs = rows.map((b: any) => ({
       runId: String(b.id), periodStart: `${b.year}-${String(b.month).padStart(2, '0')}-01`,
       periodEnd: `${b.year}-${String(b.month).padStart(2, '0')}-28`, status: b.status, version: 1, supersedesRunId: null,
+      employeeCount: b.employeeCount,
+      grossAmountMinor: Math.round(Number(b.totalGross || 0) * MINOR_UNIT_MULTIPLIER),
+      deductionAmountMinor: Math.round(Math.max(0, Number(b.totalGross || 0) - Number(b.totalNet || 0)) * MINOR_UNIT_MULTIPLIER),
+      netAmountMinor: Math.round(Number(b.totalNet || 0) * MINOR_UNIT_MULTIPLIER),
+      currencyCode: 'INR',
+      processedAt: b.releasedAt || b.calculatedAt || null,
     }));
     const nextCursor = rows.length === limit
       ? encodeCursor({ clientId: req.federation.clientId, filtersHash: hashFilters(filters), sort: 'id_asc', asOf: new Date().toISOString(), lastId: rows[rows.length - 1].id })
@@ -343,14 +412,34 @@ router.get('/v1/federation/payroll/ledger', resolveFederationTenantContext(), as
     conditions.push(gt(schema.payrollLedgerEntries.id, afterId));
 
     const rows = await db.select().from(schema.payrollLedgerEntries).where(and(...conditions)).orderBy(asc(schema.payrollLedgerEntries.id)).limit(limit);
-    const entries = await Promise.all(rows.map(async (r: any) => ({
-      runId: r.batchId ? String(r.batchId) : null,
-      runVersion: 1,
-      externalEmployeeId: await getOrAssignExternalId(tenantId, 'employee', r.userId),
-      currencyCode: 'INR',
-      amountMinor: Math.round((r.amount ?? r.netSalary ?? r.grossSalary ?? 0) * MINOR_UNIT_MULTIPLIER),
-      entryType: r.entryType,
-    })));
+    const payrollRunIds = Array.from(new Set<number>(
+      rows.flatMap((row) => Number.isInteger(row.payrollRunId) ? [Number(row.payrollRunId)] : []),
+    ));
+    const payrollRunRows: Array<typeof schema.payrollRuns.$inferSelect> = payrollRunIds.length > 0
+      ? await db.select().from(schema.payrollRuns).where(inArray(schema.payrollRuns.id, payrollRunIds))
+      : [];
+    const payrollRunById = new Map(payrollRunRows.map((run) => [run.id, run] as const));
+    const entries = await Promise.all(rows.map(async (r: any) => {
+      const payrollRun = r.entryType === 'salary' && r.payrollRunId
+        ? payrollRunById.get(r.payrollRunId)
+        : undefined;
+      return {
+        providerLedgerEntryId: String(r.id),
+        runId: r.batchId ? String(r.batchId) : null,
+        runVersion: 1,
+        externalEmployeeId: await getOrAssignExternalId(tenantId, 'employee', r.userId),
+        currencyCode: 'INR',
+        amountMinor: Math.round((r.amount ?? r.netSalary ?? r.grossSalary ?? 0) * MINOR_UNIT_MULTIPLIER),
+        entryType: r.entryType,
+        ...(payrollRun
+          ? {
+              grossPayMinor: Math.round(Number(payrollRun.grossPay || 0) * MINOR_UNIT_MULTIPLIER),
+              deductionAmountMinor: Math.round(Math.max(0, Number(payrollRun.grossPay || 0) - Number(payrollRun.netPay || 0)) * MINOR_UNIT_MULTIPLIER),
+              netPayMinor: Math.round(Number(payrollRun.netPay || 0) * MINOR_UNIT_MULTIPLIER),
+            }
+          : {}),
+      };
+    }));
     const nextCursor = rows.length === limit
       ? encodeCursor({ clientId: req.federation.clientId, filtersHash: hashFilters(filters), sort: 'id_asc', asOf: new Date().toISOString(), lastId: rows[rows.length - 1].id })
       : null;

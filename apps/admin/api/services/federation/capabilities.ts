@@ -23,14 +23,17 @@ export const FEDERATION_GRANTABLE_CAPABILITIES = [
   'attendance.view_team',
   'attendance.approve',
   'attendance.edit',
+  'attendance.configure',
   'leave.request',
   'leave.view_own',
   'leave.approve',
   'leave.adjust_balance',
+  'leave.configure',
   'payroll.view_own',
   'payroll.manage',
   'payroll.approve',
   'payroll.release',
+  'payroll.configure',
 ] as const;
 
 // BlizBooks (and any other federation consumer) resolves which of its own

@@ -30,8 +30,110 @@ router.get('/v1/federation/leave/types', resolveFederationTenantContext(), async
     res.json({
       types: rows.map((p: any) => ({
         code: p.code, name: p.name, maxDaysPerYear: p.maxDaysPerYear, allowHalfDay: p.allowHalfDay,
-        requiresApproval: p.requiresApproval, accrualEnabled: p.accrualEnabled, carryForwardEnabled: p.carryForwardEnabled, encashmentEnabled: p.encashmentEnabled,
+        requiresApproval: p.requiresApproval, medicalOnlyNoAdvanceNoticeDays: p.medicalOnlyNoAdvanceNoticeDays,
+        defaultDeductionPercent: p.defaultDeductionPercent, accrualEnabled: p.accrualEnabled,
+        carryForwardEnabled: p.carryForwardEnabled, maxCarryForwardDays: p.maxCarryForwardDays,
+        encashmentEnabled: p.encashmentEnabled,
       })),
+    });
+  } catch (err: any) {
+    sendServerError(res, err, 'federation/leave.routes.ts');
+  }
+});
+
+// Hotel-side policy configuration remains protected twice: the federation
+// client needs the leave scope here, and BlizBooks requires its dedicated
+// hr.leaves.configure permission before this route is called. The external
+// actor is mandatory so every policy write is attributable to a real person,
+// never only to a machine credential.
+router.put('/v1/federation/leave/types/:code', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
+  try {
+    const tenantId = req.federation.tenantId;
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const {
+      name,
+      maxDaysPerYear,
+      allowHalfDay,
+      requiresApproval,
+      medicalOnlyNoAdvanceNoticeDays,
+      defaultDeductionPercent,
+      accrualEnabled,
+      carryForwardEnabled,
+      maxCarryForwardDays,
+      encashmentEnabled,
+      requestedByExternalUserId,
+    } = req.body || {};
+
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,31}$/.test(code)) {
+      return res.status(422).json({ error: 'code must contain 2-32 letters, numbers, underscores, or hyphens.' });
+    }
+    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80) {
+      return res.status(422).json({ error: 'name must contain 2-80 characters.' });
+    }
+    if (!requestedByExternalUserId) {
+      return res.status(422).json({ error: 'requestedByExternalUserId is required.' });
+    }
+    const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
+    if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+
+    const numberWithin = (value: unknown, min: number, max: number, fallback: number) => {
+      if (value === undefined || value === null || value === '') return fallback;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric >= min && numeric <= max ? numeric : null;
+    };
+    const annualDays = numberWithin(maxDaysPerYear, 0, 366, 12);
+    const medicalDays = numberWithin(medicalOnlyNoAdvanceNoticeDays, 0, 366, 0);
+    const deduction = numberWithin(defaultDeductionPercent, 0, 100, 100);
+    const carryDays = numberWithin(maxCarryForwardDays, 0, 366, 0);
+    if ([annualDays, medicalDays, deduction, carryDays].some((value) => value === null)) {
+      return res.status(422).json({ error: 'One or more numeric policy values are outside the allowed range.' });
+    }
+
+    const values = {
+      tenantId,
+      name: name.trim(),
+      code,
+      maxDaysPerYear: annualDays!,
+      allowHalfDay: allowHalfDay !== false,
+      requiresApproval: requiresApproval !== false,
+      medicalOnlyNoAdvanceNoticeDays: medicalDays!,
+      defaultDeductionPercent: deduction!,
+      accrualEnabled: accrualEnabled === true,
+      carryForwardEnabled: carryForwardEnabled === true,
+      maxCarryForwardDays: carryDays!,
+      encashmentEnabled: encashmentEnabled === true,
+    };
+    const existing = (await db.select().from(schema.leavePolicies).where(and(
+      eq(schema.leavePolicies.tenantId, tenantId),
+      eq(schema.leavePolicies.code, code),
+    )).limit(1))[0];
+
+    const saved = await db.transaction(async (tx: any) => {
+      const [policy] = existing
+        ? await tx.update(schema.leavePolicies).set(values).where(eq(schema.leavePolicies.id, existing.id)).returning()
+        : await tx.insert(schema.leavePolicies).values(values).returning();
+      await writeOutboxEvent({
+        tenantId,
+        eventType: existing ? 'leave.policy.updated' : 'leave.policy.created',
+        aggregateType: 'leave_policy',
+        aggregateId: String(policy.id),
+        data: { code, name: policy.name, requestedByExternalUserId, requestedByUserId: actorUserId },
+      }, tx);
+      return policy;
+    });
+
+    res.json({
+      code: saved.code,
+      name: saved.name,
+      maxDaysPerYear: saved.maxDaysPerYear,
+      allowHalfDay: saved.allowHalfDay,
+      requiresApproval: saved.requiresApproval,
+      medicalOnlyNoAdvanceNoticeDays: saved.medicalOnlyNoAdvanceNoticeDays,
+      defaultDeductionPercent: saved.defaultDeductionPercent,
+      accrualEnabled: saved.accrualEnabled,
+      carryForwardEnabled: saved.carryForwardEnabled,
+      maxCarryForwardDays: saved.maxCarryForwardDays,
+      encashmentEnabled: saved.encashmentEnabled,
     });
   } catch (err: any) {
     sendServerError(res, err, 'federation/leave.routes.ts');

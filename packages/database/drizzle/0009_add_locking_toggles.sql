@@ -1,6 +1,4 @@
--- Adds tenant-admin-facing on/off switches for payroll locking and manual
--- attendance freeze (2026-08-05). See schema.ts comments on
--- payrollSettings.payrollLockingEnabled and
--- attendancePreferences.allowManualAttendanceFreeze for the gating chain.
-ALTER TABLE "payroll_settings" ADD COLUMN IF NOT EXISTS "payroll_locking_enabled" boolean NOT NULL DEFAULT true;
-ALTER TABLE "attendance_preferences" ADD COLUMN IF NOT EXISTS "allow_manual_attendance_freeze" boolean DEFAULT true;
+-- Reserved migration number. Migration 0011 creates attendance_preferences
+-- and adds payroll_settings.payroll_locking_enabled, so applying either
+-- change here would reference a table that does not exist yet or duplicate
+-- the later generated migration.

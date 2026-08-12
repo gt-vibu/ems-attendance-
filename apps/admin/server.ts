@@ -150,6 +150,9 @@ async function startServer() {
     await startSchedulerWithLeadership();
   } catch (err: any) {
     logger.error('Error during database initialization/sync:', { error: err?.message });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeDb();
+    throw err;
   }
 
   // Graceful shutdown: SIGTERM/SIGINT is how orchestrators (Docker, Railway,
@@ -176,4 +179,7 @@ async function startServer() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-startServer();
+void startServer().catch((err: any) => {
+  logger.error('Server startup failed:', { error: err?.message });
+  process.exitCode = 1;
+});
