@@ -98,6 +98,69 @@ router.get('/v1/federation/payroll/calendars', resolveFederationTenantContext(),
   }
 });
 
+router.put('/v1/federation/payroll/calendars/:year/:month', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
+  try {
+    const tenantId = req.federation.tenantId;
+    const year = Number(req.params.year);
+    const month = Number(req.params.month);
+    const { requestedByExternalUserId } = req.body || {};
+    if (!Number.isInteger(year) || year < 2000 || year > 2200 || !Number.isInteger(month) || month < 1 || month > 12) {
+      return res.status(422).json({ error: 'year and month must identify a valid payroll period.' });
+    }
+    if (!requestedByExternalUserId) return res.status(422).json({ error: 'requestedByExternalUserId is required.' });
+    const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
+    if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+
+    const dateFields = [
+      'attendanceFreezeDate', 'calculationDate', 'hrReviewDate',
+      'financeReviewDate', 'releaseDate', 'salaryCreditDate',
+    ] as const;
+    const values: Record<string, string | null> = {};
+    for (const field of dateFields) {
+      const value = req.body?.[field];
+      if (value === undefined || value === null || value === '') {
+        values[field] = null;
+        continue;
+      }
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00.000Z`))) {
+        return res.status(422).json({ error: `${field} must be a valid YYYY-MM-DD date.` });
+      }
+      values[field] = value;
+    }
+    const orderedDates = dateFields.flatMap((field) => values[field] ? [values[field] as string] : []);
+    if (orderedDates.some((value, index) => index > 0 && value < orderedDates[index - 1])) {
+      return res.status(422).json({ error: 'Payroll calendar dates must be in workflow order.' });
+    }
+
+    const existing = (await db.select().from(schema.payrollCalendars).where(and(
+      eq(schema.payrollCalendars.tenantId, tenantId),
+      eq(schema.payrollCalendars.year, year),
+      eq(schema.payrollCalendars.month, month),
+    )).limit(1))[0];
+    const saved = await db.transaction(async (tx: any) => {
+      const [calendar] = existing
+        ? await tx.update(schema.payrollCalendars).set(values).where(eq(schema.payrollCalendars.id, existing.id)).returning()
+        : await tx.insert(schema.payrollCalendars).values({ tenantId, year, month, ...values }).returning();
+      await writeOutboxEvent({
+        tenantId,
+        eventType: existing ? 'payroll.calendar.updated' : 'payroll.calendar.created',
+        aggregateType: 'payroll_calendar',
+        aggregateId: String(calendar.id),
+        businessDate: `${year}-${String(month).padStart(2, '0')}-01`,
+        data: { year, month, requestedByExternalUserId, requestedByUserId: actorUserId },
+      }, tx);
+      return calendar;
+    });
+    res.json({
+      year,
+      month,
+      calendar: Object.fromEntries(dateFields.map((field) => [field, saved[field] ?? null])),
+    });
+  } catch (err: any) {
+    sendServerError(res, err, 'federation/payroll.routes.ts');
+  }
+});
+
 router.post('/v1/federation/payroll/runs', requireIdempotencyKey, resolveFederationTenantContext(), async (req: any, res: any) => {
   try {
     const tenantId = req.federation.tenantId;

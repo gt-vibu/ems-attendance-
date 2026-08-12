@@ -25,7 +25,12 @@ router.use('/v1/federation/attendance/assertions', authenticateFederation, feder
 // the relying-party identity is explicit rather than inferred from a
 // server-to-server request that has no browser Origin header of its own.
 function federationRp() {
-  return resolveRpFromOrigin(process.env.FEDERATION_WEBAUTHN_ORIGIN);
+  const federationOrigin = process.env.FEDERATION_WEBAUTHN_ORIGIN;
+  if (federationOrigin) {
+    const origin = new URL(federationOrigin).origin;
+    return { origin, rpID: new URL(origin).hostname };
+  }
+  return resolveRpFromOrigin(undefined);
 }
 
 router.post('/v1/federation/employees/:externalEmployeeId/webauthn/enrollments/begin', resolveFederationTenantContext(), async (req: any, res: any) => {
