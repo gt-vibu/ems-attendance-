@@ -249,8 +249,11 @@ export async function verifyChallengeTokenAsync(token: string, userId: number): 
       return { valid: false, actions: [], error: 'Challenge token already consumed (replay detected)' };
     }
 
-    // 2. Persistent DB atomic single-use insertion check
-    if (nonce && db && schema?.consumedFaceChallenges) {
+    // 2. Persistent DB atomic single-use insertion (authoritative fail-closed security check)
+    if (nonce) {
+      if (!db || !schema?.consumedFaceChallenges) {
+        return { valid: false, actions: [], error: 'Database unavailable for security challenge verification (fail-closed)' };
+      }
       try {
         await db.insert(schema.consumedFaceChallenges).values({
           nonce,
@@ -260,11 +263,10 @@ export async function verifyChallengeTokenAsync(token: string, userId: number): 
         if (dbErr?.code === '23505' || dbErr?.message?.includes('unique') || dbErr?.message?.includes('duplicate')) {
           return { valid: false, actions: [], error: 'Challenge token already consumed across cluster (replay detected)' };
         }
-        logger.warn('[face-challenge] DB nonce check warning', { error: dbErr?.message });
+        logger.error('[face-challenge] DB nonce check failed (failing closed)', { error: dbErr?.message });
+        return { valid: false, actions: [], error: 'Database error during challenge verification (fail-closed)' };
       }
-    }
 
-    if (nonce) {
       consumedChallengeNonces.add(nonce);
       setTimeout(() => consumedChallengeNonces.delete(nonce), CHALLENGE_TTL_MS + 10000).unref();
     }
