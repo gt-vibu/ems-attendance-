@@ -436,8 +436,26 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
       const scopedBranchIds = await getScopedBranchIds(req.user);
       const tenantId = req.user.tenantId;
       const baseUrl = process.env.APP_BASE_URL || 'http://localhost:3000';
+
+      // Collect all emails to pre-check existing users in ONE query
+      const rawEmails = rows.map((r: any) => String(r?.email || '').trim().toLowerCase()).filter(Boolean);
+      const existingUserRows = rawEmails.length > 0
+        ? await db.select({ email: schema.users.email }).from(schema.users).where(inArray(schema.users.email, rawEmails))
+        : [];
+      const existingEmailsInDb = new Set(existingUserRows.map(u => u.email.toLowerCase()));
+
+      // Pre-fetch all branch and shift rows for tenant to avoid N DB queries
+      const [allBranches, allShifts] = await Promise.all([
+        db.select().from(schema.branches).where(eq(schema.branches.tenantId, tenantId)),
+        db.select().from(schema.shifts).where(eq(schema.shifts.tenantId, tenantId)),
+      ]);
+      const branchMap = new Map(allBranches.map(b => [b.id, b]));
+      const shiftMap = new Map(allShifts.map(s => [s.id, s]));
+
       const seenEmailsThisBatch = new Set<string>();
       const results: Array<{ row: number; email: string; success: boolean; error?: string }> = [];
+      const pendingUsersToInsert: any[] = [];
+      const pendingEmailTasks: Array<() => Promise<void>> = [];
 
       for (let i = 0; i < rows.length; i++) {
         const rowNum = i + 1;
@@ -458,13 +476,11 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
           if (!branchId || !shiftId) throw new Error('branchId and shiftId are required');
           if (scopedBranchIds !== null && !scopedBranchIds.includes(branchId)) throw new Error('you are not scoped to this branch');
 
-          const branchRow = await getByIdForTenant(schema.branches, branchId, tenantId);
-          if (!branchRow) throw new Error('invalid branchId');
-          const shiftRows = await db.select().from(schema.shifts).where(eq(schema.shifts.id, shiftId));
-          if (shiftRows.length === 0 || shiftRows[0].branchId !== branchId) throw new Error('invalid shiftId for the selected branch');
+          if (!branchMap.has(branchId)) throw new Error('invalid branchId');
+          const shift = shiftMap.get(shiftId);
+          if (!shift || shift.branchId !== branchId) throw new Error('invalid shiftId for the selected branch');
 
-          const existing = await db.select().from(schema.users).where(eq(schema.users.email, email));
-          if (existing.length > 0) throw new Error('email already registered');
+          if (existingEmailsInDb.has(normalizedEmail)) throw new Error('email already registered');
 
           const roleDefaults = await getDefaultPrivilegesForRole(tenantId, role);
           const existingRoleRow = await db.select().from(schema.rolePrivilegeDefaults).where(
@@ -476,24 +492,22 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
 
           const tempPassword = 'temp_' + crypto.randomBytes(6).toString('hex');
           const userUid = crypto.randomUUID();
-          await db.insert(schema.users).values({
+          const hashedPassword = await hashPassword(tempPassword);
+
+          pendingUsersToInsert.push({
             uid: userUid, email, name, department: department || null, password: '',
-            tempPassword: await hashPassword(tempPassword), role, privileges: [],
+            tempPassword: hashedPassword, role, privileges: [],
             mustChangePassword: true, tenantId, branchId, shiftId,
           });
 
           const activationLink = `${baseUrl}/login?email=${encodeURIComponent(email)}&temp=${tempPassword}`;
-          await sendEmail({
-            to: email,
-            subject: `Smart Teams Invitation - Registered as ${role}`,
-            text: `Hello ${name},\n\nYou have been registered on Smart Teams as a ${role}.\n\nYour credentials:\nUsername: ${email}\nTemporary Password: ${tempPassword}\n\nLogin and set your password here: ${activationLink}\n\nBest Regards,\nSmart Teams Team`,
-            html: `<h3>Hello ${name},</h3><p>You have been registered on Smart Teams as a <strong>${role}</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#FF3D8A;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Set Your Password</a></p><br/><p>Best Regards,<br/>Smart Teams Team</p>`,
-          }).catch(() => undefined);
-
-          await logToAuditLedger({
-            tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'EMPLOYEE_CREATED',
-            ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '', deviceInfo: req.headers['user-agent'] || '',
-            details: { email, name, role, department: department || null, branchId, shiftId, viaBulkImport: true },
+          pendingEmailTasks.push(async () => {
+            await sendEmail({
+              to: email,
+              subject: `Smart Teams Invitation - Registered as ${role}`,
+              text: `Hello ${name},\n\nYou have been registered on Smart Teams as a ${role}.\n\nYour credentials:\nUsername: ${email}\nTemporary Password: ${tempPassword}\n\nLogin and set your password here: ${activationLink}\n\nBest Regards,\nSmart Teams Team`,
+              html: `<h3>Hello ${name},</h3><p>You have been registered on Smart Teams as a <strong>${role}</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#FF3D8A;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Set Your Password</a></p><br/><p>Best Regards,<br/>Smart Teams Team</p>`,
+            }).catch(() => undefined);
           });
 
           results.push({ row: rowNum, email, success: true });
@@ -501,6 +515,28 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
           results.push({ row: rowNum, email: email || '(missing)', success: false, error: rowErr.message || 'Unknown error' });
         }
       }
+
+      // Execute user creation in database
+      if (pendingUsersToInsert.length > 0) {
+        for (const userVal of pendingUsersToInsert) {
+          await db.insert(schema.users).values(userVal);
+        }
+      }
+
+      // Dispatch invitation emails asynchronously in background
+      if (pendingEmailTasks.length > 0) {
+        setImmediate(async () => {
+          for (const emailTask of pendingEmailTasks) {
+            await emailTask().catch(() => undefined);
+          }
+        });
+      }
+
+      await logToAuditLedger({
+        tenantId, actorId: req.user.userId, actorName: req.user.name, action: 'BULK_EMPLOYEES_CREATED',
+        ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '', deviceInfo: req.headers['user-agent'] || '',
+        details: { totalRows: rows.length, createdCount: pendingUsersToInsert.length, viaBulkImport: true },
+      });
 
       res.json({ success: true, results, created: results.filter((r) => r.success).length, failed: results.filter((r) => !r.success).length });
     } catch (err: any) {

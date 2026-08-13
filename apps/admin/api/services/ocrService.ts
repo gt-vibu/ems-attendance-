@@ -506,7 +506,7 @@ function extractFromRawText(rawText: string): OcrExtractedRaw {
 
       // Corporate legal ending bonus (e.g. Limited, Ltd, Inc, Corp, Pvt Ltd)
       if (CORPORATE_LEGAL_ENDINGS_REGEX.test(cleanedLine)) {
-        score += 10;
+        score += 20;
       }
 
       // Specific trade / store name bonus (e.g. Store, Bazaar, Mart, Outlet, Cafe, Bakery, Restaurant, Pharmacy)
@@ -532,20 +532,27 @@ function extractFromRawText(rawText: string): OcrExtractedRaw {
 
     // 2-line combination candidate (e.g. store name + legal entity line)
     if (i < nonJunkLines.length - 1) {
-      const combined2Lines = `${rawLine}\n${nonJunkLines[i + 1]}`;
-      const cleanedCombined = cleanMerchantName(combined2Lines);
-      if (cleanedCombined && cleanedCombined.includes(' ')) {
-        let score = 5;
-        score += Math.max(0, 35 - i * 3);
+      const line1 = nonJunkLines[i];
+      const line2 = nonJunkLines[i + 1];
+      const words1 = line1.split(/\s+/).filter(Boolean);
 
-        if (BUSINESS_ENTITY_SUFFIX_REGEX.test(cleanedCombined)) {
-          score += 25;
+      // Do not combine single short header words (e.g. "SMART", "WELCOME", "TAX") with line 2
+      if (words1.length > 1 || line1.length >= 7 || BUSINESS_ENTITY_SUFFIX_REGEX.test(line1)) {
+        const combined2Lines = `${line1}\n${line2}`;
+        const cleanedCombined = cleanMerchantName(combined2Lines);
+        if (cleanedCombined && cleanedCombined.includes(' ')) {
+          let score = 0;
+          score += Math.max(0, 35 - i * 3);
+
+          if (BUSINESS_ENTITY_SUFFIX_REGEX.test(cleanedCombined)) {
+            score += 20;
+          }
+
+          const words = cleanedCombined.split(/\s+/).filter(Boolean);
+          score += Math.min(words.length * 5, 15);
+
+          merchantCandidates.push({ text: cleanedCombined, score });
         }
-
-        const words = cleanedCombined.split(/\s+/).filter(Boolean);
-        score += Math.min(words.length * 5, 20);
-
-        merchantCandidates.push({ text: cleanedCombined, score });
       }
     }
   }

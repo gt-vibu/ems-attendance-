@@ -21,9 +21,13 @@ export async function callFaceService(endpoint: string, payload: any, signal?: A
   signal?.addEventListener('abort', onCallerAbort);
   let response: Response;
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (process.env.FACE_SERVICE_SECRET) {
+      headers['X-Service-Key'] = process.env.FACE_SERVICE_SECRET;
+    }
     response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal: timeoutController.signal,
     });
@@ -149,15 +153,61 @@ export const FACE_MATCH_THRESHOLD = 0.5;
 export const KYC_ACTIONS = ['look_center', 'turn_left', 'turn_right', 'blink'];
 export const DAILY_CHALLENGE_ACTIONS = KYC_ACTIONS.filter(a => a !== 'look_center');
 
+import crypto from 'crypto';
+
 // Server-side record of exactly which liveness challenge was issued to which
-// user, so /api/face/verify has something authoritative to check the capture
-// burst against — the client can no longer just ignore whatever instruction
-// was shown on screen. Single-process in-memory store (same tradeoff as the
-// express-rate-limit windows); a short expiry keeps stale/abandoned entries
-// from lingering. Exported as a module singleton so the challenge-issue and
-// verify routes share one Map instance.
+// user. Supports both in-process Map storage and multi-instance stateless HMAC
+// challenge tokens so load-balanced app instances share challenge state cleanly.
 export const pendingChallenges = new Map<number, { actions: string[]; issuedAt: number }>();
 export const CHALLENGE_TTL_MS = 2 * 60 * 1000;
+
+const CHALLENGE_HMAC_SECRET = process.env.JWT_SECRET || 'smartteams-face-challenge-secret-key';
+
+export function createChallengeToken(userId: number, actions: string[]): string {
+  const issuedAt = Date.now();
+  const payload = JSON.stringify({ userId, actions, issuedAt });
+  const hmac = crypto.createHmac('sha256', CHALLENGE_HMAC_SECRET).update(payload).digest('hex');
+  const token = Buffer.from(payload).toString('base64url') + '.' + hmac;
+  // Sync to local map as fallback
+  pendingChallenges.set(userId, { actions, issuedAt });
+  return token;
+}
+
+export function verifyChallengeToken(token: string, userId: number): { valid: boolean; actions: string[] } {
+  if (!token) {
+    // Fall back to local pendingChallenges map if token not supplied
+    const local = pendingChallenges.get(userId);
+    if (!local) return { valid: false, actions: [] };
+    if (Date.now() - local.issuedAt > CHALLENGE_TTL_MS) {
+      pendingChallenges.delete(userId);
+      return { valid: false, actions: [] };
+    }
+    pendingChallenges.delete(userId);
+    return { valid: true, actions: local.actions };
+  }
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return { valid: false, actions: [] };
+    const [b64Payload, hmac] = parts;
+    const payloadStr = Buffer.from(b64Payload, 'base64url').toString('utf8');
+    const expectedHmac = crypto.createHmac('sha256', CHALLENGE_HMAC_SECRET).update(payloadStr).digest('hex');
+
+    if (!crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expectedHmac, 'hex'))) {
+      return { valid: false, actions: [] };
+    }
+
+    const { userId: tokenUserId, actions, issuedAt } = JSON.parse(payloadStr);
+    if (tokenUserId !== userId) return { valid: false, actions: [] };
+    if (Date.now() - issuedAt > CHALLENGE_TTL_MS) return { valid: false, actions: [] };
+
+    // Valid HMAC signed challenge token
+    pendingChallenges.delete(userId);
+    return { valid: true, actions };
+  } catch {
+    return { valid: false, actions: [] };
+  }
+}
 
 // How many fallback actions the daily challenge asks for when the fast
 // passive check isn't convincing — deliberately just 1 (the old face-service

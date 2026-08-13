@@ -88,15 +88,20 @@ function statusColor(val: string): string | null {
   return STATUS_COLORS[String(val || '').toLowerCase().trim()] || null;
 }
 
+import { safeFetchBuffer } from '../utils/safeHttpClient';
+
 async function fetchLogoBuffer(url?: string | null): Promise<Buffer | null> {
   if (!url) return null;
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const arrayBuf = await res.arrayBuffer();
-    return Buffer.from(arrayBuf);
+    const { buffer } = await safeFetchBuffer(url, {
+      timeoutMs: 5000,
+      maxSizeBytes: 2 * 1024 * 1024,
+      allowedContentTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'],
+      allowHttpForLocalhost: process.env.NODE_ENV !== 'production',
+    });
+    return buffer;
   } catch {
-    return null; // a broken/unreachable logo URL never blocks the export — header just falls back to text
+    return null; // a broken/unreachable/SSRF-blocked logo URL never blocks the export — header just falls back to text
   }
 }
 

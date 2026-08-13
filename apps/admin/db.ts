@@ -45,11 +45,21 @@ for (const p of envPaths) {
   }
 }
 
-// Managed Postgres providers (Neon, Supabase, Render, RDS) require TLS. Enable
-// with SQL_SSL=true. rejectUnauthorized:false accepts the provider cert without
-// bundling a CA file — the connection is still encrypted. Off by default so
-// local Docker Postgres (no TLS) keeps working unchanged.
-const sslConfig = process.env.SQL_SSL === 'true' ? { rejectUnauthorized: false } : false;
+// Managed Postgres providers require TLS. Enable with SQL_SSL=true.
+// Certificate validation defaults to strict (rejectUnauthorized: true) when SQL_SSL=true,
+// unless explicitly set to false via SQL_SSL_REJECT_UNAUTHORIZED=false or when using custom CA.
+const rejectUnauthorized = process.env.SQL_SSL_REJECT_UNAUTHORIZED !== 'false';
+const caCertPath = process.env.SQL_CA_CERT;
+const caCertContent = process.env.SQL_CA_PEM;
+const ca = caCertContent
+  ? caCertContent
+  : caCertPath && fs.existsSync(caCertPath)
+  ? fs.readFileSync(caCertPath).toString()
+  : undefined;
+
+const sslConfig = process.env.SQL_SSL === 'true'
+  ? { rejectUnauthorized, ...(ca ? { ca } : {}) }
+  : false;
 
 const pool = new Pool({
   host: process.env.SQL_HOST || '127.0.0.1',

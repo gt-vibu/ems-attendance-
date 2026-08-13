@@ -72,7 +72,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -81,15 +82,23 @@ logger = logging.getLogger("face-service")
 
 app = FastAPI(title="Smart Teams Face Service", version="3.1.0")
 
-# The Node app and this service are expected to run on a private
-# network/localhost together, but CORS is opened here in case the Node app
-# ever calls this from a different origin during local development.
+# Security configuration
+FACE_SERVICE_SECRET = os.getenv("FACE_SERVICE_SECRET", "")
+raw_origins = os.getenv("ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000,http://0.0.0.0:3000")
+ALLOWED_ORIGINS = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
+
+def verify_service_key(request: Request):
+    if FACE_SERVICE_SECRET:
+        provided_key = request.headers.get("X-Service-Key", "")
+        if provided_key != FACE_SERVICE_SECRET:
+            raise HTTPException(status_code=401, detail="Unauthorized: Invalid service authentication key")
 
 # ---------------------------------------------------------------------------
 # Action-detection thresholds
@@ -671,10 +680,12 @@ class VerifyResponse(BaseModel):
     moireScore: float = 0.0  # diagnostics-only screen-replay signal — see moire_score() above, not currently gated on by any caller
 
 
-@app.post("/verify", response_model=VerifyResponse)
+@app.post("/verify", response_model=VerifyResponse, dependencies=[Depends(verify_service_key)])
 def verify(req: VerifyRequest):
     if not req.images:
         raise HTTPException(status_code=400, detail="At least one image is required")
+    if len(req.images) > 30:
+        raise HTTPException(status_code=400, detail="Payload exceeds maximum limit of 30 frames per request")
 
     detected: List[Tuple[np.ndarray, Any]] = []  # (source image, face) pairs — kept together so the moire check can crop from the same frame the identity embedding came from
     for b64 in req.images:

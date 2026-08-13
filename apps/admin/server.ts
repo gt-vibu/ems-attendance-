@@ -107,13 +107,26 @@ async function startServer() {
   app.use('/api/', generalLimiter);
 
   // Every API route, grouped by domain under api/routes/*. Mounted before the
-  // SPA catch-all below so real endpoints always win over the fallback.
-  registerRoutes(app);
+  // Resolve real-Postgres-vs-JSON-fallback, run migrations, seed & start background scheduler
+  // BEFORE opening HTTP listener to ensure fail-closed database reliability.
+  let isDbReady = false;
+  try {
+    await detectPostgres();
+    await verifyAndSyncDatabase();
+    await seedSuperAdmin();
+    await startSchedulerWithLeadership();
+    isDbReady = true;
+  } catch (err: any) {
+    logger.error('Fatal error during database initialization/sync:', { error: err?.message });
+    await closeDb();
+    if (process.env.NODE_ENV === 'production') {
+      logger.error('Production database initialization failed. Exiting process with code 1.');
+      process.exit(1);
+    }
+  }
 
-  // Bind server IMMEDIATELY so Render's port detection scanner and local clients find open TCP port instantly on boot
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development' });
-  });
+  // Register routes (including health/readiness)
+  registerRoutes(app);
 
   // Client App routing logic
   if (process.env.NODE_ENV !== 'production') {
@@ -142,18 +155,10 @@ async function startServer() {
     res.status(500).json({ error: 'Internal server error' });
   });
 
-  // Resolve real-Postgres-vs-JSON-fallback, run migrations, seed & start background scheduler
-  try {
-    await detectPostgres();
-    await verifyAndSyncDatabase();
-    await seedSuperAdmin();
-    await startSchedulerWithLeadership();
-  } catch (err: any) {
-    logger.error('Error during database initialization/sync:', { error: err?.message });
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await closeDb();
-    throw err;
-  }
+  // Bind server after database initialization is verified
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development', dbReady: isDbReady });
+  });
 
   // Graceful shutdown: SIGTERM/SIGINT is how orchestrators (Docker, Railway,
   // Fly, Kubernetes) ask a container to stop. Stop accepting new connections,

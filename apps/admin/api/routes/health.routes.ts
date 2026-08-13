@@ -28,6 +28,19 @@ router.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
   });
 
+  // Readiness probe checking full dependency health.
+const handleReadiness = async (_req: any, res: any) => {
+  try {
+    await db.execute(sql`SELECT 1`);
+    res.json({ status: 'ok', readiness: 'ready', db: 'up', timestamp: new Date().toISOString() });
+  } catch (err: any) {
+    res.status(503).json({ status: 'degraded', readiness: 'not_ready', db: 'down', error: err?.message });
+  }
+};
+
+router.get('/readiness', handleReadiness);
+router.get('/api/health/readiness', handleReadiness);
+
   // Readiness probe that actually touches Postgres. Two jobs: (1) the
   // keep-alive pinger hits this so a free-tier managed DB (e.g. Neon) doesn't
   // suspend from inactivity, and (2) it confirms the app can reach its
