@@ -336,7 +336,16 @@ router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'
         await tx.delete(schema.roleCompensationComponents).where(eq(schema.roleCompensationComponents.tenantId, tenantId));
         await tx.delete(schema.payrollRuns).where(eq(schema.payrollRuns.tenantId, tenantId));
         await tx.delete(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.tenantId, tenantId));
-        await tx.delete(schema.teamMembers).where(userIds.length > 0 ? inArray(schema.teamMembers.userId, userIds) : sql`false`);
+        await tx.delete(schema.companyPayrollPolicies).where(eq(schema.companyPayrollPolicies.tenantId, tenantId));
+
+        await tx.delete(schema.leaveEscalationHistory).where(userIds.length > 0 ? or(inArray(schema.leaveEscalationHistory.fromUserId, userIds), inArray(schema.leaveEscalationHistory.toUserId, userIds)) : sql`false`);
+        await tx.delete(schema.ticketEscalations).where(userIds.length > 0 ? or(inArray(schema.ticketEscalations.fromUserId, userIds), inArray(schema.ticketEscalations.toUserId, userIds)) : sql`false`);
+        await tx.delete(schema.tickets).where(eq(schema.tickets.tenantId, tenantId));
+
+        await tx.delete(schema.shiftHistory).where(eq(schema.shiftHistory.tenantId, tenantId));
+        await tx.delete(schema.delegations).where(eq(schema.delegations.tenantId, tenantId));
+        await tx.delete(schema.holidayHistory).where(eq(schema.holidayHistory.tenantId, tenantId));
+        await tx.delete(schema.holidayEmployeeOverrides).where(userIds.length > 0 ? inArray(schema.holidayEmployeeOverrides.userId, userIds) : sql`false`);
         await tx.delete(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.tenantId, tenantId));
         await tx.delete(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.tenantId, tenantId));
         await tx.delete(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, tenantId));

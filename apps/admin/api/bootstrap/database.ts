@@ -232,8 +232,16 @@ async function runSchemaSync() {
           updated_at TIMESTAMP DEFAULT NOW()
         );
       `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS consumed_face_challenges (
+          id SERIAL PRIMARY KEY,
+          nonce TEXT NOT NULL UNIQUE,
+          user_id INTEGER NOT NULL,
+          consumed_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
     } catch (e) {
-      logger.warn('boot schema-sync: expense table creation statement failed', { error: (e as any)?.message });
+      logger.warn('boot schema-sync: table creation statement failed', { error: (e as any)?.message });
     }
 
     try {

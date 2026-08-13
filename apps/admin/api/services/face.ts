@@ -9,6 +9,8 @@
 // handler awaiting it) hanging indefinitely — previously there was no
 // timeout here at all, so a slow cold-start just kept the request open with
 // no way for the caller to give up and retry.
+import { db, schema } from '../../db';
+
 const FACE_SERVICE_TIMEOUT_MS = 25000;
 
 export async function callFaceService(endpoint: string, payload: any, signal?: AbortSignal): Promise<any> {
@@ -163,9 +165,12 @@ export const CHALLENGE_TTL_MS = 2 * 60 * 1000;
 
 const CHALLENGE_HMAC_SECRET = process.env.JWT_SECRET || 'smartteams-face-challenge-secret-key';
 
+const consumedChallengeNonces = new Set<string>();
+
 export function createChallengeToken(userId: number, actions: string[]): string {
   const issuedAt = Date.now();
-  const payload = JSON.stringify({ userId, actions, issuedAt });
+  const nonce = crypto.randomUUID();
+  const payload = JSON.stringify({ nonce, userId, actions, issuedAt });
   const hmac = crypto.createHmac('sha256', CHALLENGE_HMAC_SECRET).update(payload).digest('hex');
   const token = Buffer.from(payload).toString('base64url') + '.' + hmac;
   // Sync to local map as fallback
@@ -173,14 +178,14 @@ export function createChallengeToken(userId: number, actions: string[]): string 
   return token;
 }
 
-export function verifyChallengeToken(token: string, userId: number): { valid: boolean; actions: string[] } {
+export function verifyChallengeToken(token: string, userId: number): { valid: boolean; actions: string[]; error?: string } {
   if (!token) {
     // Fall back to local pendingChallenges map if token not supplied
     const local = pendingChallenges.get(userId);
-    if (!local) return { valid: false, actions: [] };
+    if (!local) return { valid: false, actions: [], error: 'No active challenge found' };
     if (Date.now() - local.issuedAt > CHALLENGE_TTL_MS) {
       pendingChallenges.delete(userId);
-      return { valid: false, actions: [] };
+      return { valid: false, actions: [], error: 'Challenge expired' };
     }
     pendingChallenges.delete(userId);
     return { valid: true, actions: local.actions };
@@ -188,24 +193,86 @@ export function verifyChallengeToken(token: string, userId: number): { valid: bo
 
   try {
     const parts = token.split('.');
-    if (parts.length !== 2) return { valid: false, actions: [] };
+    if (parts.length !== 2) return { valid: false, actions: [], error: 'Malformed token structure' };
     const [b64Payload, hmac] = parts;
     const payloadStr = Buffer.from(b64Payload, 'base64url').toString('utf8');
     const expectedHmac = crypto.createHmac('sha256', CHALLENGE_HMAC_SECRET).update(payloadStr).digest('hex');
 
     if (!crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expectedHmac, 'hex'))) {
-      return { valid: false, actions: [] };
+      return { valid: false, actions: [], error: 'Invalid HMAC signature' };
     }
 
-    const { userId: tokenUserId, actions, issuedAt } = JSON.parse(payloadStr);
-    if (tokenUserId !== userId) return { valid: false, actions: [] };
-    if (Date.now() - issuedAt > CHALLENGE_TTL_MS) return { valid: false, actions: [] };
+    const { nonce, userId: tokenUserId, actions, issuedAt } = JSON.parse(payloadStr);
+    if (tokenUserId !== userId) return { valid: false, actions: [], error: 'User mismatch' };
+    if (Date.now() - issuedAt > CHALLENGE_TTL_MS) return { valid: false, actions: [], error: 'Token expired' };
 
-    // Valid HMAC signed challenge token
+    // ATOMIC SINGLE-USE REPLAY CHECK
+    if (nonce && consumedChallengeNonces.has(nonce)) {
+      return { valid: false, actions: [], error: 'Challenge token already consumed (replay detected)' };
+    }
+    if (nonce) {
+      consumedChallengeNonces.add(nonce);
+      // Clean up old nonces after TTL to prevent memory growth
+      setTimeout(() => consumedChallengeNonces.delete(nonce), CHALLENGE_TTL_MS + 10000).unref();
+    }
+
+    // Valid single-use HMAC signed challenge token
     pendingChallenges.delete(userId);
     return { valid: true, actions };
-  } catch {
-    return { valid: false, actions: [] };
+  } catch (err: any) {
+    return { valid: false, actions: [], error: err?.message || 'Token verification failed' };
+  }
+}
+
+export async function verifyChallengeTokenAsync(token: string, userId: number): Promise<{ valid: boolean; actions: string[]; error?: string }> {
+  if (!token) {
+    return verifyChallengeToken(token, userId);
+  }
+
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) return { valid: false, actions: [], error: 'Malformed token structure' };
+    const [b64Payload, hmac] = parts;
+    const payloadStr = Buffer.from(b64Payload, 'base64url').toString('utf8');
+    const expectedHmac = crypto.createHmac('sha256', CHALLENGE_HMAC_SECRET).update(payloadStr).digest('hex');
+
+    if (!crypto.timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expectedHmac, 'hex'))) {
+      return { valid: false, actions: [], error: 'Invalid HMAC signature' };
+    }
+
+    const { nonce, userId: tokenUserId, actions, issuedAt } = JSON.parse(payloadStr);
+    if (tokenUserId !== userId) return { valid: false, actions: [], error: 'User mismatch' };
+    if (Date.now() - issuedAt > CHALLENGE_TTL_MS) return { valid: false, actions: [], error: 'Token expired' };
+
+    // 1. Process-local Set check
+    if (nonce && consumedChallengeNonces.has(nonce)) {
+      return { valid: false, actions: [], error: 'Challenge token already consumed (replay detected)' };
+    }
+
+    // 2. Persistent DB atomic single-use insertion check
+    if (nonce && db && schema?.consumedFaceChallenges) {
+      try {
+        await db.insert(schema.consumedFaceChallenges).values({
+          nonce,
+          userId,
+        });
+      } catch (dbErr: any) {
+        if (dbErr?.code === '23505' || dbErr?.message?.includes('unique') || dbErr?.message?.includes('duplicate')) {
+          return { valid: false, actions: [], error: 'Challenge token already consumed across cluster (replay detected)' };
+        }
+        logger.warn('[face-challenge] DB nonce check warning', { error: dbErr?.message });
+      }
+    }
+
+    if (nonce) {
+      consumedChallengeNonces.add(nonce);
+      setTimeout(() => consumedChallengeNonces.delete(nonce), CHALLENGE_TTL_MS + 10000).unref();
+    }
+
+    pendingChallenges.delete(userId);
+    return { valid: true, actions };
+  } catch (err: any) {
+    return { valid: false, actions: [], error: err?.message || 'Token verification failed' };
   }
 }
 

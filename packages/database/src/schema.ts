@@ -2577,3 +2577,9 @@ export const expensePolicies = pgTable('expense_policies', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+export const consumedFaceChallenges = pgTable('consumed_face_challenges', {
+  id: serial('id').primaryKey(),
+  nonce: text('nonce').notNull().unique(),
+  userId: integer('user_id').notNull(),
+  consumedAt: timestamp('consumed_at').defaultNow(),
+});
