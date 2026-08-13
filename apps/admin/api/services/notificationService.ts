@@ -19,7 +19,16 @@ import { tenantParts, tenantDateKey } from './tenantTime';
 // anyone relative to pre-existing behavior.
 type RecipientCategory = 'employee' | 'manager' | 'hr' | 'admin' | 'fallback';
 
-// Single publish point every module calls instead of deciding recipients
+queue.registerHandler('send_user_invitation', async (payload: any) => {
+  const { to, name, role, tempPassword, activationLink } = payload;
+  if (!to || !activationLink) return;
+  await sendEmail({
+    to,
+    subject: `Smart Teams Invitation - Registered as ${role}`,
+    text: `Hello ${name},\n\nYou have been registered on Smart Teams as a ${role}.\n\nYour credentials:\nUsername: ${to}\nTemporary Password: ${tempPassword}\n\nLogin and set your password here: ${activationLink}\n\nBest Regards,\nSmart Teams Team`,
+    html: `<h3>Hello ${escapeHtml(name)},</h3><p>You have been registered on Smart Teams as a <strong>${escapeHtml(role)}</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${escapeHtml(to)}</code><br/>Temporary Password: <code>${escapeHtml(tempPassword)}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#FF3D8A;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Set Your Password</a></p><br/><p>Best Regards,<br/>Smart Teams Team</p>`,
+  });
+});
 // and calling sendEmail/notifyUser inline. `notify()` resolves recipients
 // from a per-tenant policy row (notification_policies), falling back to a
 // hardcoded default matching whatever that event already did before this

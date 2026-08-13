@@ -125,3 +125,10 @@ export function requireRole(...allowedRoles: string[]) {
     next();
   };
 }
+
+export function requireTenant(req: any, res: any, next: any) {
+  if (!req.user || !req.user.tenantId) {
+    return res.status(403).json({ error: 'Tenant identity required' });
+  }
+  next();
+}

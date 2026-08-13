@@ -15,18 +15,23 @@ import { initMonitoring, captureException } from './api/services/monitoring';
 
 initMonitoring();
 
-// Last-resort safety nets: without these, an error thrown outside any
-// request handler's try/catch (e.g. inside a fire-and-forget async task, a
-// timer callback, or a rejected promise nobody awaited) crashes the entire
-// Node process and drops every connected user, not just the one operation
-// that failed. Logging and continuing is far safer for a multi-user server
-// than letting the whole process die on an isolated bug.
-process.on('uncaughtException', (err) => {
-  captureException(err, { source: 'uncaughtException' });
-});
-process.on('unhandledRejection', (reason) => {
-  captureException(reason, { source: 'unhandledRejection' });
-});
+let isShuttingDown = false;
+
+function handleFatalError(err: any, source: string) {
+  logger.error(`Fatal ${source}`, { error: err?.message, stack: err?.stack });
+  captureException(err, { source });
+
+  if (process.env.NODE_ENV === 'production' && !isShuttingDown) {
+    isShuttingDown = true;
+    setTimeout(() => {
+      closeDb();
+      process.exit(1);
+    }, 1000).unref();
+  }
+}
+
+process.on('uncaughtException', (err) => handleFatalError(err, 'uncaughtException'));
+process.on('unhandledRejection', (reason) => handleFatalError(reason, 'unhandledRejection'));
 
 async function startServer() {
   assertFederationAuthStartupConfig();

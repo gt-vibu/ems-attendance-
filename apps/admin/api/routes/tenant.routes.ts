@@ -21,6 +21,7 @@ import { issueNewSession, finalizeLogin } from '../auth/session';
 import { logToAuditLedger } from '../services/audit';
 import { haversineMeters, resolveActiveIp } from '../services/geo';
 import { localDateKey } from '../services/dateUtils';
+import { queue } from '../services/queue';
 import { computeAttendancePercent, getHierarchyAlertRecipients } from '../services/attendanceStats';
 import { tenantDateKey, tenantDateTime, tenantStartOfDay } from '../services/tenantTime';
 
@@ -501,13 +502,8 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
           });
 
           const activationLink = `${baseUrl}/login?email=${encodeURIComponent(email)}&temp=${tempPassword}`;
-          pendingEmailTasks.push(async () => {
-            await sendEmail({
-              to: email,
-              subject: `Smart Teams Invitation - Registered as ${role}`,
-              text: `Hello ${name},\n\nYou have been registered on Smart Teams as a ${role}.\n\nYour credentials:\nUsername: ${email}\nTemporary Password: ${tempPassword}\n\nLogin and set your password here: ${activationLink}\n\nBest Regards,\nSmart Teams Team`,
-              html: `<h3>Hello ${name},</h3><p>You have been registered on Smart Teams as a <strong>${role}</strong>.</p><p><strong>Your credentials:</strong><br/>Username: <code>${email}</code><br/>Temporary Password: <code>${tempPassword}</code></p><p><a href="${activationLink}" style="display:inline-block;background:#FF3D8A;color:white;padding:10px 20px;text-decoration:none;border-radius:20px;font-weight:bold;">Set Your Password</a></p><br/><p>Best Regards,<br/>Smart Teams Team</p>`,
-            }).catch(() => undefined);
+          pendingEmailTasks.push({
+            to: email, name, role, tempPassword, activationLink,
           });
 
           results.push({ row: rowNum, email, success: true });
@@ -523,13 +519,13 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
         }
       }
 
-      // Dispatch invitation emails asynchronously in background
+      // Enqueue durable invitation email jobs into background_jobs queue
       if (pendingEmailTasks.length > 0) {
-        setImmediate(async () => {
-          for (const emailTask of pendingEmailTasks) {
-            await emailTask().catch(() => undefined);
-          }
-        });
+        for (const emailTask of pendingEmailTasks) {
+          await queue.enqueue('send_user_invitation', emailTask, { tenantId }).catch((err) => {
+            logger.error('Failed to enqueue invitation job in queue', { error: err?.message });
+          });
+        }
       }
 
       await logToAuditLedger({
