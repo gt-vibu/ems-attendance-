@@ -5,6 +5,7 @@ import { resolveEscalationAssignee } from './escalation';
 import { renderNotificationTemplate } from './notificationTemplates';
 import { notifyUser } from './notifications';
 import { sendEmail, sendDailySummaryEmail } from '../../mail';
+import { escapeHtml } from '../utils/htmlSanitizer';
 import { queue } from './queue';
 import { tenantParts, tenantDateKey } from './tenantTime';
 
@@ -382,7 +383,7 @@ export function registerNotificationDeliveryHandler() {
           const { tenantName, periodLabel, stats } = data.__digestStats;
           await sendDailySummaryEmail(userEmail, userName || subjectName, tenantName, periodLabel, stats);
         } else {
-          await sendEmail({ to: userEmail, subject, text: body, html: `<p>${body}</p>` });
+          await sendEmail({ to: userEmail, subject, text: body, html: `<p>${escapeHtml(body)}</p>` });
         }
       }
       await db.insert(schema.notificationLog).values({

@@ -617,6 +617,7 @@ def enroll(req: EnrollRequest):
             action_log[action] = ActionLogEntry(framesSubmitted=0, framesWithFace=0, verified=False)
             continue
 
+        images = images[:30]  # Cap payload to max 30 frames per action
         detected_faces = []
         for b64 in images:
             img = decode_image(b64)

@@ -13,9 +13,13 @@ import './index.css';
 // reduced-motion.css's own header comment for the full story).
 import './reduced-motion.css';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AdminApp />
+    <ErrorBoundary>
+      <AdminApp />
+    </ErrorBoundary>
   </StrictMode>,
 );
 

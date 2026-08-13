@@ -4,8 +4,12 @@
 // otherwise a two-line job.
 export function downloadCsv(filename: string, rows: (string | number)[][]) {
   const escapeCell = (cell: string | number) => {
-    const str = String(cell ?? '');
-    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    let str = String(cell ?? '');
+    // Neutralize CSV formula injection (=, +, -, @, \t, \r)
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = "'" + str;
+    }
+    return `"${str.replace(/"/g, '""')}"`;
   };
   const csv = rows.map(row => row.map(escapeCell).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

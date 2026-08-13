@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { authenticate } from '../middleware/authenticate';
@@ -45,7 +45,13 @@ router.post('/api/push/unsubscribe', authenticate, async (req: any, res: any) =>
   try {
     const { endpoint } = req.body || {};
     if (!endpoint) return res.status(400).json({ error: 'endpoint is required' });
-    await db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.endpoint, endpoint));
+    await db.delete(schema.pushSubscriptions).where(
+      and(
+        eq(schema.pushSubscriptions.endpoint, endpoint),
+        eq(schema.pushSubscriptions.userId, req.user.userId),
+        eq(schema.pushSubscriptions.tenantId, req.user.tenantId)
+      )
+    );
     res.json({ success: true });
   } catch (err: any) {
     sendServerError(res, err, "push.routes.ts");

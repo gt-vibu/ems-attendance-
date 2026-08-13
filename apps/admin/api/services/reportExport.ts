@@ -5,7 +5,11 @@
 // whatever row shape services/reportData.ts produced, so a scheduled export
 // and an on-screen download always look the same.
 function escapeCell(value: any): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  let str = value === null || value === undefined ? '' : String(value);
+  // Neutralize CSV formula injection (=, +, -, @, \t, \r)
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
   return `"${str.replace(/"/g, '""')}"`;
 }
 
