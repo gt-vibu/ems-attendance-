@@ -48,6 +48,7 @@ async function createFederationClient(tenantId: number | null, scopes: string[])
 async function cleanupFederationExtras(tenantId: number) {
   await db.delete(schema.federationWebhookOutbox).where(eq(schema.federationWebhookOutbox.tenantId, tenantId));
   await db.delete(schema.federationIdempotencyKeys).where(eq(schema.federationIdempotencyKeys.tenantId, tenantId));
+  await db.delete(schema.tenantFederationAuthorizations).where(eq(schema.tenantFederationAuthorizations.tenantId, tenantId));
   await db.delete(schema.federationExternalIdMappings).where(eq(schema.federationExternalIdMappings.tenantId, tenantId));
   await db.delete(schema.federationClients).where(eq(schema.federationClients.tenantId, tenantId));
   await db.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.tenantId, tenantId));
@@ -337,6 +338,7 @@ describe('Federation contract: provisioning (platform-scoped client)', () => {
         await db.delete(schema.backgroundJobs).where(eq(schema.backgroundJobs.tenantId, createdTenantId));
         await db.delete(schema.federationWebhookOutbox).where(eq(schema.federationWebhookOutbox.tenantId, createdTenantId));
         await db.delete(schema.federationIdempotencyKeys).where(eq(schema.federationIdempotencyKeys.tenantId, createdTenantId));
+        await db.delete(schema.tenantFederationAuthorizations).where(eq(schema.tenantFederationAuthorizations.tenantId, createdTenantId));
         await db.delete(schema.federationExternalIdMappings).where(eq(schema.federationExternalIdMappings.tenantId, createdTenantId));
         // users.branch_id -> branches.id must be cleared before branches can be deleted.
         await db.update(schema.users).set({ branchId: null }).where(eq(schema.users.tenantId, createdTenantId));

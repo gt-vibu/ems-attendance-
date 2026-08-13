@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
-import { eq, sql } from 'drizzle-orm';
+import { eq, getTableColumns, getTableName, is, sql, Table } from 'drizzle-orm';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { db, schema, withBootSyncLock } from '../../db';
 import { logger } from '../../logger';
@@ -12,6 +13,94 @@ import { hashPassword } from '../../password.js';
 // a rolling/autoscaled deploy don't race each other's concurrent migrations.
 export async function verifyAndSyncDatabase(): Promise<void> {
   await withBootSyncLock(runSchemaSync);
+}
+
+function resultRows(result: unknown): Record<string, unknown>[] {
+  if (Array.isArray(result)) return result as Record<string, unknown>[];
+  if (!result || typeof result !== 'object') return [];
+  const rows = (result as { rows?: unknown }).rows;
+  return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+}
+
+/**
+ * Production predates the versioned Drizzle migration journal. Those
+ * databases were built by the former idempotent boot synchronizer, so their
+ * tables already exist even though Drizzle believes migration 0000 is still
+ * pending. Adopt that legacy schema only after proving that every table and
+ * column required by the current runtime is present. This is deliberately
+ * fail-closed: a partial or genuinely stale schema is never marked current.
+ */
+async function adoptCompatibleLegacySchema(migrationsFolder: string): Promise<void> {
+  const journalProbe = await db.execute(
+    sql`SELECT to_regclass('drizzle.__drizzle_migrations') AS relation_name`,
+  );
+  const journalRows = resultRows(journalProbe);
+  const journalRelation = journalRows[0]?.relation_name;
+  if (journalRelation) {
+    const journalCount = resultRows(
+      await db.execute(sql`SELECT COUNT(*)::integer AS count FROM drizzle.__drizzle_migrations`),
+    )[0]?.count;
+    if (Number(journalCount) > 0) return;
+  }
+
+  const legacyProbe = await db.execute(
+    sql`SELECT to_regclass('public.attendance_alerts') AS relation_name`,
+  );
+  const legacyRows = resultRows(legacyProbe);
+  const legacyRelation = legacyRows[0]?.relation_name;
+  if (!legacyRelation) return;
+
+  const actualColumnRows = resultRows(
+    await db.execute(sql`
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+    `),
+  );
+  const actualColumns = new Set(
+    actualColumnRows.map((row) => `${String(row.table_name)}.${String(row.column_name)}`),
+  );
+  const expectedTables = Object.values(schema).filter((value) => is(value, Table)) as unknown as Table[];
+  const expectedColumns = expectedTables.flatMap((table) =>
+    Object.values(getTableColumns(table)).map(
+      (column) => `${getTableName(table)}.${column.name}`,
+    ),
+  );
+  const missingColumns = expectedColumns.filter((column) => !actualColumns.has(column));
+  if (missingColumns.length > 0) {
+    const sample = missingColumns.slice(0, 12).join(', ');
+    throw new Error(
+      `Legacy database has no Drizzle migration history and is missing ${missingColumns.length} required schema columns (${sample}). Refusing to mark an incomplete schema as migrated.`,
+    );
+  }
+
+  const migrations = readMigrationFiles({ migrationsFolder });
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`);
+    await tx.execute(sql`
+      CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at bigint
+      )
+    `);
+    const journalCount = resultRows(
+      await tx.execute(sql`SELECT COUNT(*)::integer AS count FROM drizzle.__drizzle_migrations`),
+    )[0]?.count;
+    if (Number(journalCount) > 0) return;
+
+    for (const migration of migrations) {
+      await tx.execute(sql`
+        INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+        VALUES (${migration.hash}, ${migration.folderMillis})
+      `);
+    }
+  });
+  logger.warn('[migrations] Adopted compatible legacy schema into the Drizzle journal', {
+    migrations: migrations.length,
+    tables: expectedTables.length,
+    columns: expectedColumns.length,
+  });
 }
 
 async function runSchemaSync() {
@@ -26,6 +115,7 @@ async function runSchemaSync() {
     if (!migrationsFolder) {
       migrationsFolder = candidates[0];
     }
+    await adoptCompatibleLegacySchema(migrationsFolder);
     await migrate(db, { migrationsFolder });
     console.log('[migrations] Versioned transactional database migrations applied successfully.');
 
@@ -50,6 +140,7 @@ async function runSchemaSync() {
     }
   } catch (err) {
     console.error('Failed to apply database migrations:', err);
+    throw err;
   }
 }
 

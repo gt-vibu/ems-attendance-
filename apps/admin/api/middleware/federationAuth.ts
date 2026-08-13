@@ -209,8 +209,13 @@ export function resolveFederationTenantContext() {
     if (resolvedTenantId === null) {
       const runId = pick('runId');
       if (runId && /^\d+$/.test(runId)) {
-        const rows = await db.select({ tenantId: schema.payrollRuns.tenantId }).from(schema.payrollRuns).where(eq(schema.payrollRuns.id, Number(runId))).limit(1);
-        if (rows[0]) resolvedTenantId = rows[0].tenantId;
+        const batchRows = await db.select({ tenantId: schema.payrollBatches.tenantId }).from(schema.payrollBatches).where(eq(schema.payrollBatches.id, Number(runId))).limit(1);
+        if (batchRows[0]) {
+          resolvedTenantId = batchRows[0].tenantId;
+        } else {
+          const runRows = await db.select({ tenantId: schema.payrollRuns.tenantId }).from(schema.payrollRuns).where(eq(schema.payrollRuns.id, Number(runId))).limit(1);
+          if (runRows[0]) resolvedTenantId = runRows[0].tenantId;
+        }
       }
     }
     // GET /v1/federation/jobs/:jobId — same reasoning: the job was created

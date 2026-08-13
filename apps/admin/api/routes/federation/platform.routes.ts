@@ -22,7 +22,16 @@ router.get('/v1/federation/health/live', (_req, res) => {
 
 router.get('/v1/federation/health/ready', async (_req, res) => {
   try {
-    await db.execute(sql`SELECT 1`);
+    const result: any = await db.execute(sql`
+      SELECT
+        to_regclass('public.tenants') IS NOT NULL AS tenants_ready,
+        to_regclass('public.federation_clients') IS NOT NULL AS clients_ready,
+        to_regclass('public.federation_external_id_mappings') IS NOT NULL AS mappings_ready
+    `);
+    const row = result?.rows?.[0] ?? result?.[0];
+    if (!row?.tenants_ready || !row?.clients_ready || !row?.mappings_ready) {
+      throw new Error('Required federation schema is not available.');
+    }
     res.json({ status: 'ready' });
   } catch (err: any) {
     logger.warn('[federation] readiness check failed', { error: err?.message });
