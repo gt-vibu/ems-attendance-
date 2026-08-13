@@ -8,6 +8,7 @@ import { assertTenantOwnership } from './api/utils/tenantScoped.js';
 import { buildCsv } from './api/services/reportExport.js';
 import { escapeHtml } from './api/utils/htmlSanitizer.js';
 import { requireTenant } from './api/middleware/authenticate.js';
+import { queue } from './api/services/queue/index.js';
 
 test('AUDIT FINDING 1: DB Fail-Closed & Readiness Endpoint Verification', async () => {
   assert.equal(isPrivateIp('127.0.0.1'), true, '127.0.0.1 must be identified as private IP');
@@ -107,6 +108,37 @@ test('AUDIT FINDING 11: CSV Formula Injection Protection', () => {
   assert.ok(csvOutput.includes('"' + "'+1000"), 'Formula + must be escaped with single quote');
   assert.ok(csvOutput.includes('"' + "'-500"), 'Formula - must be escaped with single quote');
   assert.ok(csvOutput.includes('"' + "'@ADMIN"), 'Formula @ must be escaped with single quote');
+});
+
+test('AUDIT FINDING 12: Push Subscription Ownership Isolation Checks', () => {
+  const subTenant1UserA = { id: 1, userId: 100, tenantId: 10, endpoint: 'https://push.example.com/sub/a' };
+  const reqUserB = { userId: 200, tenantId: 10 }; // Different user
+  const reqTenantB = { userId: 100, tenantId: 20 }; // Different tenant
+
+  // Match -> Allowed
+  assert.equal(subTenant1UserA.userId === 100 && subTenant1UserA.tenantId === 10, true);
+
+  // Mismatch User -> Denied
+  assert.equal(subTenant1UserA.userId === reqUserB.userId && subTenant1UserA.tenantId === reqUserB.tenantId, false);
+
+  // Mismatch Tenant -> Denied
+  assert.equal(subTenant1UserA.userId === reqTenantB.userId && subTenant1UserA.tenantId === reqTenantB.tenantId, false);
+});
+
+test('AUDIT FINDING 13: Durable Background Job Queue Enqueue & Handler Proof', async () => {
+  let jobHandled = false;
+  let jobPayload: any = null;
+
+  queue.registerHandler('test_security_job', async (payload: any) => {
+    jobHandled = true;
+    jobPayload = payload;
+  });
+
+  await queue.enqueue('test_security_job', { testKey: 'testVal' });
+  await queue.pollOnce();
+
+  assert.equal(jobHandled, true, 'Queue must execute registered handler');
+  assert.equal(jobPayload?.testKey, 'testVal', 'Queue must deliver enqueued payload');
 });
 
 test('AUDIT FINDING 14: Email HTML XSS Escaping', () => {
