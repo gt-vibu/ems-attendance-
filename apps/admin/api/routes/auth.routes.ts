@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import { OAuth2Client } from 'google-auth-library';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getAppBaseUrl } from '../utils/baseUrl';
 import { logger } from '../../logger';
 import { openApiSpec } from '../../openapi.js';
 import { signToken, verifyToken, signShortLivedToken } from '../../jwt';
@@ -166,7 +167,7 @@ router.post('/api/auth/forgot-password', authLimiter, async (req: any, res: any)
       if (usersList.length > 0) {
         const user = usersList[0];
         const resetToken = signShortLivedToken({ userId: user.id, purpose: 'password_reset' }, '45m');
-        const resetLink = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
+        const resetLink = `${getAppBaseUrl()}/reset-password?token=${resetToken}`;
         try {
           await sendPasswordResetEmail(user.email, user.name, resetLink);
         } catch (mailErr) {

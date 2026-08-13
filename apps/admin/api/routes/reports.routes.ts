@@ -12,11 +12,14 @@ import { buildReportExcel, buildReportPdf, type ReportExportMeta, type ReportCol
 import { logToAuditLedger } from '../services/audit';
 import { tenantDateLabel, tenantDateTimeLabel } from '../services/tenantTime';
 
+import { sanitizeReportColumns } from '../utils/reportColumnAllowlist';
+
 export const router = Router();
 
 function parseFiltersFromQuery(req: any): ReportFilters {
+  const type = (req.query.type as string) || 'attendance';
   return {
-    type: (req.query.type as string) || 'attendance',
+    type,
     startDate: req.query.startDate as string,
     endDate: req.query.endDate as string,
     department: req.query.department as string,
@@ -30,6 +33,7 @@ function parseFiltersFromQuery(req: any): ReportFilters {
     overtimeOnly: req.query.overtime === 'true',
     exceptionsOnly: req.query.exceptions === 'true',
     modules: typeof req.query.modules === 'string' && req.query.modules.length > 0 ? req.query.modules.split(',') : undefined,
+    columns: sanitizeReportColumns(type, req.query.columns),
   };
 }
 

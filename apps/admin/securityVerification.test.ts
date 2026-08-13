@@ -9,6 +9,8 @@ import { buildCsv } from './api/services/reportExport.js';
 import { escapeHtml } from './api/utils/htmlSanitizer.js';
 import { requireTenant } from './api/middleware/authenticate.js';
 import { queue } from './api/services/queue/index.js';
+import { getAppBaseUrl } from './api/utils/baseUrl.js';
+import { sanitizeReportColumns } from './api/utils/reportColumnAllowlist.js';
 
 test('AUDIT FINDING 1: DB Fail-Closed & Readiness Endpoint Verification', async () => {
   assert.equal(isPrivateIp('127.0.0.1'), true, '127.0.0.1 must be identified as private IP');
@@ -186,4 +188,41 @@ test('AUDIT FINDING 18: Fatal Process Error Handling Logic Verification', () => 
   mockHandleFatalError(new Error('Fatal unhandled rejection'), 'unhandledRejection', 'production');
   assert.equal(loggedError, true, 'Fatal error must be logged');
   assert.equal(processExited, true, 'Fatal error in production must trigger fail-closed process exit');
+});
+
+test('AUDIT FINDING 19: Password Reset Production Base URL Validation', () => {
+  const oldEnv = process.env.NODE_ENV;
+  const oldUrl = process.env.APP_BASE_URL;
+
+  try {
+    // 1. Valid production APP_BASE_URL
+    process.env.NODE_ENV = 'production';
+    process.env.APP_BASE_URL = 'https://ems.company.com';
+    assert.equal(getAppBaseUrl(), 'https://ems.company.com');
+
+    // 2. Production with localhost -> Throws Error
+    process.env.APP_BASE_URL = 'http://localhost:3000';
+    assert.throws(() => getAppBaseUrl(), (err: any) => err.message.includes('cannot point to localhost'));
+
+    // 3. Production missing APP_BASE_URL -> Throws Error
+    delete process.env.APP_BASE_URL;
+    assert.throws(() => getAppBaseUrl(), (err: any) => err.message.includes('required in production'));
+  } finally {
+    process.env.NODE_ENV = oldEnv;
+    process.env.APP_BASE_URL = oldUrl;
+  }
+});
+
+test('AUDIT FINDING 20: Server-Side Report Column Allowlist Sanitization', () => {
+  // 1. Valid columns -> Accepted
+  const validCols = sanitizeReportColumns('attendance', ['date', 'employeeName', 'workingHours']);
+  assert.deepEqual(validCols, ['date', 'employeeName', 'workingHours']);
+
+  // 2. Malicious / SQL Injection / Internal columns -> Discarded
+  const maliciousCols = sanitizeReportColumns('attendance', ['date', 'DROP TABLE users', 'users.password', 'tenant_id']);
+  assert.deepEqual(maliciousCols, ['date']);
+
+  // 3. All invalid columns -> Returns undefined (falls back to default report template)
+  const allInvalid = sanitizeReportColumns('attendance', ['DROP TABLE users', 'password']);
+  assert.equal(allInvalid, undefined);
 });

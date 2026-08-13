@@ -8,6 +8,7 @@ import { detectPostgres, closeDb } from './db';
 import { logger, requestLogger } from './logger';
 import { verifyAndSyncDatabase, seedSuperAdmin } from './api/bootstrap/database';
 import { assertFederationAuthStartupConfig } from './api/middleware/federationAuth';
+import { assertAppBaseUrlConfig } from './api/utils/baseUrl';
 import { startSchedulerWithLeadership } from './api/bootstrap/scheduler';
 import { generalLimiter } from './api/middleware/rateLimit';
 import { registerRoutes } from './api/routes';
@@ -35,6 +36,7 @@ process.on('unhandledRejection', (reason) => handleFatalError(reason, 'unhandled
 
 async function startServer() {
   assertFederationAuthStartupConfig();
+  assertAppBaseUrlConfig();
   const app = express();
   // Honor a platform-injected PORT (Render/Fly/Heroku set this) but keep 3000
   // as the default so local dev and the existing Docker/compose setup are
