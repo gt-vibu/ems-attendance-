@@ -20,6 +20,7 @@ import PayrollPage from './PayrollPage';
 import EmployeeDirectory from './EmployeeDirectory';
 import TeamsPage from './TeamsPage';
 import ProfilePage from './ProfilePage';
+import ExpensesPage from './ExpensesPage';
 import DateSelect from '../components/DateSelect';
 import TimeSelect from '../components/TimeSelect';
 import { useLedger } from './dashboard/hooks/useLedger';
@@ -43,7 +44,7 @@ import {
   LayoutDashboard, Users, Users2, Building2, ShieldCheck, Bell, Plug, Key,
   ScrollText, AlertTriangle, Smartphone, X, ClipboardCheck, Home, Clock, MapPin, Download,
   QrCode, ScanLine, Activity, Power, Play, ExternalLink, TrendingUp, CalendarDays, Banknote,
-  CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket, BarChart2,
+  CheckCircle2, UserX, AlarmClock, CalendarClock, Ticket, BarChart2, Receipt,
 } from 'lucide-react';
 const IntegrationHubPage = lazy(() => import('./IntegrationHubPage'));
 import {
@@ -137,7 +138,7 @@ function tenantMonthStart(date: Date, timezone?: string | null): string {
   return `${tenantDayKey(date, timezone).slice(0, 7)}-01`;
 }
 
-export default function Dashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
+export default function Dashboard({ user, onLogout, defaultTab }: { user: User; onLogout: () => void; defaultTab?: string }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const token = localStorage.getItem('auth_token');
@@ -577,7 +578,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     } else if (currentUrlTab) {
       setActiveTab(currentUrlTab);
     } else {
-      setActiveTab('home');
+      setActiveTab(defaultTab || 'home');
     }
   }, [currentUrlTab]);
 
@@ -712,6 +713,7 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
     // own `embedded` mode — no route change, no sidebar/header remount.
     { id: 'leave-management', label: 'Leave Management', icon: CalendarDays, description: 'Review requests, approvals, and leave policies.', visible: hasAnyPrivilege('leave.read', 'leave.approve') },
     { id: 'payroll', label: 'Payroll', icon: Banknote, description: 'Salary structures, payslips, deductions.', visible: hasAnyPrivilege('payroll.read', 'payroll.manage') },
+    { id: 'expenses', label: 'Expenses', icon: Receipt, description: 'Track claims, OCR receipt processing, approval workflow, and reimbursements.', visible: true },
     { id: 'directory', label: 'Directory', icon: Users, description: 'Browse and search the organization.', visible: hasAnyPrivilege('employee.read', 'reports.view') },
     // Its own top-level destination (not nested under Administration) since
     // hiring is a frequent day-to-day action, not a one-off config screen.
@@ -2568,6 +2570,10 @@ export default function Dashboard({ user, onLogout }: { user: User, onLogout: ()
 
             {activeTab === 'payroll' && (
               <PayrollPage user={user} onLogout={onLogout} embedded />
+            )}
+
+            {activeTab === 'expenses' && (
+              <ExpensesPage user={user} onLogout={onLogout} embedded />
             )}
 
             {activeTab === 'directory' && (

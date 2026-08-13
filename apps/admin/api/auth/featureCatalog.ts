@@ -100,6 +100,19 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     ],
   },
   {
+    category: 'Expenses',
+    icon: 'Receipt',
+    features: [
+      { key: 'expenses.submit', label: 'Submit Expenses', description: 'Upload receipts and submit expense reimbursement claims.' },
+      { key: 'expenses.read', label: 'View Expenses', description: 'View company and team expense reports and history.' },
+      { key: 'expenses.approve', label: 'Approve Expenses', description: 'Review, approve, or reject employee expense claims.' },
+      { key: 'expenses.reimburse', label: 'Mark Reimbursed', description: 'Track reimbursement status and mark approved expenses as paid.' },
+      { key: 'expenses.reimburse.partial', label: 'Allow Partial Reimbursement', description: 'Allow entering partial reimbursement amounts for an approved expense claim.' },
+      { key: 'expenses.policy', label: 'Configure Expense Policies', description: 'Configure expense categories, caps, and approval rules.' },
+      { key: 'expenses.reports', label: 'Generate Expense Reports', description: 'Build, schedule, and export custom expense analytics and reports.' },
+    ],
+  },
+  {
     category: 'Devices',
     icon: 'Smartphone',
     features: [
@@ -233,6 +246,7 @@ export const FEATURE_DEPENDENCIES: Record<string, string[]> = {
   'alerts.geofence_exit.resolve': ['alerts.geofence_exit.receive'],
   'alerts.security.resolve': ['alerts.security.receive'],
   'alerts.resolve': ['alerts.receive'],
+  'expenses.reimburse.partial': ['expenses.reimburse'],
   // Releasing payroll without ever having reviewed/approved it isn't a real
   // workflow — same reasoning as the alerts pairs above.
   'payroll.release': ['payroll.approve'],

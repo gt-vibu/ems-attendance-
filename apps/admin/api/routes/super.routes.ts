@@ -340,8 +340,13 @@ router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'
         await tx.delete(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.tenantId, tenantId));
         await tx.delete(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.tenantId, tenantId));
         await tx.delete(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, tenantId));
+        await tx.delete(schema.expenseReimbursements).where(eq(schema.expenseReimbursements.tenantId, tenantId));
+        await tx.delete(schema.expenses).where(eq(schema.expenses.tenantId, tenantId));
 
         // Depth 2 — reference users/tenants/branches/shifts directly.
+        await tx.delete(schema.expenseCategories).where(eq(schema.expenseCategories.tenantId, tenantId));
+        await tx.delete(schema.approvalRoutingRules).where(eq(schema.approvalRoutingRules.tenantId, tenantId));
+        await tx.delete(schema.backgroundJobs).where(eq(schema.backgroundJobs.tenantId, tenantId));
         await tx.delete(schema.employeeCompensationProfiles).where(eq(schema.employeeCompensationProfiles.tenantId, tenantId));
         await tx.delete(schema.roleCompensationDefaults).where(eq(schema.roleCompensationDefaults.tenantId, tenantId));
         await tx.delete(schema.teams).where(eq(schema.teams.tenantId, tenantId));

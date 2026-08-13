@@ -18,17 +18,19 @@ export async function logToAuditLedger(params: {
   requestId?: string | null;
 }) {
   try {
-    // 1. Get the last hash in the ledger
-    const lastLogs = await db.select()
-      .from(schema.auditLedger)
-      .orderBy(desc(schema.auditLedger.id))
-      .limit(1);
+    // 1. Get the last hash in the ledger for THIS tenant (matching ledger.routes.ts verification query)
+    const lastLogsQuery = params.tenantId !== null && params.tenantId !== undefined
+      ? db.select().from(schema.auditLedger).where(eq(schema.auditLedger.tenantId, params.tenantId)).orderBy(desc(schema.auditLedger.id)).limit(1)
+      : db.select().from(schema.auditLedger).orderBy(desc(schema.auditLedger.id)).limit(1);
+
+    const lastLogs = await lastLogsQuery;
 
     const prevHash = lastLogs.length > 0 ? lastLogs[0].hash : 'GENESIS';
     const timestamp = new Date();
 
-    // 2. Compute current hash: SHA-256(prevHash + timestamp + action + actorName + JSON.stringify(details))
-    const detailsStr = params.details ? JSON.stringify(params.details) : '';
+    // 2. Compute current hash: SHA-256(prevHash + timestamp + action + actorName + canonicalDetails)
+    const detailsObj = (params.details && typeof params.details === 'object' && Object.keys(params.details).length > 0) ? params.details : null;
+    const detailsStr = detailsObj ? JSON.stringify(detailsObj) : '';
     const rawPayload = `${prevHash}|${timestamp.toISOString()}|${params.action}|${params.actorName}|${detailsStr}`;
     const currentHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
 

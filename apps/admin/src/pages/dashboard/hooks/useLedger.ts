@@ -20,8 +20,9 @@ export function useLedger(token: string | null) {
       const res = await fetch('/api/tenant/ledger', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (data.ledger) {
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data.ledger)) {
         setLedger(data.ledger);
       }
     } catch (err) {
@@ -63,9 +64,14 @@ export function useLedger(token: string | null) {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const data = await res.json();
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error('Ledger verification failed:', res.status, text);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
       setLedgerVerificationResult({
-        isValid: data.isValid,
+        isValid: !!data.isValid,
         invalidBlocks: data.invalidBlocks || [],
         verifiedBlocksCount: data.verifiedBlocksCount || 0
       });

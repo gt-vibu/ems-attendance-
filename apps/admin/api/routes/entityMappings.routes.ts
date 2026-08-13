@@ -6,10 +6,8 @@ import { authenticate } from '../middleware/authenticate';
 
 export const router = Router();
 
-router.use('/api/tenant/entity-mappings', authenticate);
-
 // List external ID mappings for a tenant
-router.get('/', async (req: any, res: any) => {
+router.get('/api/tenant/entity-mappings', authenticate, async (req: any, res: any) => {
   try {
     const tenantId = req.user?.tenantId || 1;
     const mappings = await db.select().from(schema.federationExternalIdMappings)
@@ -21,7 +19,7 @@ router.get('/', async (req: any, res: any) => {
 });
 
 // Upsert external ID mapping
-router.post('/', async (req: any, res: any) => {
+router.post('/api/tenant/entity-mappings', authenticate, async (req: any, res: any) => {
   try {
     const tenantId = req.user?.tenantId || 1;
     const { entityType, internalId, externalId } = req.body || {};

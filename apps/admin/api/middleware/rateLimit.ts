@@ -77,7 +77,8 @@ if (process.env.NODE_ENV === 'production' && !process.env.REDIS_URL) {
   // around the same time).
 export const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 300,
+    max: process.env.NODE_ENV === 'production' ? 1000 : 5000,
+    message: { error: 'Too many requests. Please wait a minute and try again.' },
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: userAwareRateLimitKey,

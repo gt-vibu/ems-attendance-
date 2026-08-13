@@ -28,6 +28,7 @@ import {
   Key,
   LogOut,
   Check,
+  CheckCircle2,
   Globe,
   Lock,
   ArrowLeft,
@@ -36,6 +37,7 @@ import {
   FileText,
   Sparkles,
   RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 
 const portalNavItems: PortalNavItem[] = [
@@ -84,6 +86,33 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  const token = localStorage.getItem('auth_token');
+  const [notifPrefs, setNotifPrefs] = useState<{ email: boolean; in_app: boolean }>({ email: true, in_app: true });
+  const [notifSuccess, setNotifSuccess] = useState('');
+
+  useEffect(() => {
+    fetch('/api/employees/me/notification-preferences', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (d.preferences) setNotifPrefs(d.preferences); })
+      .catch(() => {});
+  }, [token]);
+
+  const handleToggleNotif = async (key: 'email' | 'in_app', checked: boolean) => {
+    const next = { ...notifPrefs, [key]: checked };
+    setNotifPrefs(next);
+    try {
+      const res = await fetch('/api/employees/me/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(next),
+      });
+      if (res.ok) {
+        setNotifSuccess('Notification preferences saved.');
+        setTimeout(() => setNotifSuccess(''), 2500);
+      }
+    } catch {}
+  };
 
   const userInitial = user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase();
 
@@ -492,43 +521,160 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
             {/* SECTION 4: Workspace Branding */}
             {activeSection === 'branding' && (
               <div className="space-y-6">
-                <div>
-                  <h2 className="text-base font-extrabold text-[var(--color-nexus-ink)] font-sans">Workspace Branding Preview</h2>
-                  <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">Live demonstration of branding integration across reports and exported documents.</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-extrabold text-[var(--color-nexus-ink)] font-sans">Workspace Branding &amp; Identity</h2>
+                    <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">Customize your organization logo, company name, address, and report header styling.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      saveCompanyIdentity(identity);
+                      try {
+                        const token = localStorage.getItem('auth_token');
+                        await fetch('/api/tenant/company-profile', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify(identity)
+                        });
+                      } catch (e) {
+                        console.error('Failed to sync company identity with backend:', e);
+                      }
+                      setSavedSuccess(true);
+                      setTimeout(() => setSavedSuccess(false), 3000);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors shadow-xs"
+                  >
+                    Save Branding Settings
+                  </button>
                 </div>
 
-                {/* Report Live Header Preview */}
-                <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-md text-slate-900 font-sans space-y-4">
-                  <div className="flex items-start justify-between pb-4 border-b-2 border-slate-900">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-blue-600 text-white font-black text-xl flex items-center justify-center shrink-0 overflow-hidden">
-                        {logoPreview ? (
-                          <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-1.5" />
-                        ) : (
-                          identity.companyName.charAt(0)
-                        )}
+                {savedSuccess && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    Branding settings updated and persisted successfully across exports.
+                  </div>
+                )}
+
+                <div className="nexus-card rounded-xl p-5 space-y-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">Organization Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Company Display Name</label>
+                      <input
+                        type="text"
+                        value={identity.companyName}
+                        onChange={(e) => setIdentity({ ...identity, companyName: e.target.value })}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-bold text-[var(--color-nexus-ink)] focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Legal Registered Name</label>
+                      <input
+                        type="text"
+                        value={identity.legalName}
+                        onChange={(e) => setIdentity({ ...identity, legalName: e.target.value })}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-semibold text-[var(--color-nexus-ink)] focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Street Address</label>
+                      <input
+                        type="text"
+                        value={identity.address}
+                        onChange={(e) => setIdentity({ ...identity, address: e.target.value })}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-semibold text-[var(--color-nexus-ink)] focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">City</label>
+                        <input
+                          type="text"
+                          value={identity.city}
+                          onChange={(e) => setIdentity({ ...identity, city: e.target.value })}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-semibold text-[var(--color-nexus-ink)] focus:outline-none focus:border-indigo-500"
+                        />
                       </div>
                       <div>
-                        <h3 className="font-extrabold text-base text-slate-900 leading-tight">{identity.companyName}</h3>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{identity.legalName}</p>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">{identity.address}, {identity.city}, {identity.country}</p>
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Country</label>
+                        <input
+                          type="text"
+                          value={identity.country}
+                          onChange={(e) => setIdentity({ ...identity, country: e.target.value })}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] font-semibold text-[var(--color-nexus-ink)] focus:outline-none focus:border-indigo-500"
+                        />
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-800 text-[10px] font-bold uppercase font-mono tracking-wider">Enterprise Report</span>
-                      <p className="text-xs font-bold text-slate-900 mt-1">ATTENDANCE &amp; PAYROLL SUMMARY</p>
-                      <p className="text-[9.5px] text-slate-500 font-mono mt-0.5">Report ID: ATT-2026-08-00023</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-nexus-muted)] mb-1">Company Logo</label>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center overflow-hidden shrink-0">
+                        {logoPreview ? (
+                          <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <Building2 className="w-6 h-6 text-indigo-400" />
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              const base64 = reader.result as string;
+                              setLogoPreview(base64);
+                              setIdentity((prev) => ({ ...prev, logo: base64 }));
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="text-xs text-[var(--color-nexus-muted)] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                      />
                     </div>
                   </div>
+                </div>
 
-                  <div className="py-6 text-center text-xs text-slate-400 font-mono border-y border-dashed border-slate-200">
-                    [ Sample Operational Table Content ]
-                  </div>
+                <div>
+                  <h3 className="text-xs font-extrabold text-[var(--color-nexus-ink)] uppercase font-mono tracking-wider mb-2">Live Report Header Preview</h3>
 
-                  <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono pt-2">
-                    <span>{identity.companyName}</span>
-                    <span>Generated by Smart Teams EMS • Confidential</span>
-                    <span>Page 1 of 1</span>
+                  {/* Report Live Header Preview */}
+                  <div className="p-6 bg-white rounded-2xl border border-slate-200 shadow-md text-slate-900 font-sans space-y-4">
+                    <div className="flex items-start justify-between pb-4 border-b-2 border-slate-900">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-blue-600 text-white font-black text-xl flex items-center justify-center shrink-0 overflow-hidden">
+                          {logoPreview ? (
+                            <img src={logoPreview} alt="Logo" className="w-full h-full object-contain p-1.5" />
+                          ) : (
+                            identity.companyName.charAt(0)
+                          )}
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-base text-slate-900 leading-tight">{identity.companyName}</h3>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{identity.legalName}</p>
+                          <p className="text-[9px] text-slate-400 font-mono mt-0.5">{identity.address}, {identity.city}, {identity.country}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-800 text-[10px] font-bold uppercase font-mono tracking-wider">Enterprise Report</span>
+                        <p className="text-xs font-bold text-slate-900 mt-1">ATTENDANCE &amp; PAYROLL SUMMARY</p>
+                        <p className="text-[9.5px] text-slate-500 font-mono mt-0.5">Report ID: ATT-2026-08-00023</p>
+                      </div>
+                    </div>
+
+                    <div className="py-6 text-center text-xs text-slate-400 font-mono border-y border-dashed border-slate-200">
+                      [ Sample Operational Table Content ]
+                    </div>
+
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono pt-2">
+                      <span>{identity.companyName}</span>
+                      <span>Generated by Smart Teams EMS • Confidential</span>
+                      <span>Page 1 of 1</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -539,8 +685,15 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
               <div className="space-y-6">
                 <div>
                   <h2 className="text-base font-extrabold text-[var(--color-nexus-ink)] font-sans">Notification Delivery Preferences</h2>
-                  <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">Configure system alert notification channels for the administrator.</p>
+                  <p className="text-xs text-[var(--color-nexus-muted)] mt-0.5">Configure system alert notification channels for your account.</p>
                 </div>
+
+                {notifSuccess && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    {notifSuccess}
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <label className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)] cursor-pointer">
@@ -548,7 +701,12 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                       <span className="text-xs font-bold text-[var(--color-nexus-ink)] block">Email Notifications</span>
                       <span className="text-[11px] text-[var(--color-nexus-muted)] block">Receive critical attendance, payroll batch, and security alerts via email.</span>
                     </div>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 accent-[var(--color-nexus-primary)]" />
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs.email}
+                      onChange={(e) => handleToggleNotif('email', e.target.checked)}
+                      className="w-4 h-4 accent-[var(--color-nexus-primary)] cursor-pointer"
+                    />
                   </label>
 
                   <label className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)] cursor-pointer">
@@ -556,7 +714,12 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                       <span className="text-xs font-bold text-[var(--color-nexus-ink)] block">In-App Header Bell Alerts</span>
                       <span className="text-[11px] text-[var(--color-nexus-muted)] block">Show real-time unread badges in top navigation bell popover.</span>
                     </div>
-                    <input type="checkbox" defaultChecked className="w-4 h-4 accent-[var(--color-nexus-primary)]" />
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs.in_app}
+                      onChange={(e) => handleToggleNotif('in_app', e.target.checked)}
+                      className="w-4 h-4 accent-[var(--color-nexus-primary)] cursor-pointer"
+                    />
                   </label>
                 </div>
               </div>
@@ -754,8 +917,16 @@ function TenantAdminProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
 // ============================================================================
 function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
   const navigate = useNavigate();
+  const token = localStorage.getItem('auth_token');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [activeTab, setActiveTab] = useState<'personal' | 'contact' | 'notifications' | 'security'>('personal');
+
+  const [fullName, setFullName] = useState(user.name || '');
+  const [department, setDepartment] = useState(user.department || '');
+  const [phone, setPhone] = useState(user.phone || (user as any).mobile || '');
+  const [emailNotif, setEmailNotif] = useState(true);
+  const [inAppNotif, setInAppNotif] = useState(true);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -763,12 +934,57 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
 
-  const userInitial = user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase();
+  useEffect(() => {
+    fetch('/api/employees/me/notification-preferences', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.preferences) {
+          setEmailNotif(d.preferences.email !== false);
+          setInAppNotif(d.preferences.in_app !== false);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
 
-  const handleSaveEmployeeProfile = (e: React.FormEvent) => {
+  const userInitial = fullName ? fullName.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase();
+
+  const handleSaveEmployeeProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setProfileError('');
+    setSavedSuccess(false);
+
+    if (phone.trim()) {
+      const clean = phone.trim();
+      if (!/^\+?[0-9\s\-]{7,15}$/.test(clean) || /[a-zA-Z]/.test(clean)) {
+        setProfileError('Invalid mobile phone number format. Must contain 7 to 15 digits.');
+        return;
+      }
+    }
+
+    try {
+      const pRes = await fetch('/api/employees/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: fullName, phone: phone.trim() }),
+      });
+      const pData = await pRes.json();
+      if (!pRes.ok) throw new Error(pData.error || 'Failed to update personal details.');
+
+      await fetch('/api/employees/me/notification-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: emailNotif, in_app: inAppNotif }),
+      });
+
+      const updatedUser = { ...user, name: fullName, phone: phone.trim(), department };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      window.dispatchEvent(new Event('user-updated'));
+
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 4000);
+    } catch (err: any) {
+      setProfileError(err.message || 'Error saving profile.');
+    }
   };
 
   const handleEmployeePasswordChange = (e: React.FormEvent) => {
@@ -865,6 +1081,13 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
         </div>
       )}
 
+      {profileError && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+          <AlertTriangle size={16} className="shrink-0 text-red-600" />
+          {profileError}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-1 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-2xl p-3 space-y-1 h-fit shadow-xs">
@@ -902,7 +1125,12 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Full Name</label>
-                    <input type="text" defaultValue={user.name} className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium" />
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Employee ID</label>
@@ -914,7 +1142,13 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Department</label>
-                    <input type="text" defaultValue={user.department || ''} placeholder="e.g. Engineering / Operations" className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium" />
+                    <input
+                      type="text"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      placeholder="e.g. Engineering / Operations"
+                      className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Assigned Branch</label>
@@ -934,11 +1168,18 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Work Email</label>
-                    <input type="email" defaultValue={user.email} className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium" />
+                    <input type="email" disabled value={user.email} className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-sunken)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium text-[var(--color-nexus-muted)] cursor-not-allowed" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[var(--color-nexus-ink)] mb-1 uppercase tracking-wider">Mobile Number</label>
-                    <input type="text" placeholder="Mobile Phone Number" className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium" />
+                    <input
+                      type="text"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="e.g. +91 9876543210 (7-15 digits)"
+                      className="w-full px-4 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs font-medium"
+                    />
+                    <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Must contain valid country code or 7-15 digits.</p>
                   </div>
                 </div>
               </div>
@@ -949,7 +1190,21 @@ function EmployeeProfileWorkspace({ user, onLogout }: UserProfilePageProps) {
                 <h2 className="text-base font-extrabold text-[var(--color-nexus-ink)]">Notification Preferences</h2>
                 <label className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)] cursor-pointer">
                   <span className="text-xs font-bold text-[var(--color-nexus-ink)]">Email Notifications</span>
-                  <input type="checkbox" defaultChecked className="w-4 h-4 accent-[var(--color-nexus-primary)]" />
+                  <input
+                    type="checkbox"
+                    checked={emailNotif}
+                    onChange={(e) => setEmailNotif(e.target.checked)}
+                    className="w-4 h-4 accent-[var(--color-nexus-primary)] cursor-pointer"
+                  />
+                </label>
+                <label className="flex items-center justify-between p-4 bg-[var(--color-nexus-surface-alt)] rounded-xl border border-[var(--color-nexus-border)] cursor-pointer">
+                  <span className="text-xs font-bold text-[var(--color-nexus-ink)]">In-App Notifications</span>
+                  <input
+                    type="checkbox"
+                    checked={inAppNotif}
+                    onChange={(e) => setInAppNotif(e.target.checked)}
+                    className="w-4 h-4 accent-[var(--color-nexus-primary)] cursor-pointer"
+                  />
                 </label>
               </div>
             )}

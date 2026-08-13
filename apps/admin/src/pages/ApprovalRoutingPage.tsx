@@ -47,14 +47,16 @@ export default function ApprovalRoutingPage({ user, onLogout }: { user: User; on
 
   const fetchRules = async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/tenant/approval-routing', { headers: authHeaders });
-      if (!res.ok) { setAccessible(false); return; }
+      if (!res.ok) { setAccessible(false); setError(''); return; }
       const data = await res.json();
       setAccessible(true);
       setRules(data.rules || []);
     } catch {
       setAccessible(false);
+      setError('');
     } finally {
       setLoading(false);
     }

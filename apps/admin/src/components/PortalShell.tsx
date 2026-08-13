@@ -303,6 +303,7 @@ export default function PortalShell({
         {bottomNavItems.map((item) => {
           const isActive = activeTab === item.id;
           const Icon = item.icon;
+          const displayLabel = item.id === 'admin' ? 'Admin' : item.label;
           return (
             <button
               key={item.id}
@@ -312,7 +313,7 @@ export default function PortalShell({
               }`}
             >
               <Icon size={18} />
-              <span className="text-[9px] font-semibold truncate max-w-[72px]">{item.label}</span>
+              <span className="text-[9.5px] font-bold tracking-tight truncate max-w-[80px] text-center">{displayLabel}</span>
             </button>
           );
         })}

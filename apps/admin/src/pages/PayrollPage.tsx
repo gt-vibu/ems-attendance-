@@ -22,9 +22,18 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
   const [savingLockToggle, setSavingLockToggle] = useState(false);
   const [payrollOverview, setPayrollOverview] = useState<any>(null);
   const [employees, setEmployees] = useState<any[]>([]);
-
-  const [activeTab, setActiveTab] = useState<'current_cycle' | 'role_structures' | 'payroll_history' | 'policy_settings'>('current_cycle');
+  const tabParam = searchParams.get('tab') || searchParams.get('section');
+  const initialTab = (tabParam === 'role_structures' || tabParam === 'roles') ? 'role_structures' : (tabParam === 'history' || tabParam === 'batches') ? 'payroll_history' : (tabParam === 'policy' || tabParam === 'policy_settings') ? 'policy_settings' : 'current_cycle';
+  const [activeTab, setActiveTab] = useState<'current_cycle' | 'role_structures' | 'payroll_history' | 'policy_settings'>(initialTab);
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const t = searchParams.get('tab') || searchParams.get('section');
+    if (t === 'role_structures' || t === 'roles') setActiveTab('role_structures');
+    else if (t === 'history' || t === 'batches') setActiveTab('payroll_history');
+    else if (t === 'policy' || t === 'policy_settings') setActiveTab('policy_settings');
+    else setActiveTab('current_cycle');
+  }, [searchParams]);
 
   const refresh = async () => {
     setLoading(true);
@@ -105,8 +114,8 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
       icon: DollarSign,
     },
     {
-      label: 'Configured Profiles',
-      value: `${configuredCount} / ${employees.length}`,
+      label: 'Configured Employees',
+      value: configuredCount,
       subtext: 'Employees with active salary structure',
       icon: UserCheck,
     },
@@ -119,30 +128,53 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
     { id: 'policy_settings', label: 'Statutory & Policy Rules' },
   ];
 
-  const handleExportCsv = () => {
-    if (!payrollOverview?.employees) return;
-    const rows = payrollOverview.employees.map((e: any) => ({
-      'Employee ID': e.employeeId,
-      'Name': e.employeeName,
-      'Email': e.employeeEmail,
-      'Monthly Gross': e.monthlyGross,
-      'Monthly Net': e.monthlyNet,
-      'Deductions': e.totalDeductions,
-    }));
+  const handleExportCsv = async () => {
+    let list = payrollOverview?.employees || [];
+    if (list.length === 0) {
+      try {
+        const res = await fetch('/api/tenant/payroll/overview', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        list = data.employees || [];
+      } catch (e) {
+        console.error('Error fetching payroll overview for export', e);
+      }
+    }
+    if (list.length === 0) {
+      setError('No employee payroll records available to export.');
+      return;
+    }
+    const headers = ['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Monthly Gross', 'Monthly Net', 'Deductions'];
+    const rows = [
+      headers,
+      ...list.map((e: any) => [
+        e.employeeId || e.userId || e.id || '',
+        e.employeeName || e.name || '',
+        e.employeeEmail || e.email || '',
+        e.role || '',
+        e.department || '',
+        e.monthlyGross || e.grossPay || 0,
+        e.monthlyNet || e.netPay || 0,
+        e.totalDeductions || e.leaveDeduction || 0,
+      ])
+    ];
     downloadCsv('payroll_cycle_overview.csv', rows);
+    setSuccess('Payroll CSV exported successfully.');
+    setTimeout(() => setSuccess(''), 4000);
   };
 
   const primaryActions = (
     <div className="flex items-center gap-2">
       <button
         onClick={() => navigate('/tenant/payroll/batches')}
-        className="px-3.5 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] text-xs font-bold text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] rounded-[var(--radius-nexus-control)] transition-colors"
+        className="px-3.5 py-1.5 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] text-xs font-bold text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] rounded-[var(--radius-nexus-control)] transition-colors cursor-pointer"
       >
         View Run Batches
       </button>
       <button
         onClick={handleExportCsv}
-        className="px-3.5 py-1.5 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-[var(--radius-nexus-control)] hover:bg-[var(--color-nexus-primary-hover)] flex items-center gap-1.5 transition-colors shadow-xs"
+        className="px-3.5 py-1.5 bg-[var(--color-nexus-primary)] text-white text-xs font-bold rounded-[var(--radius-nexus-control)] hover:bg-[var(--color-nexus-primary-hover)] flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
       >
         <Download size={14} /> Export Payroll CSV
       </button>
@@ -332,7 +364,10 @@ export default function PayrollPage({ user, onLogout, embedded = false }: { user
       metrics={metricCards}
       tabs={tabs}
       activeTab={activeTab}
-      onTabChange={(t) => setActiveTab(t as any)}
+      onTabChange={(t) => {
+        setActiveTab(t as any);
+        navigate(`/tenant/payroll?tab=${t}`, { replace: true });
+      }}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder="Search employee name, email..."

@@ -110,6 +110,11 @@ async function startServer() {
   // SPA catch-all below so real endpoints always win over the fallback.
   registerRoutes(app);
 
+  // Bind server IMMEDIATELY so Render's port detection scanner and local clients find open TCP port instantly on boot
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development' });
+  });
+
   // Client App routing logic
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -135,11 +140,6 @@ async function startServer() {
     captureException(err, { method: req.method, path: req.originalUrl || req.url });
     if (res.headersSent) return;
     res.status(500).json({ error: 'Internal server error' });
-  });
-
-  // Bind server IMMEDIATELY so Render's port detection scanner finds open TCP port instantly on boot
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`server listening on http://0.0.0.0:${PORT}`, { port: PORT, env: process.env.NODE_ENV || 'development' });
   });
 
   // Resolve real-Postgres-vs-JSON-fallback, run migrations, seed & start background scheduler

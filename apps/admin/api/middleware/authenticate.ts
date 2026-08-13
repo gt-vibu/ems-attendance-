@@ -27,10 +27,13 @@ async function getCachedIdleTimeoutMinutes(tenantId: number): Promise<number> {
   // Helper Auth Middleware
 export async function authenticate(req: any, res: any, next: any) {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    if (!token && req.query?.token) {
+      token = String(req.query.token);
+    }
+    if (!token) {
       return res.status(401).json({ error: 'Authorization token required' });
     }
-    const token = authHeader.split(' ')[1];
 
     // Machine-to-machine callers (partner integrations) present a service
     // account key instead of a human-login JWT — recognizable by its fixed

@@ -73,6 +73,8 @@ const TicketsPage = safeLazy(() => import('./pages/TicketsPage'));
 const OrgChartPage = safeLazy(() => import('./pages/OrgChartPage'));
 const UserProfilePage = safeLazy(() => import('./pages/UserProfilePage'));
 const CompanyProfilePage = safeLazy(() => import('./pages/CompanyProfilePage'));
+const ExpensesPage = safeLazy(() => import('./pages/ExpensesPage'));
+const ExpenseCategoriesPage = safeLazy(() => import('./pages/ExpenseCategoriesPage'));
 
 // Everyone except the two org-level admin tiers can clock in, take breaks,
 // and register a device — Employee, Manager, HR, GM, Intern, or any
@@ -192,11 +194,7 @@ export default function AdminApp() {
           <Route path="/tenant/teams" element={<Navigate to="/dashboard?tab=teams" replace />} />
           <Route path="/tenant/workspace-boundaries" element={user && canSeeDashboard(user.role) ? <WorkspaceBoundariesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/settings" element={<Navigate to="/tenant/workspace-boundaries" replace />} />
-          <Route path="/tenant/attendance-preferences" element={
-            !user ? <Navigate to="/login" />
-            : (user.role !== 'tenant_admin' && user.role !== 'super_admin') ? <Navigate to={landingPathFor(user)} replace />
-            : <AttendancePreferencesPage user={user} onLogout={logout} />
-          } />
+          <Route path="/tenant/attendance-preferences" element={user && canSeeDashboard(user.role) ? <AttendancePreferencesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/audit-ledger" element={user && canSeeDashboard(user.role) ? <AuditLedgerPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/terminations" element={user && canSeeDashboard(user.role) ? <TerminationsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/shift-swaps" element={user && canSeeDashboard(user.role) ? <ShiftSwapsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
@@ -204,8 +202,11 @@ export default function AdminApp() {
           <Route path="/tenant/org-chart" element={user && canSeeDashboard(user.role) ? <OrgChartPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/profile" element={user ? <UserProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/company-profile" element={user && canSeeDashboard(user.role) ? <CompanyProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/expense-categories" element={user && canSeeDashboard(user.role) ? <ExpenseCategoriesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/expenses" element={user && canSeeDashboard(user.role) ? <Dashboard user={user} onLogout={logout} defaultTab="expenses" /> : <Navigate to="/login" />} />
 
           {/* Staff Routes — Employee, Manager, HR, GM, Intern, or any custom role */}
+          <Route path="/employee/expenses" element={user ? <EmployeeDashboard user={user} onLogout={logout} defaultTab="expenses" /> : <Navigate to="/login" />} />
           <Route path="/employee" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/employee/login" element={!user ? <EmployeeLogin onLogin={login} /> : <Navigate to={landingPathFor(user)} />} />
           <Route path="/employee/register-device" element={

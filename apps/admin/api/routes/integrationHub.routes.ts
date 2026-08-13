@@ -6,6 +6,7 @@ import { sendServerError } from '../utils/errors';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { generateClientId, generateClientSecret } from '../auth/federationClients';
 import { logToAuditLedger } from '../services/audit';
+import { buildDefaultFederationClientSeed } from '../services/federation/defaultClientBootstrap';
 
 export const router = Router();
 
@@ -16,68 +17,8 @@ async function ensureDefaultFederationClients() {
   try {
     const existing = await db.select().from(schema.federationClients).limit(1);
     if (existing.length === 0) {
-      const defaultApps = [
-        {
-          name: 'BlizBooks Financial Cloud',
-          company: 'BlizBooks Accounting Inc.',
-          description: 'Automated payroll disbursement, tax withholding, and general ledger synchronization.',
-          clientId: 'st_app_blizbooks_prod_99a8b7',
-          clientSecretHash: 'hash_blizbooks_secret_9921',
-          apiKey: 'st_live_blizbooks_9918237192837192',
-          webhookSecret: 'whsec_blizbooks_9918237192837192',
-          appUuid: 'a100099f-881a-42bc-9911-002931827c01',
-          publicIdentifier: 'pub_st_app_blizbooks',
-          environment: 'production',
-          scopes: ['attendance.read', 'leave.read', 'payroll.read', 'employee.read'],
-          webhookUrl: 'https://api.blizbooks.com/v1/webhooks/smartteams',
-          rateLimitPerMin: 5000,
-          isMarketplaceApp: true,
-          rating: '5.0',
-          category: 'Payroll & Accounting',
-          installCount: 890,
-          status: 'active',
-        },
-        {
-          name: 'Hotel PMS WorkForce Pro',
-          company: 'Hospitality Tech Solutions',
-          description: 'Enterprise hotel guest-room cleaning attendance and shift swap integration.',
-          clientId: 'st_app_hotelpms_prod_44c11d',
-          clientSecretHash: 'hash_hotelpms_secret_4411',
-          apiKey: 'st_live_hotelpms_4411223344556677',
-          webhookSecret: 'whsec_hotelpms_4411223344556677',
-          appUuid: 'b200088e-772b-43cd-8800-113842736d02',
-          publicIdentifier: 'pub_st_app_hotelpms',
-          environment: 'production',
-          scopes: ['attendance.read', 'attendance.write', 'leave.read'],
-          webhookUrl: 'https://pms.grandhotels.com/api/smartteams/webhooks',
-          rateLimitPerMin: 1000,
-          isMarketplaceApp: true,
-          rating: '4.8',
-          category: 'Hospitality & POS',
-          installCount: 540,
-          status: 'active',
-        },
-        {
-          name: 'Restaurant POS Punch Kiosk',
-          company: 'Micros POS Systems',
-          description: 'Hardware kiosk punch clock sync for kitchen and front-of-house staff.',
-          clientId: 'st_app_pos_punch_88f32a',
-          clientSecretHash: 'hash_pos_secret_8832',
-          apiKey: 'st_sandbox_pos_8832112233445566',
-          webhookSecret: 'whsec_pos_8832112233445566',
-          appUuid: 'c310011a-112b-456c-8822-992001928c03',
-          publicIdentifier: 'pub_st_app_pospunch',
-          environment: 'sandbox',
-          scopes: ['attendance.write', 'employee.read'],
-          webhookUrl: null,
-          rateLimitPerMin: 1000,
-          isMarketplaceApp: true,
-          rating: '4.7',
-          category: 'Hospitality & POS',
-          installCount: 410,
-          status: 'active',
-        }
-      ];
+      const defaultApps = await buildDefaultFederationClientSeed(process.env);
+      if (defaultApps.length === 0) return;
 
       for (const app of defaultApps) {
         await db.insert(schema.federationClients).values(app as any);

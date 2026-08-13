@@ -54,16 +54,63 @@ export default function ExecutiveCeoDashboard({
 
   const pendingApprovalsTotal = pendingLeaveCount + pendingCorrectionsCount + pendingWfhCount;
 
-  const handleExportSummary = () => {
+  const [exportSuccess, setExportSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const handleExportSummary = async () => {
     setExporting(true);
-    setTimeout(() => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch('/api/reports/export?format=pdf&type=consolidated&filename=Executive_Board_Brief', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status} PDF Export Failed`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Executive_Board_Brief.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setSuccessMsg('Executive Board Brief PDF generated and downloaded successfully.');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to generate Board Brief PDF.');
+    } finally {
       setExporting(false);
-      alert('Executive Board Summary exported successfully.');
-    }, 800);
+    }
   };
 
   return (
     <div className="space-y-6 font-sans">
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={() => setErrorMsg('')} className="text-red-500 hover:text-red-800 font-bold ml-2">×</button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg('')} className="text-emerald-500 hover:text-emerald-800 font-bold ml-2">×</button>
+        </div>
+      )}
       {/* Executive Banner */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 text-white shadow-xl border border-slate-800">
         <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />

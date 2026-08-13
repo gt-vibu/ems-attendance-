@@ -352,6 +352,7 @@ class QueryBuilder {
   private whereClause: any = null;
   private orderByClause: any = null;
   private limitCount: number | null = null;
+  private offsetCount: number | null = null;
   private action: 'select' | 'insert' | 'update' | 'delete';
   private insertValues: any = null;
   private updateValues: any = null;
@@ -389,6 +390,11 @@ class QueryBuilder {
 
   limit(count: number) {
     this.limitCount = count;
+    return this;
+  }
+
+  offset(count: number) {
+    this.offsetCount = count;
     return this;
   }
 
@@ -533,7 +539,26 @@ class QueryBuilder {
       resultRows = this.applyGroupBy(resultRows);
     }
     if (this.orderByClause) {
-      resultRows.sort((a: any, b: any) => b.id - a.id);
+      let isDesc = false;
+      try {
+        if (this.orderByClause?.queryChunks) {
+          isDesc = this.orderByClause.queryChunks.some((c: any) => {
+            const v = c?.value;
+            if (Array.isArray(v)) return v.some((item: any) => String(item).toLowerCase().includes('desc'));
+            return String(v).toLowerCase().includes('desc');
+          });
+        }
+      } catch {
+        isDesc = false;
+      }
+      if (isDesc) {
+        resultRows.sort((a: any, b: any) => (b.id || 0) - (a.id || 0));
+      } else {
+        resultRows.sort((a: any, b: any) => (a.id || 0) - (b.id || 0));
+      }
+    }
+    if (this.offsetCount !== null && this.offsetCount > 0) {
+      resultRows = resultRows.slice(this.offsetCount);
     }
     if (this.limitCount !== null) {
       resultRows = resultRows.slice(0, this.limitCount);

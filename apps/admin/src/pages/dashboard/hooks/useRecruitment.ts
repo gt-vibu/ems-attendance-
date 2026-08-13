@@ -90,11 +90,14 @@ export function useRecruitment(
   useEffect(() => { refreshRoleSetupStatus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const rolesNeedingPayrollSetup = allRoleNames.filter((r) => !payrollConfiguredRoleNames.includes(r));
 
+  const [createdTempPassword, setCreatedTempPassword] = useState<string | null>(null);
+
   const handleHireUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setSuccess('');
+    setCreatedTempPassword(null);
 
     try {
       const res = await fetch('/api/tenant/users/create', {
@@ -116,10 +119,14 @@ export function useRecruitment(
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to register employee');
 
+      if (data.initialTempPassword) {
+        setCreatedTempPassword(data.initialTempPassword);
+      }
+
       setSuccess(
         data.emailDelivered
-          ? `Employee "${newUserName}" hired successfully. Temporary credentials sent.`
-          : `Employee "${newUserName}" hired successfully — but the credential email could NOT be delivered (no mail provider is configured or it failed). Share their temporary password with them manually, or check the SMTP/Resend setup.`
+          ? `Employee "${newUserName}" hired successfully. Temporary password: ${data.initialTempPassword}`
+          : `Employee "${newUserName}" hired successfully. Initial Temporary Password: ${data.initialTempPassword} (Provide this to employee manually).`
       );
       if (data.isNewRole && data.role) {
         setNewRolePrompt(data.role);
@@ -165,6 +172,7 @@ export function useRecruitment(
     allRoleNames,
     rolesNeedingPayrollSetup,
     refreshRoleSetupStatus,
+    createdTempPassword,
     handleHireUser,
     togglePrivilege,
   };

@@ -13,6 +13,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'leave.read', 'leave.approve', 'leave.edit',
     'payroll.read', 'payroll.manage', 'reports.view', 'settings.edit', 'branch.manage', 'shift.manage', 'holiday.manage',
     'tickets.manage', 'alerts.security.receive', 'alerts.security.resolve', 'alerts.low_attendance.receive',
+    'expenses.submit', 'expenses.read', 'expenses.approve', 'expenses.reimburse', 'expenses.reimburse.partial', 'expenses.reports', 'expenses.policy',
   ],
   GM: [
     'attendance.read', 'attendance.approve.late_arrival', 'attendance.approve.wfh', 'attendance.approve.corrections',
@@ -20,6 +21,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'alerts.break_violation.receive', 'alerts.break_violation.resolve',
     'alerts.geofence_exit.receive', 'alerts.geofence_exit.resolve',
     'alerts.security.receive', 'alerts.security.resolve', 'alerts.low_attendance.receive',
+    'expenses.submit', 'expenses.read', 'expenses.approve', 'expenses.reimburse', 'expenses.reimburse.partial', 'expenses.reports',
   ],
   // A hired manager gets late-arrival/WFH/correction approval and
   // break-violation/GPS-out-of-bounds alerts for their own team by default
@@ -30,6 +32,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'leave.read', 'leave.approve', 'reports.view',
     'alerts.break_violation.receive', 'alerts.break_violation.resolve',
     'alerts.geofence_exit.receive', 'alerts.geofence_exit.resolve',
+    'expenses.submit', 'expenses.read', 'expenses.approve',
   ],
-  employee: ['reports.view'],
+  employee: ['reports.view', 'expenses.submit'],
 };

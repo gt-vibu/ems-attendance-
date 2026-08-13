@@ -47,6 +47,41 @@ export default function ProfilePage({ user, tenant, authHeaders, onLogout }: Pro
     }
   };
 
+  const [editingPersonal, setEditingPersonal] = useState(false);
+  const [nameInput, setNameInput] = useState(user.name || '');
+  const [phoneInput, setPhoneInput] = useState(user.phone || '');
+  const [personalError, setPersonalError] = useState('');
+  const [personalSuccess, setPersonalSuccess] = useState('');
+  const [savingPersonal, setSavingPersonal] = useState(false);
+
+  const handleSavePersonal = async () => {
+    setPersonalError('');
+    setPersonalSuccess('');
+
+    if (phoneInput && (!/^\+?[0-9\s\-]{7,15}$/.test(phoneInput.trim()) || /[a-zA-Z]/.test(phoneInput.trim()))) {
+      setPersonalError('Invalid phone number format. Must contain 7-15 digits with no letters.');
+      return;
+    }
+
+    setSavingPersonal(true);
+    try {
+      const res = await fetch('/api/employees/me', {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameInput.trim(), phone: phoneInput.trim() }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed to update profile.');
+      setPersonalSuccess('Personal information updated successfully.');
+      setEditingPersonal(false);
+      setTimeout(() => setPersonalSuccess(''), 3000);
+    } catch (err: any) {
+      setPersonalError(err.message || 'Failed to update personal information.');
+    } finally {
+      setSavingPersonal(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-6 md:pb-6">
       {/* Top Banner / Hero Card */}
@@ -61,7 +96,7 @@ export default function ProfilePage({ user, tenant, authHeaders, onLogout }: Pro
 
           <div className="text-center sm:text-left space-y-1">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <h1 className="text-xl sm:text-2xl font-extrabold text-white">{user.name || 'Employee'}</h1>
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white">{nameInput || user.name || 'Employee'}</h1>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase tracking-wide">
                 {user.role || 'Staff'}
               </span>
@@ -76,42 +111,84 @@ export default function ProfilePage({ user, tenant, authHeaders, onLogout }: Pro
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Personal Information */}
         <div className="nexus-card p-5 space-y-4">
-          <div className="flex items-center gap-2 border-b border-[var(--color-nexus-border)] pb-3">
-            <User className="text-[var(--color-nexus-primary)]" size={18} />
-            <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wide">Personal Information</h2>
+          <div className="flex items-center justify-between border-b border-[var(--color-nexus-border)] pb-3">
+            <div className="flex items-center gap-2">
+              <User className="text-[var(--color-nexus-primary)]" size={18} />
+              <h2 className="text-sm font-bold text-[var(--color-nexus-ink)] uppercase tracking-wide">Personal Information</h2>
+            </div>
+            <button
+              onClick={() => setEditingPersonal(!editingPersonal)}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
+            >
+              {editingPersonal ? 'Cancel' : 'Edit'}
+            </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Full Name</span>
-              <span className="font-semibold text-[var(--color-nexus-ink)]">{user.name || '—'}</span>
-            </div>
+          {personalError && <div className="p-2.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold">{personalError}</div>}
+          {personalSuccess && <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">{personalSuccess}</div>}
 
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Employee ID</span>
-              <span className="font-mono font-semibold text-[var(--color-nexus-ink)]">#{user.id || '—'}</span>
+          {editingPersonal ? (
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  className="w-full p-2 border rounded-lg bg-white font-semibold text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={phoneInput}
+                  onChange={(e) => setPhoneInput(e.target.value)}
+                  placeholder="+91 9876543210"
+                  className="w-full p-2 border rounded-lg bg-white font-semibold text-slate-800"
+                />
+              </div>
+              <button
+                onClick={handleSavePersonal}
+                disabled={savingPersonal}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition"
+              >
+                {savingPersonal ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Full Name</span>
+                <span className="font-semibold text-[var(--color-nexus-ink)]">{nameInput || user.name || '—'}</span>
+              </div>
 
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Work Email</span>
-              <span className="font-semibold text-[var(--color-nexus-ink)] truncate block">{user.email || '—'}</span>
-            </div>
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Employee ID</span>
+                <span className="font-mono font-semibold text-[var(--color-nexus-ink)]">#{user.id || '—'}</span>
+              </div>
 
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Phone Number</span>
-              <span className="font-semibold text-[var(--color-nexus-ink)]">{user.phone || '+91 (Configured)'}</span>
-            </div>
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Work Email</span>
+                <span className="font-semibold text-[var(--color-nexus-ink)] truncate block">{user.email || '—'}</span>
+              </div>
 
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Date of Joining</span>
-              <span className="font-semibold text-[var(--color-nexus-ink)]">{user.dateOfJoining || 'Jul 12, 2026'}</span>
-            </div>
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Phone Number</span>
+                <span className="font-semibold text-[var(--color-nexus-ink)]">{phoneInput || user.phone || '—'}</span>
+              </div>
 
-            <div>
-              <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Branch / Office</span>
-              <span className="font-semibold text-[var(--color-nexus-ink)]">{user.branchName || tenant?.name || 'Headquarters'}</span>
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Date of Joining</span>
+                <span className="font-semibold text-[var(--color-nexus-ink)]">{user.dateOfJoining || 'Jul 12, 2026'}</span>
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-bold text-[var(--color-nexus-muted)] uppercase">Branch / Office</span>
+                <span className="font-semibold text-[var(--color-nexus-ink)]">{user.branchName || tenant?.name || 'Headquarters'}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Employment Details */}

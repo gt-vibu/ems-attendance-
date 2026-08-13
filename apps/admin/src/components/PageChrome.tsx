@@ -24,8 +24,13 @@ export default function PageChrome({ fallbackHref, variant = 'floating', classNa
   const navigate = useNavigate();
 
   const goBack = () => {
-    if (window.history.length > 1) navigate(-1);
-    else navigate(fallbackHref);
+    if (window.history.length > 2 && window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else if (fallbackHref) {
+      navigate(fallbackHref);
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   const goToLanding = () => navigate('/');

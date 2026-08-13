@@ -2471,3 +2471,105 @@ export const federationBreakGlassAudit = pgTable('federation_break_glass_audit',
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// --- Expenses Module Tables ---
+export const expenseCategories = pgTable('expense_categories', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(),
+  code: text('code'),
+  description: text('description'),
+  maxLimit: real('max_limit'), // soft/hard expense policy limit for this category
+  requireReceipt: boolean('require_receipt').default(true),
+  status: text('status').notNull().default('active'), // 'active' | 'archived'
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const expenses = pgTable('expenses', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  expenseId: text('expense_id').notNull(), // Unique readable ID e.g. EXP-2026-00001
+  amount: real('amount').notNull(),
+  currency: text('currency').notNull().default('INR'),
+  merchant: text('merchant'),
+  category: text('category').notNull(),
+  categoryId: integer('category_id').references(() => expenseCategories.id),
+  description: text('description'),
+  location: text('location'),
+  paymentMethod: text('payment_method').default('Personal Payment'),
+  receiptUrl: text('receipt_url'),
+  receiptStoragePath: text('receipt_storage_path'),
+  receiptOriginalName: text('receipt_original_name'),
+  receiptMimeType: text('receipt_mime_type'),
+  receiptFileSize: integer('receipt_file_size'),
+  additionalAttachments: jsonb('additional_attachments').default('[]'),
+  expenseDate: text('expense_date').notNull(), // 'YYYY-MM-DD'
+  expenseTime: text('expense_time').notNull(), // 'HH:MM'
+  uploadTimestamp: timestamp('upload_timestamp').defaultNow(),
+  ocrExtractedData: jsonb('ocr_extracted_data'), // raw extracted data ({ date, time, amount, merchant, rawText, confidence })
+  originalOcrValues: jsonb('original_ocr_values'), // { date, time, amount, merchant }
+  userCorrectedValues: jsonb('user_corrected_values'), // { date, time, amount, merchant }
+  derivedFromUploadTimestamp: boolean('derived_from_upload_timestamp').default(false),
+  isOcrVerified: boolean('is_ocr_verified').default(false),
+  status: text('status').notNull().default('pending_approval'), // 'draft' | 'pending_approval' | 'approved' | 'partially_reimbursed' | 'reimbursed' | 'rejected'
+  rejectionReason: text('rejection_reason'),
+  approvedAmount: real('approved_amount'),
+  reimbursedAmount: real('reimbursed_amount').default(0),
+  remainingAmount: real('remaining_amount'),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
+  reimbursedByUserId: integer('reimbursed_by_user_id').references(() => users.id),
+  reimbursedAt: timestamp('reimbursed_at'),
+  reimbursementRef: text('reimbursement_ref'),
+  resubmittedFromId: integer('resubmitted_from_id'),
+  policyViolationFlag: boolean('policy_violation_flag').default(false),
+  policyViolationDetails: text('policy_violation_details'),
+  duplicateFlag: boolean('duplicate_flag').default(false),
+  duplicateDetails: text('duplicate_details'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const expenseReimbursements = pgTable('expense_reimbursements', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  expenseId: integer('expense_id').references(() => expenses.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(), // Employee
+  reimbursedByUserId: integer('reimbursed_by_user_id').references(() => users.id).notNull(), // Admin/Finance actor
+  amount: real('amount').notNull(),
+  paymentRef: text('payment_ref'),
+  paymentMethod: text('payment_method').default('Bank Transfer'),
+  previousRemainingAmount: real('previous_remaining_amount').notNull(),
+  newRemainingAmount: real('new_remaining_amount').notNull(),
+  isPartial: boolean('is_partial').notNull().default(false),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const expenseReports = pgTable('expense_reports', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  columns: jsonb('columns').notNull(),
+  filters: jsonb('filters').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const expensePolicies = pgTable('expense_policies', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  name: text('name').notNull(),
+  category: text('category'),
+  maxAmountLimit: real('max_amount_limit'),
+  receiptRequiredAmount: real('receipt_required_amount').default(0),
+  autoFlagDuplicates: boolean('auto_flag_duplicates').default(true),
+  allowEmployeeWithdrawal: boolean('allow_employee_withdrawal').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+

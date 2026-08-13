@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, Plus, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket, Bell } from 'lucide-react';
+import { LayoutDashboard, Fingerprint, Home as HomeIcon, Clock, ClipboardCheck, Coffee, CalendarDays, Banknote, Users, Megaphone, History, LogOut, X, Plus, ChevronLeft, ChevronRight, List, CheckCircle2, AlarmClock, CalendarX, Plane, ShieldCheck, Wallet, Ticket, Bell, Receipt } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { User } from '../lib/auth';
 import PortalShell, { type PortalNavItem } from '../components/PortalShell';
@@ -13,6 +13,7 @@ import AttendanceTimeline from '../components/AttendanceTimeline';
 import EarningsBreakdown from '../components/EarningsBreakdown';
 import DocumentsPanel from '../components/DocumentsPanel';
 import ShiftSwapWidget from '../components/ShiftSwapWidget';
+import ExpensesPage from './ExpensesPage';
 import MyActivityPanel from '../components/MyActivityPanel';
 import TicketsPanel from '../components/TicketsPanel';
 import PushNotificationToggle from '../components/PushNotificationToggle';
@@ -97,10 +98,10 @@ function isPaidLeaveRequest(request: any, policies: any[]) {
 // on its own route (/employee/attendance); everything else (status, history,
 // breaks, requests) lives here. All data is self-scoped via endpoints that
 // filter on req.user.userId server-side.
-export default function EmployeeDashboard({ user, onLogout }: { user: User, onLogout: () => void }) {
+export default function EmployeeDashboard({ user, onLogout, defaultTab }: { user: User; onLogout: () => void; defaultTab?: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab');
-  const [tab, setTab] = useState(urlTab || 'overview');
+  const [tab, setTab] = useState(urlTab || defaultTab || 'overview');
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
 
@@ -874,6 +875,7 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
   const navItems: PortalNavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'attendance', label: 'Attendance', icon: Clock, count: attendanceHistory.length || undefined },
+    { id: 'expenses', label: 'Expenses', icon: Receipt },
     { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'leave', label: 'Leave', icon: CalendarDays, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
     { id: 'payroll', label: 'Payroll', icon: Banknote },
@@ -953,6 +955,10 @@ export default function EmployeeDashboard({ user, onLogout }: { user: User, onLo
       <PresenceWarningModal onCheckout={handleCheckout} />
       {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
       {success && <div className="bg-[var(--color-nexus-secondary-container)] text-[var(--color-nexus-secondary)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-secondary)]/30 font-medium">{success}</div>}
+
+      {tab === 'expenses' && (
+        <ExpensesPage user={user} onLogout={onLogout} embedded />
+      )}
 
       {/* OVERVIEW */}
       {tab === 'overview' && (

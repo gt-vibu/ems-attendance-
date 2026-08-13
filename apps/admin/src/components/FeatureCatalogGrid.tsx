@@ -105,61 +105,71 @@ export default function FeatureCatalogGrid({ catalog, selected, onChange, allowe
     });
   };
 
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {visibleCatalog.map((cat) => {
-        const Icon = ICONS[cat.icon] || Building2;
-        const checkedCount = cat.features.filter(f => selected.includes(f.key)).length;
-        const isOpen = openCategories.has(cat.category);
-        return (
-          <div key={cat.category} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] overflow-hidden h-fit">
-            <button
-              type="button"
-              onClick={() => toggleCategory(cat.category)}
-              className="w-full flex items-center justify-between px-4 py-3 border-b border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] hover:bg-[var(--color-nexus-primary-fixed)] transition-colors"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
-                  <Icon size={15} className="text-[var(--color-nexus-primary)]" />
-                </div>
-                <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{cat.category}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {checkedCount > 0 && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-nexus-primary)] text-white">{checkedCount}</span>
-                )}
-                <ChevronDown size={15} className={`text-[var(--color-nexus-muted)] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-              </div>
-            </button>
-            {isOpen && (
-              <div className="p-3 space-y-1">
-                {cat.features.map((f) => {
-                  const checked = selected.includes(f.key);
-                  return (
-                    <label
-                      key={f.key}
-                      title={f.description}
-                      className={`flex items-start gap-2.5 p-2 rounded-lg transition-colors ${!disabled ? 'cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]' : 'cursor-not-allowed opacity-40'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={disabled}
-                        onChange={() => toggle(f.key)}
-                        className="mt-0.5 w-3.5 h-3.5 rounded border-[var(--color-nexus-border)] accent-[var(--color-nexus-primary)]"
-                      />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-[var(--color-nexus-ink)]">{f.label}</div>
-                        <div className="text-[10px] text-[var(--color-nexus-muted)] leading-snug">{f.description}</div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+  const col1 = visibleCatalog.filter((_, i) => i % 2 === 0);
+  const col2 = visibleCatalog.filter((_, i) => i % 2 === 1);
+
+  const renderCategoryCard = (cat: typeof visibleCatalog[0]) => {
+    const Icon = ICONS[cat.icon] || Building2;
+    const checkedCount = cat.features.filter(f => selected.includes(f.key)).length;
+    const isOpen = openCategories.has(cat.category);
+    return (
+      <div key={cat.category} className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] overflow-hidden h-fit transition-all duration-200">
+        <button
+          type="button"
+          onClick={() => toggleCategory(cat.category)}
+          className="w-full flex items-center justify-between px-4 py-3 border-b border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface)] hover:bg-[var(--color-nexus-primary-fixed)] transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[var(--color-nexus-primary-fixed)] flex items-center justify-center shrink-0">
+              <Icon size={15} className="text-[var(--color-nexus-primary)]" />
+            </div>
+            <span className="text-xs font-bold text-[var(--color-nexus-ink)]">{cat.category}</span>
           </div>
-        );
-      })}
+          <div className="flex items-center gap-2">
+            {checkedCount > 0 && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--color-nexus-primary)] text-white">{checkedCount}</span>
+            )}
+            <ChevronDown size={15} className={`text-[var(--color-nexus-muted)] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+          </div>
+        </button>
+        {isOpen && (
+          <div className="p-3 space-y-1">
+            {cat.features.map((f) => {
+              const checked = selected.includes(f.key);
+              return (
+                <label
+                  key={f.key}
+                  title={f.description}
+                  className={`flex items-start gap-2.5 p-2 rounded-lg transition-colors ${!disabled ? 'cursor-pointer hover:bg-[var(--color-nexus-primary-fixed)]' : 'cursor-not-allowed opacity-40'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => toggle(f.key)}
+                    className="mt-0.5 w-3.5 h-3.5 rounded border-[var(--color-nexus-border)] accent-[var(--color-nexus-primary)]"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-[var(--color-nexus-ink)]">{f.label}</div>
+                    <div className="text-[10px] text-[var(--color-nexus-muted)] leading-snug">{f.description}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+      <div className="space-y-4">
+        {col1.map(renderCategoryCard)}
+      </div>
+      <div className="space-y-4">
+        {col2.map(renderCategoryCard)}
+      </div>
     </div>
   );
 }

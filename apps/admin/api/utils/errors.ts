@@ -7,6 +7,6 @@ import { logger } from '../../logger';
 // actually useful for debugging) and returns a generic message to the
 // caller instead. `context` is a short label (route name) for the log line.
 export function sendServerError(res: any, err: any, context: string): void {
-  logger.error(context, { error: err?.message, stack: err?.stack });
+  logger.error(context, { error: err?.message, cause: err?.cause?.message || err?.cause, stack: err?.stack });
   res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
 }

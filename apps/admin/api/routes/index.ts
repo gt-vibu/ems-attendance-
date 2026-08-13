@@ -41,6 +41,7 @@ import { router as delegationRouter } from './delegation.routes';
 import { router as businessCalendarRouter } from './businessCalendar.routes';
 import { router as attendancePreferencesRouter } from './attendancePreferences.routes';
 import { router as presenceRouter } from './presence.routes';
+import { router as expensesRouter } from './expenses.routes';
 import { router as integrationHubRouter } from './integrationHub.routes';
 import { router as tenantConnectedAppsRouter } from './tenantConnectedApps.routes';
 import { router as entityMappingsRouter } from './entityMappings.routes';
@@ -107,6 +108,7 @@ export function registerRoutes(app: Express) {
   app.use(businessCalendarRouter);
   app.use(attendancePreferencesRouter);
   app.use(presenceRouter);
+  app.use(expensesRouter);
 
   // SmartTeams Federation Provider API (/v1/federation/*) — see
   // api/routes/federation/index.ts. Mounted last, purely additive; every

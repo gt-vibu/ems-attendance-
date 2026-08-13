@@ -215,6 +215,14 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
       privileges,
     } = req.body;
 
+    // Validate mobile phone format if provided
+    if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+      const cleanPhone = String(phone).trim();
+      if (!/^\+?[0-9\s\-]{7,15}$/.test(cleanPhone) || /[a-zA-Z]/.test(cleanPhone)) {
+        return res.status(400).json({ error: 'Invalid mobile phone number. Must contain 7-15 digits with optional dashes/spaces/leading + and no letters.' });
+      }
+    }
+
     // Validate email uniqueness if changing
     if (email && email !== employee.email) {
       const existing = await db.select().from(schema.users).where(and(eq(schema.users.email, email), ne(schema.users.id, employeeId)));
@@ -479,6 +487,27 @@ router.put('/api/employees/me/notification-preferences', authenticate, async (re
     const preferences = { email: email !== false, in_app: in_app !== false };
     await db.update(schema.users).set({ notificationChannelPrefs: preferences } as any).where(eq(schema.users.id, req.user.userId));
     res.json({ preferences });
+  } catch (err: any) {
+    sendServerError(res, err, "employees.routes.ts");
+  }
+});
+
+router.put('/api/employees/me', authenticate, async (req: any, res: any) => {
+  try {
+    const { name, phone } = req.body || {};
+    const updates: any = {};
+    if (name && String(name).trim()) updates.name = String(name).trim();
+    if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+      const cleanPhone = String(phone).trim();
+      if (!/^\+?[0-9\s\-]{7,15}$/.test(cleanPhone) || /[a-zA-Z]/.test(cleanPhone)) {
+        return res.status(400).json({ error: 'Invalid mobile phone number format. Must contain 7-15 digits.' });
+      }
+      updates.phone = cleanPhone;
+    }
+    if (Object.keys(updates).length > 0) {
+      await db.update(schema.users).set(updates).where(eq(schema.users.id, req.user.userId));
+    }
+    res.json({ success: true, updates });
   } catch (err: any) {
     sendServerError(res, err, "employees.routes.ts");
   }

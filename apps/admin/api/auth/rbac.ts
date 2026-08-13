@@ -1,6 +1,9 @@
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { tenantDateKey } from '../services/tenantTime';
+import { STARTER_ROLE_DEFAULTS } from './starterRoles';
+
+const ADMIN_ROLES = new Set(['super_admin', 'tenant_admin', 'admin', 'superadmin', 'tenantadmin']);
 
 // Platform layer, above everything else in the app: tenants.featuresAllowed
 // is a super-admin-controlled whitelist of which whole MODULES a tenant is
@@ -26,6 +29,7 @@ export const PLATFORM_FEATURES = [
   { key: 'unified_notifications', label: 'Unified Notification Policies', description: 'Routes attendance/leave/payroll/reports/approval events through one policy.' },
   { key: 'payroll_batches', label: 'Payroll Batches (Full Lifecycle)', description: 'Runs payroll for a whole period as a single tracked batch.' },
   { key: 'smartteams_federation', label: 'SmartTeams Federation API', description: 'Exposes the /v1/federation/* provider API for a headless BlizBooks integration (Employees, Attendance, Leave, Payroll).' },
+  { key: 'expenses', label: 'Expense Management Module', description: 'Employee expense submission, OCR extraction, approval workflows, and reimbursement tracking.' },
 ];
 
 export const PLATFORM_FEATURE_DEPENDENCIES: Record<string, string[]> = {
@@ -37,7 +41,7 @@ const LEGACY_PLATFORM_KEYS = new Set(['device_identity', 'wifi_lock', 'gps_geofe
 
 export function isPlatformFeatureAllowed(tenant: { featuresAllowed?: unknown } | null | undefined, key: string): boolean {
   const list = tenant?.featuresAllowed;
-  if (!Array.isArray(list)) return true; // no whitelist configured — unrestricted
+  if (!Array.isArray(list) || list.length === 0) return true; // no whitelist configured — unrestricted
   const consciouslyCurated = list.some((k) => !LEGACY_PLATFORM_KEYS.has(k as string));
   if (!consciouslyCurated) return true;
   return list.includes(key);
@@ -59,13 +63,17 @@ export async function isFaceIdEnabledForTenantId(tenantId: number): Promise<bool
 }
 
 export async function getDefaultPrivilegesForRole(tenantId: number | null | undefined, role: string): Promise<string[]> {
-  if (!tenantId) return [];
-  const rows = await db.select().from(schema.rolePrivilegeDefaults).where(
-    and(eq(schema.rolePrivilegeDefaults.tenantId, tenantId), eq(schema.rolePrivilegeDefaults.roleName, role))
-  ).limit(1);
-  if (rows.length === 0) return [];
-  const privs = rows[0].privileges;
-  return Array.isArray(privs) ? (privs as string[]) : [];
+  if (!role) return [];
+  if (tenantId) {
+    const rows = await db.select().from(schema.rolePrivilegeDefaults).where(
+      and(eq(schema.rolePrivilegeDefaults.tenantId, tenantId), eq(schema.rolePrivilegeDefaults.roleName, role))
+    ).limit(1);
+    if (rows.length > 0 && Array.isArray(rows[0].privileges)) {
+      return rows[0].privileges as string[];
+    }
+  }
+  const key = Object.keys(STARTER_ROLE_DEFAULTS).find(k => k.toLowerCase() === String(role).toLowerCase());
+  return key ? STARTER_ROLE_DEFAULTS[key] : [];
 }
 
 export async function hasAnyPrivilege(user: any, permissions: string[]): Promise<boolean> {
@@ -77,17 +85,17 @@ export async function hasAnyPrivilege(user: any, permissions: string[]): Promise
 
 export async function hasPrivilege(user: any, permission: string): Promise<boolean> {
   if (!user) return false;
-  if (user.role === 'super_admin' || user.role === 'tenant_admin') return true;
+  if (user.role && ADMIN_ROLES.has(String(user.role).toLowerCase())) return true;
 
   if (user.isServiceAccount) {
     return Array.isArray(user.privileges) && user.privileges.includes(permission);
   }
 
-  const userRec = await db.select().from(schema.users).where(eq(schema.users.id, user.userId || 0)).limit(1);
+  const userRec = await db.select().from(schema.users).where(eq(schema.users.id, user.userId || user.id || 0)).limit(1);
   if (userRec.length === 0) return false;
   const dbUser = userRec[0];
 
-  if (dbUser.role === 'super_admin' || dbUser.role === 'tenant_admin') return true;
+  if (dbUser.role && ADMIN_ROLES.has(String(dbUser.role).toLowerCase())) return true;
 
   const userPrivileges = dbUser.privileges as string[];
   if (userPrivileges && Array.isArray(userPrivileges) && userPrivileges.includes(permission)) {

@@ -115,9 +115,126 @@ async function runSchemaSync() {
     if (!migrationsFolder) {
       migrationsFolder = candidates[0];
     }
-    await adoptCompatibleLegacySchema(migrationsFolder);
-    await migrate(db, { migrationsFolder });
-    console.log('[migrations] Versioned transactional database migrations applied successfully.');
+    try {
+      await adoptCompatibleLegacySchema(migrationsFolder);
+      await migrate(db, { migrationsFolder });
+      console.log('[migrations] Versioned transactional database migrations applied successfully.');
+    } catch (migErr: any) {
+      logger.warn('boot schema-sync: versioned migration warning', { error: migErr?.message });
+    }
+
+    try {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS expense_categories (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          name TEXT NOT NULL,
+          code TEXT,
+          description TEXT,
+          max_limit REAL,
+          require_receipt BOOLEAN DEFAULT true,
+          status TEXT DEFAULT 'active' NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS expenses (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          expense_id TEXT NOT NULL,
+          amount REAL NOT NULL,
+          currency TEXT DEFAULT 'INR' NOT NULL,
+          merchant TEXT,
+          category TEXT NOT NULL,
+          category_id INTEGER REFERENCES expense_categories(id),
+          description TEXT,
+          location TEXT,
+          payment_method TEXT DEFAULT 'Personal Payment',
+          receipt_url TEXT,
+          receipt_storage_path TEXT,
+          receipt_original_name TEXT,
+          receipt_mime_type TEXT,
+          receipt_file_size INTEGER,
+          additional_attachments JSONB DEFAULT '[]'::jsonb,
+          expense_date TEXT NOT NULL,
+          expense_time TEXT NOT NULL,
+          upload_timestamp TIMESTAMP DEFAULT NOW(),
+          ocr_extracted_data JSONB,
+          original_ocr_values JSONB,
+          user_corrected_values JSONB,
+          derived_from_upload_timestamp BOOLEAN DEFAULT false,
+          is_ocr_verified BOOLEAN DEFAULT false,
+          status TEXT DEFAULT 'pending_approval' NOT NULL,
+          rejection_reason TEXT,
+          approved_by_user_id INTEGER REFERENCES users(id),
+          approved_at TIMESTAMP,
+          approved_amount REAL,
+          reimbursed_amount REAL DEFAULT 0,
+          remaining_amount REAL,
+          reimbursed_by_user_id INTEGER REFERENCES users(id),
+          reimbursed_at TIMESTAMP,
+          reimbursement_ref TEXT,
+          resubmitted_from_id INTEGER,
+          policy_violation_flag BOOLEAN DEFAULT false,
+          policy_violation_details TEXT,
+          duplicate_flag BOOLEAN DEFAULT false,
+          duplicate_details TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_amount REAL;`);
+      await db.execute(sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reimbursed_amount REAL DEFAULT 0;`);
+      await db.execute(sql`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS remaining_amount REAL;`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS expense_reimbursements (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          expense_id INTEGER NOT NULL REFERENCES expenses(id),
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          reimbursed_by_user_id INTEGER NOT NULL REFERENCES users(id),
+          amount REAL NOT NULL,
+          payment_ref TEXT,
+          payment_method TEXT DEFAULT 'Bank Transfer',
+          previous_remaining_amount REAL NOT NULL,
+          new_remaining_amount REAL NOT NULL,
+          is_partial BOOLEAN NOT NULL DEFAULT false,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS expense_reports (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          name TEXT NOT NULL,
+          description TEXT,
+          columns JSONB NOT NULL,
+          filters JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS expense_policies (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          name TEXT NOT NULL,
+          category TEXT,
+          max_amount_limit REAL,
+          receipt_required_amount REAL DEFAULT 0,
+          auto_flag_duplicates BOOLEAN DEFAULT true,
+          allow_employee_withdrawal BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+    } catch (e) {
+      logger.warn('boot schema-sync: expense table creation statement failed', { error: (e as any)?.message });
+    }
 
     try {
       const tenantsNeedingDigestDefaults = await db.execute(sql`

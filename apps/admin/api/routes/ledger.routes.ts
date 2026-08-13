@@ -125,7 +125,8 @@ router.post('/api/tenant/ledger/verify', authenticate, async (req: any, res: any
       const invalidBlocks: number[] = [];
 
       for (const block of logs) {
-        const detailsStr = block.details ? JSON.stringify(block.details) : '';
+        const detailsObj = (block.details && typeof block.details === 'object' && Object.keys(block.details).length > 0) ? block.details : null;
+        const detailsStr = detailsObj ? JSON.stringify(detailsObj) : '';
         const rawPayload = `${prevHash}|${new Date(block.timestamp).toISOString()}|${block.action}|${block.actorName}|${detailsStr}`;
         const expectedHash = crypto.createHash('sha256').update(rawPayload).digest('hex');
 

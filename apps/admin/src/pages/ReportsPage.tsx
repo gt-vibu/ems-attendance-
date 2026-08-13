@@ -1996,7 +1996,17 @@ export default function ReportsPage({ user, onLogout, embedded = false }: Report
       )}
 
       {/* MAIN DATA REPORT & DYNAMIC VIEW */}
-      {activeCategory !== 'saved' && activeCategory !== 'schedules' && (
+      {activeCategory === 'compliance' && (
+        <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center my-6">
+          <ShieldAlert className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-slate-700">Compliance & Audit Reports Not Available Yet</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            Compliance & Audit analytics are currently under development. To view real-time audit ledger logs and security events, access the Audit Ledger tab under Administration.
+          </p>
+        </div>
+      )}
+
+      {activeCategory !== 'saved' && activeCategory !== 'schedules' && activeCategory !== 'compliance' && (
         <div>
           {/* Official Enterprise Branded Report Header */}
           {(() => {

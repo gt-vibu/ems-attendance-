@@ -80,10 +80,8 @@ release_notes.md
 /wait.sh
 /test-build.sh
 
-# --- Stale scaffold metadata ---------------------------------------------------
-# Leftover from the project's original placeholder scaffold (same one the
-# README already calls out for a stray GEMINI_API_KEY reference this app
-# never used) — name "Perimeter", camera/geolocation framing, and a
-# SERVER_SIDE_GEMINI_API capability claim that don't match the shipped
-# WebAuthn-based product. Not read by any app code.
-/metadata.json
+# --- Temporary & scratch files --------------------------------------------------
+.admin_token.txt
+*.traineddata
+scratch/
+

@@ -211,9 +211,57 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
     </div>
   );
 
+  const handleExportSelected = () => {
+    const selectedEmployees = employees.filter((e) => selectedIds.includes(e.id));
+    if (selectedEmployees.length === 0) return;
+    const headers = ['Employee ID', 'Name', 'Email', 'Department', 'Designation', 'Role', 'Status'];
+    const rows = [
+      headers,
+      ...selectedEmployees.map((e) => [
+        `EMP-${e.id}`,
+        e.name,
+        e.email,
+        e.department || '',
+        e.designation || '',
+        e.role,
+        statusByUserId[e.id] || 'Absent',
+      ])
+    ];
+    import('../lib/csv').then(({ downloadCsv }) => {
+      downloadCsv('selected_employees_export.csv', rows);
+    });
+  };
+
   const mainWorkspaceContent = (
     <div>
       {error && <div className="p-3 m-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">{error}</div>}
+
+      {selectedIds.length > 0 && (
+        <div className="mx-3 my-2 p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">
+              {selectedIds.length}
+            </span>
+            <span className="text-xs font-bold text-indigo-900">
+              {selectedIds.length} employee{selectedIds.length === 1 ? '' : 's'} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportSelected}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <Download size={13} /> Export Selected CSV
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-200 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-colors"
+            >
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs border-collapse">

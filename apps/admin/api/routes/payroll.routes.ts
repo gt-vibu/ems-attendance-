@@ -1000,11 +1000,12 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
     });
 
     // Every real role name present in this tenant — from actual users.role
-    // values and from role_privilege_defaults rows — so the frontend can
-    // render a card even for a role that has no template configured yet.
+    // values, role_privilege_defaults rows, and standard role packages —
+    // so the frontend can render and configure a card for any role package.
     const roleNames = Array.from(new Set([
       ...tenantUsers.map((u: any) => u.role),
       ...roleDefaultNameRows.map((r: any) => r.roleName),
+      'manager', 'developer', 'sales_rep', 'hr',
     ].filter(Boolean))).sort();
 
     res.json({ roleDefaults, roles: roleNames });

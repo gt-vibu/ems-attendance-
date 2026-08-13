@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 
 export interface User {
   id: number;
+  userId?: number;
   uid: string;
   email: string;
   name: string;
   role: string;
+  phone?: string;
   tenantId?: number;
   isKycCompleted?: boolean;
   // Company-wide switch: when false, this tenant's employees skip device

@@ -58,10 +58,10 @@ router.post('/api/auth/login', authLimiter, async (req: any, res: any) => {
         await db.update(schema.users).set({ tempPassword: await hashPassword(password) }).where(eq(schema.users.id, user.id));
       }
 
-      // Check if user must change password
-      if (user.mustChangePassword) {
-        const tempToken = signToken({ userId: user.id, email: user.email, tempReset: true });
-        return res.json({ requirePasswordChange: true, tempToken });
+      // Check if user logged in via temporary password or has mustChangePassword flag set
+      if (matchedViaTemp || user.mustChangePassword) {
+        const tempToken = signToken({ userId: user.id, email: user.email, tempReset: true, tenantId: user.tenantId, role: user.role });
+        return res.json({ requirePasswordChange: true, tempToken, message: 'Temporary password used. You must set a permanent password.' });
       }
 
       // Tenant-configurable password expiry (0 = disabled) — reuses the

@@ -277,12 +277,10 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
           const res = await fetch('/api/tenant/payroll/role-defaults', { headers: { Authorization: `Bearer ${token}` } });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || 'Could not load role defaults.');
-          if (Array.isArray(data.roles) && !data.roles.includes(entityId)) {
-            throw new Error(`Role "${entityId}" was not found in this tenant.`);
-          }
-          const entry = (data.roleDefaults || []).find((d: any) => d.roleName === entityId);
+          const normalizedEntityId = String(entityId).toLowerCase().replace(/[\s_-]/g, '');
+          const entry = (data.roleDefaults || []).find((d: any) => String(d.roleName).toLowerCase().replace(/[\s_-]/g, '') === normalizedEntityId);
           setEmployee(null);
-          setDetail({ roleName: entityId, entry, summary: entry?.summary, employeeCount: entry?.employeeCount, overrideCount: entry?.overrideCount });
+          setDetail({ roleName: entityId, entry, summary: entry?.summary, employeeCount: entry?.employeeCount || 0, overrideCount: entry?.overrideCount || 0 });
 
           const persisted = loadSavedDraft(draftKey);
           if (persisted) {
@@ -472,7 +470,7 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
       onTabChange={(id) => navigate(routeForAdminNav(id))}
       onLogout={onLogout}
       title={mode === 'role' ? 'Role Default Setup Wizard' : 'Payroll Setup Wizard'}
-      fallbackHref={mode === 'role' ? '/tenant/payroll?section=roles' : '/tenant/payroll'}
+      fallbackHref={mode === 'role' ? '/tenant/payroll?tab=role_structures' : '/tenant/payroll'}
     >
       {error && <div className="bg-[var(--color-nexus-error-soft)] text-[var(--color-nexus-error)] text-xs p-4 rounded-xl mb-6 border border-[var(--color-nexus-error)]/20 font-medium">{error}</div>}
       {success && <div className="bg-[color:var(--color-nexus-success-text)]/10 text-[color:var(--color-nexus-success-text)] text-xs p-4 rounded-xl mb-6 border border-[color:var(--color-nexus-success-text)]/20 font-medium">{success}</div>}
@@ -510,10 +508,10 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                 )}
               </div>
               <button
-                onClick={() => navigate(mode === 'role' ? '/tenant/payroll?section=roles' : '/tenant/payroll')}
-                className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)]"
+                onClick={() => navigate(mode === 'role' ? '/tenant/payroll?tab=role_structures' : '/tenant/payroll')}
+                className="rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] px-4 py-3 text-xs font-bold uppercase tracking-wider text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface)] transition-colors cursor-pointer"
               >
-                Back to Payroll
+                {mode === 'role' ? '← Back to Salary Structures & Roles' : '← Back to Payroll'}
               </button>
             </div>
 

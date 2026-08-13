@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts requireRole.test.ts",
+    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts requireRole.test.ts expenses.test.ts defaultClientBootstrap.test.ts",
     "test:integration": "tsx --test integration/payrollLockConcurrency.integration.test.ts integration/attendanceApprovalConcurrency.integration.test.ts integration/correctionFreezeGuard.integration.test.ts integration/federationContract.integration.test.ts",
     "cap:sync:android": "cap sync android",
     "cap:open:android": "cap open android",
@@ -64,6 +64,7 @@
     "recharts": "^3.9.2",
     "resend": "^3.2.0",
     "swagger-ui-express": "^5.0.1",
+    "tesseract.js": "^7.0.0",
     "three": "^0.185.1",
     "vite": "^6.2.3",
     "web-push": "^3.6.7"
