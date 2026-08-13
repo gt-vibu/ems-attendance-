@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { sendServerError } from '../../utils/errors';
-import { federationLimiter } from '../../middleware/rateLimit';
+import { federationTokenLimiter } from '../../middleware/rateLimit';
 import { verifyClientCredentials, issueFederationAccessToken } from '../../auth/federationClients';
 
 export const router = Router();
 
 // OAuth 2.1 client-credentials grant — the one federation endpoint that
 // does NOT require an existing bearer token (this IS how one is obtained).
-router.post('/v1/federation/oauth/token', federationLimiter, async (req: any, res: any) => {
+// Uses a dedicated brute-force-resistant limiter keyed to the machine client
+// id rather than the human-login email field.
+router.post('/v1/federation/oauth/token', federationTokenLimiter, async (req: any, res: any) => {
   try {
     const grantType = req.body?.grant_type;
     if (grantType !== 'client_credentials') {

@@ -17,6 +17,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 let appHandle: Awaited<ReturnType<typeof startTestApp>>;
 
 before(async () => {
+  process.env.FEDERATION_ACTION_ASSERTION_SECRET = 'integration-action-assertion-secret-0123456789';
   appHandle = await startTestApp();
 });
 
@@ -74,13 +75,33 @@ async function mintAccessToken(clientId: string, clientSecret: string): Promise<
   return body.access_token;
 }
 
-function idHeaders(token: string, key: string) {
-  return {
+function idHeaders(token: string, key: string, method = 'GET', path = '', body?: string) {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'Idempotency-Key': key,
     'X-Correlation-ID': `corr-${key}`,
   };
+  if (method !== 'GET') {
+    const now = Math.floor(Date.now() / 1000);
+    const parsedBody = body ? JSON.parse(body) as Record<string, unknown> : {};
+    const firstString = (...keys: string[]) => keys.map((key) => parsedBody[key]).find((value): value is string => typeof value === 'string' && value.length > 0);
+    const tenantFromPath = path.match(/^\/v1\/federation\/tenants\/([^/]+)/)?.[1];
+    const outletFromPath = path.match(/^\/v1\/federation\/tenants\/[^/]+\/branches\/([^/]+)/)?.[1];
+    const employeeFromPath = path.match(/^\/v1\/federation\/employees\/([^/]+)/)?.[1];
+    const payload = Buffer.from(JSON.stringify({
+      aud: 'smartteams-federation', iat: now, exp: now + 60, nonce: key,
+      method, path, action: `${method}:${path}`,
+      actor: firstString('decidedByExternalUserId', 'requestedByExternalUserId', 'actorExternalUserId'),
+      tenant: firstString('externalOrganizationId', 'externalTenantId') ?? tenantFromPath,
+      outlet: firstString('externalBranchId') ?? outletFromPath,
+      target: firstString('externalEmployeeId', 'externalLeaveRequestId', 'externalAttendanceId', 'externalPayrollRunId') ?? employeeFromPath ?? path,
+      bodyHash: crypto.createHash('sha256').update(JSON.stringify(parsedBody)).digest('base64url'),
+    })).toString('base64url');
+    const signature = crypto.createHmac('sha256', process.env.FEDERATION_ACTION_ASSERTION_SECRET!).update(payload).digest('base64url');
+    headers['X-Federation-Action-Assertion'] = `${payload}.${signature}`;
+  }
+  return headers;
 }
 
 describe('Federation contract: OAuth 2.1 client-credentials', () => {
@@ -159,6 +180,54 @@ describe('Federation contract: capability shape', () => {
   });
 });
 
+describe('Federation contract: action assertions on live routes', () => {
+  test('missing, tampered, and replayed assertions are rejected while a valid tenant write succeeds', async () => {
+    const { clientId, rawSecret } = await createFederationClient(null, ['employees']);
+    const token = await mintAccessToken(clientId, rawSecret);
+    const externalOrganizationId = crypto.randomUUID();
+    const path = `/v1/federation/tenants/${externalOrganizationId}`;
+    const body = JSON.stringify({ name: 'Assertion route test', timezone: 'Asia/Kolkata', currencyCode: 'INR' });
+
+    const missing = await fetch(`${appHandle.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: { ...idHeaders(token, `assert-missing-${externalOrganizationId}`, 'PUT', path, body), 'X-Federation-Action-Assertion': '' },
+      body,
+    });
+    assert.equal(missing.status, 401);
+
+    const tamperKey = `assert-tamper-${externalOrganizationId}`;
+    const tamperHeaders = idHeaders(token, tamperKey, 'PUT', path, body);
+    const tampered = await fetch(`${appHandle.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: tamperHeaders,
+      body: JSON.stringify({ name: 'Changed after signing', timezone: 'Asia/Kolkata', currencyCode: 'INR' }),
+    });
+    assert.equal(tampered.status, 401);
+
+    const validKey = `assert-valid-${externalOrganizationId}`;
+    const valid = await fetch(`${appHandle.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: idHeaders(token, validKey, 'PUT', path, body),
+      body,
+    });
+    assert.equal(valid.status, 201);
+
+    const replay = await fetch(`${appHandle.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: idHeaders(token, validKey, 'PUT', path, body),
+      body,
+    });
+    assert.equal(replay.status, 201);
+
+    const changedReplay = await fetch(`${appHandle.baseUrl}${path}`, {
+      method: 'PUT',
+      headers: idHeaders(token, validKey, 'PUT', path, JSON.stringify({ name: 'Different', timezone: 'Asia/Kolkata', currencyCode: 'INR' })),
+      body: JSON.stringify({ name: 'Different', timezone: 'Asia/Kolkata', currencyCode: 'INR' }),
+    });
+    assert.equal(changedReplay.status, 409);
+  });
+});
+
 describe('Federation contract: idempotency retries', () => {
   test('replaying the same Idempotency-Key with an identical body returns the original response, not a duplicate write', async () => {
     const ctx = await createTestTenantAndAdmin();
@@ -171,11 +240,12 @@ describe('Federation contract: idempotency retries', () => {
       const key = `contract-idem-${crypto.randomBytes(4).toString('hex')}`;
       const body = JSON.stringify({ name: 'Contract Test Employee', employmentType: 'full_time' });
 
-      const first = await fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, { method: 'PUT', headers: idHeaders(token, key), body });
+      const employeePath = `/v1/federation/employees/${externalEmployeeId}`;
+      const first = await fetch(`${appHandle.baseUrl}${employeePath}`, { method: 'PUT', headers: idHeaders(token, key, 'PUT', employeePath, body), body });
       assert.equal(first.status, 200);
       const firstBody = await first.json();
 
-      const replay = await fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, { method: 'PUT', headers: idHeaders(token, key), body });
+      const replay = await fetch(`${appHandle.baseUrl}${employeePath}`, { method: 'PUT', headers: idHeaders(token, key, 'PUT', employeePath, body), body });
       assert.equal(replay.status, 200, 'replay with identical body must succeed, not 409');
       const replayBody = await replay.json();
       assert.deepEqual(replayBody, firstBody, 'replay must return the exact original response');
@@ -198,17 +268,20 @@ describe('Federation contract: idempotency retries', () => {
       const externalEmployeeId = `contract_emp_${crypto.randomBytes(4).toString('hex')}`;
       const key = `contract-idem-${crypto.randomBytes(4).toString('hex')}`;
 
-      const first = await fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, {
-        method: 'PUT', headers: idHeaders(token, key), body: JSON.stringify({ name: 'First Name', employmentType: 'full_time' }),
+      const employeePath = `/v1/federation/employees/${externalEmployeeId}`;
+      const firstBody = JSON.stringify({ name: 'First Name', employmentType: 'full_time' });
+      const first = await fetch(`${appHandle.baseUrl}${employeePath}`, {
+        method: 'PUT', headers: idHeaders(token, key, 'PUT', employeePath, firstBody), body: firstBody,
       });
       assert.equal(first.status, 200);
 
-      const conflict = await fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, {
-        method: 'PUT', headers: idHeaders(token, key), body: JSON.stringify({ name: 'Different Name', employmentType: 'part_time' }),
+      const conflictBody = JSON.stringify({ name: 'Different Name', employmentType: 'part_time' });
+      const conflict = await fetch(`${appHandle.baseUrl}${employeePath}`, {
+        method: 'PUT', headers: idHeaders(token, key, 'PUT', employeePath, conflictBody), body: conflictBody,
       });
       assert.equal(conflict.status, 409);
-      const conflictBody = await conflict.json();
-      assert.equal(conflictBody.code, 'IDEMPOTENCY_KEY_REUSED');
+      const conflictResponse = await conflict.json() as { code?: string };
+      assert.equal(conflictResponse.code, 'IDEMPOTENCY_KEY_REUSED');
     } finally {
       await cleanupFederationExtras(ctx.tenant.id);
       await ctx.cleanup();
@@ -225,7 +298,8 @@ describe('Federation contract: idempotency retries', () => {
       const externalEmployeeId = `contract_emp_${crypto.randomBytes(4).toString('hex')}`;
       const key = `contract-race-${crypto.randomBytes(4).toString('hex')}`;
       const body = JSON.stringify({ name: 'Race Test Employee', employmentType: 'full_time' });
-      const fire = () => fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, { method: 'PUT', headers: idHeaders(token, key), body });
+      const employeePath = `/v1/federation/employees/${externalEmployeeId}`;
+      const fire = () => fetch(`${appHandle.baseUrl}${employeePath}`, { method: 'PUT', headers: idHeaders(token, key, 'PUT', employeePath, body), body });
 
       const [r1, r2] = await Promise.all([fire(), fire()]);
       const statuses = [r1.status, r2.status].sort();
@@ -299,7 +373,7 @@ describe('Federation contract: provisioning (platform-scoped client)', () => {
       const externalEmployeeId = `contract_platform_emp_${suffix}`;
 
       const createOrgRes = await fetch(`${appHandle.baseUrl}/v1/federation/tenants/${externalOrganizationId}`, {
-        method: 'PUT', headers: idHeaders(token, `contract-org-${suffix}`),
+        method: 'PUT', headers: idHeaders(token, `contract-org-${suffix}`, 'PUT', `/v1/federation/tenants/${externalOrganizationId}`, JSON.stringify({ name: 'Contract Test Hotel', timezone: 'Asia/Kolkata', currencyCode: 'INR' })),
         body: JSON.stringify({ name: 'Contract Test Hotel', timezone: 'Asia/Kolkata', currencyCode: 'INR' }),
       });
       assert.equal(createOrgRes.status, 201, 'a platform client must be able to provision a brand-new tenant');
@@ -314,12 +388,12 @@ describe('Federation contract: provisioning (platform-scoped client)', () => {
       await db.update(schema.tenants).set({ featuresAllowed: ['smartteams_federation'] }).where(eq(schema.tenants.id, createdTenantId));
 
       const branchRes = await fetch(`${appHandle.baseUrl}/v1/federation/tenants/${externalOrganizationId}/branches/${externalBranchId}`, {
-        method: 'PUT', headers: idHeaders(token, `contract-branch-${suffix}`), body: JSON.stringify({ name: 'Contract Test Outlet' }),
+        method: 'PUT', headers: idHeaders(token, `contract-branch-${suffix}`, 'PUT', `/v1/federation/tenants/${externalOrganizationId}/branches/${externalBranchId}`, JSON.stringify({ name: 'Contract Test Outlet' })), body: JSON.stringify({ name: 'Contract Test Outlet' }),
       });
       assert.equal(branchRes.status, 200);
 
       const empRes = await fetch(`${appHandle.baseUrl}/v1/federation/employees/${externalEmployeeId}`, {
-        method: 'PUT', headers: idHeaders(token, `contract-emp-${suffix}`),
+        method: 'PUT', headers: idHeaders(token, `contract-emp-${suffix}`, 'PUT', `/v1/federation/employees/${externalEmployeeId}`, JSON.stringify({ name: 'Contract Test Employee', employmentType: 'full_time', externalOrganizationId })),
         body: JSON.stringify({ name: 'Contract Test Employee', employmentType: 'full_time', externalOrganizationId }),
       });
       assert.equal(empRes.status, 200, 'employee creation for a platform client must resolve tenant from externalOrganizationId in the body');
@@ -327,9 +401,10 @@ describe('Federation contract: provisioning (platform-scoped client)', () => {
       // The defining property of a platform-scoped credential: this next
       // call carries NO externalOrganizationId at all — only the branch —
       // and must still resolve to the right tenant.
+      const checkInBody = JSON.stringify({ externalEmployeeId, externalBranchId, occurredAt: new Date().toISOString() });
       const checkInRes = await fetch(`${appHandle.baseUrl}/v1/federation/attendance/check-ins`, {
-        method: 'POST', headers: idHeaders(token, `contract-checkin-${suffix}`),
-        body: JSON.stringify({ externalEmployeeId, externalBranchId, occurredAt: new Date().toISOString() }),
+        method: 'POST', headers: idHeaders(token, `contract-checkin-${suffix}`, 'POST', '/v1/federation/attendance/check-ins', checkInBody),
+        body: checkInBody,
       });
       assert.equal(checkInRes.status, 200, 'a platform client must resolve tenant context from externalBranchId alone');
     } finally {

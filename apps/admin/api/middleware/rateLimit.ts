@@ -100,8 +100,22 @@ export const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req: any) => `${req.ip}:${(req.body?.email || '').toLowerCase()}`,
-    store: buildSharedStore('auth'),
-  });
+  store: buildSharedStore('auth'),
+});
+
+// Machine-to-machine token exchange is not a human password-login flow. Key
+// it by the presented client id (rather than the missing email field used by
+// authLimiter) so one federation client cannot exhaust another client's
+// budget, while still throttling credential-guessing attempts per client.
+export const federationTokenLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many federation token attempts. Please retry later.', code: 'RATE_LIMITED' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => `fedtoken:${String(req.body?.client_id || req.ip)}`,
+  store: buildSharedStore('federation-token'),
+});
 
 // Per the federation contract: at least 20 requests/second sustained, burst
 // 40, per authenticated federation client — keyed by the federation

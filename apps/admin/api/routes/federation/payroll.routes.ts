@@ -38,8 +38,28 @@ router.put('/v1/federation/employees/:externalEmployeeId/compensation', requireI
     const userId = await resolveInternalId(tenantId, 'employee', req.params.externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
 
-    const { annualCtc, effectiveFrom, components, externalBranchId: requestedBranchId } = req.body || {};
-    if (annualCtc == null || !effectiveFrom) return res.status(422).json({ error: 'annualCtc and effectiveFrom are required.' });
+    const {
+      annualCtc,
+      effectiveFrom,
+      components,
+      externalBranchId: requestedBranchId,
+      requestedByExternalUserId,
+    } = req.body || {};
+    if (annualCtc == null || !effectiveFrom || !requestedByExternalUserId) {
+      return res.status(422).json({ error: 'annualCtc, effectiveFrom, and requestedByExternalUserId are required.' });
+    }
+    const actorId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
+    if (actorId === null) return res.status(403).json({ error: 'The requesting actor is not mapped to this tenant.' });
+    const actor = await db.select({ id: schema.users.id, employeeStatus: schema.users.employeeStatus })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, actorId), eq(schema.users.tenantId, tenantId)))
+      .limit(1);
+    if (!actor[0] || actor[0].employeeStatus !== 'active') {
+      return res.status(403).json({ error: 'The requesting actor is not active.' });
+    }
+    if (actorId === userId) {
+      return res.status(403).json({ error: 'An employee cannot edit their own payroll.' });
+    }
     if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
 
     const existing = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, userId), eq(schema.employeeCompensationProfiles.status, 'active'))).limit(1);

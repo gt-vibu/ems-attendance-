@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { sendServerError } from '../../utils/errors';
-import { authenticateFederation, resolveFederationTenantContext } from '../../middleware/federationAuth';
+import { authenticateFederation, resolveFederationTenantContext, validateActionAssertion } from '../../middleware/federationAuth';
 import { federationLimiter } from '../../middleware/rateLimit';
 import { requireIdempotencyKey } from '../../middleware/federationIdempotency';
 import { linkExternalId, resolveInternalId, resolveMappingByExternalId } from '../../services/federation/externalId';
@@ -31,6 +31,15 @@ router.use('/v1/federation', authenticateFederation, federationLimiter);
 // one.
 router.put('/v1/federation/tenants/:externalOrganizationId', requireIdempotencyKey, async (req: any, res: any) => {
   try {
+    // This is the one platform-scoped write that intentionally runs before a
+    // tenant mapping exists. It still carries the same short-lived assertion
+    // as every other privileged federation mutation; `1` is only a sentinel
+    // to keep the generic validator's non-null tenant guard meaningful while
+    // the path itself binds the brand-new external tenant identity.
+    const assertionFailure = validateActionAssertion(req, 1);
+    if (assertionFailure) {
+      return res.status(401).json({ error: assertionFailure, code: 'INVALID_ACTION_ASSERTION' });
+    }
     const { externalOrganizationId } = req.params;
     const { name, timezone, currencyCode, status } = req.body || {};
     if (!name || !timezone || !currencyCode) {

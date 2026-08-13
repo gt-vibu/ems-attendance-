@@ -291,12 +291,16 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
   try {
     const tenantId = req.federation.tenantId;
     const requestId = Number(req.params.id);
-    const { action, comment, expectedVersion, externalBranchId: requestedBranchId } = req.body || {};
+    const { action, comment, expectedVersion, decidedByExternalUserId, externalBranchId: requestedBranchId } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(422).json({ error: 'action must be approve or reject.' });
     if (!Number.isInteger(expectedVersion)) return res.status(422).json({ error: 'expectedVersion (integer) is required.' });
+    if (!decidedByExternalUserId) return res.status(422).json({ error: 'decidedByExternalUserId is required.' });
 
     const rows = await db.select().from(schema.leaveRequests).where(and(eq(schema.leaveRequests.id, requestId), eq(schema.leaveRequests.tenantId, tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
+    const reviewerId = await resolveInternalId(tenantId, 'employee', String(decidedByExternalUserId));
+    if (reviewerId === null) return res.status(404).json({ error: 'Unknown decidedByExternalUserId.' });
+    if (reviewerId === rows[0].userId) return res.status(403).json({ error: 'Employees cannot decide their own leave request.' });
     if (rows[0].status !== 'pending') {
       // A non-pending request means a decision was already made — from the
       // federation client's point of view (which sent an expectedVersion
@@ -308,7 +312,7 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
     const externalBranchId = await employeeExternalBranchId(tenantId, rows[0].userId);
     const updated = await db.transaction(async (tx: any) => {
       const [upd] = await tx.update(schema.leaveRequests).set({
-        status: action === 'approve' ? 'approved' : 'rejected', reviewerComment: comment || null, reviewedAt: new Date(),
+        status: action === 'approve' ? 'approved' : 'rejected', reviewerComment: comment || null, reviewedAt: new Date(), reviewedByUserId: reviewerId,
       }).where(eq(schema.leaveRequests.id, requestId)).returning();
 
       await writeOutboxEvent({

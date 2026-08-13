@@ -288,11 +288,15 @@ router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempoten
   try {
     const tenantId = req.federation.tenantId;
     const attendanceId = Number(req.params.attendanceId);
-    const { action } = req.body || {};
+    const { action, decidedByExternalUserId } = req.body || {};
     if (!['approve', 'reject'].includes(action)) return res.status(422).json({ error: 'action must be approve or reject.' });
+    if (!decidedByExternalUserId) return res.status(422).json({ error: 'decidedByExternalUserId is required.' });
 
     const rows = await db.select().from(schema.attendanceLogs).where(and(eq(schema.attendanceLogs.id, attendanceId), eq(schema.attendanceLogs.tenantId, tenantId))).limit(1);
     if (rows.length === 0) return res.status(404).json({ error: 'Attendance record not found.' });
+    const reviewerId = await resolveInternalId(tenantId, 'employee', String(decidedByExternalUserId));
+    if (reviewerId === null) return res.status(404).json({ error: 'Unknown decidedByExternalUserId.' });
+    if (reviewerId === rows[0].userId) return res.status(403).json({ error: 'Employees cannot decide their own attendance.' });
     if (rows[0].status !== 'pending') return res.status(400).json({ error: 'This record has already been decided.' });
 
     const externalBranchId = rows[0].branchId ? await resolveExternalId(tenantId, 'branch', rows[0].branchId) : null;

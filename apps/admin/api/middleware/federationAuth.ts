@@ -80,6 +80,53 @@ function timingSafeStringEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+export function validateActionAssertion(req: any, tenantId: number): string | null {
+  if (req.method === 'GET') return null;
+  const secret = process.env.FEDERATION_ACTION_ASSERTION_SECRET;
+  if (!secret) return 'Federation action assertions are not configured.';
+  const raw = req.header('X-Federation-Action-Assertion');
+  if (typeof raw !== 'string') return 'A federation action assertion is required.';
+  const [encoded, signature, extra] = raw.split('.');
+  if (!encoded || !signature || extra) return 'Federation action assertion is malformed.';
+  const expected = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  if (!timingSafeStringEqual(signature, expected)) return 'Federation action assertion signature is invalid.';
+  let payload: any;
+  try { payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); } catch { return 'Federation action assertion payload is invalid.'; }
+  const now = Math.floor(Date.now() / 1000);
+  const path = req.originalUrl || req.url;
+  const bodyHash = crypto.createHash('sha256').update(JSON.stringify(req.body ?? {})).digest('base64url');
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const firstString = (...keys: string[]) => keys.map((key) => body[key]).find((value) => typeof value === 'string' && value.length > 0);
+  const expectedActor = firstString('decidedByExternalUserId', 'requestedByExternalUserId', 'actorExternalUserId');
+  const tenantFromPath = path.match(/^\/v1\/federation\/tenants\/([^/]+)/)?.[1];
+  const outletFromPath = path.match(/^\/v1\/federation\/tenants\/[^/]+\/branches\/([^/]+)/)?.[1];
+  const employeeFromPath = path.match(/^\/v1\/federation\/employees\/([^/]+)/)?.[1];
+  const expectedTenant = firstString('externalOrganizationId', 'externalTenantId') ?? tenantFromPath;
+  const expectedOutlet = firstString('externalBranchId') ?? outletFromPath;
+  const expectedTarget = firstString('externalEmployeeId', 'externalLeaveRequestId', 'externalAttendanceId', 'externalPayrollRunId') || employeeFromPath || path;
+  if (
+    payload?.aud !== 'smartteams-federation' || payload?.method !== req.method ||
+    payload?.path !== path || payload?.bodyHash !== bodyHash ||
+    payload?.action !== `${req.method}:${path}` ||
+    (expectedActor !== undefined && payload?.actor !== expectedActor) ||
+    (expectedTenant !== undefined && payload?.tenant !== expectedTenant) ||
+    (expectedOutlet !== undefined && payload?.outlet !== expectedOutlet) ||
+    payload?.target !== expectedTarget ||
+    !Number.isInteger(payload?.iat) || !Number.isInteger(payload?.exp) ||
+    payload.exp <= now || payload.iat > now + 30 || payload.exp - payload.iat > 60 ||
+    typeof payload?.nonce !== 'string' || payload.nonce.length < 16 || !tenantId
+  ) return 'Federation action assertion is invalid or expired.';
+  // Federation writes already require this key and retain it for seven days.
+  // Binding the signed nonce to it turns that durable, race-safe ledger into
+  // replay protection without adding a second nonce store.
+  if (req.header('Idempotency-Key') !== payload.nonce) return 'Federation action assertion nonce does not match the idempotency key.';
+  return null;
+}
+
+function actionAssertionError(req: any, tenantId: number): string | null {
+  return validateActionAssertion(req, tenantId);
+}
+
 function checkMtls(req: any): string | null {
   if (!isMtlsRequired()) return null;
 
@@ -179,6 +226,10 @@ export function resolveFederationTenantContext() {
   return async (req: any, res: any, next: any) => {
     if (!req.federation?.isPlatformClient) {
       // Per-tenant client: tenantId was already fixed at token-issue time.
+      const assertionFailure = actionAssertionError(req, req.federation.tenantId);
+      if (assertionFailure) {
+        return res.status(401).json({ error: assertionFailure, code: 'INVALID_ACTION_ASSERTION' });
+      }
       return next();
     }
 
@@ -263,6 +314,10 @@ export function resolveFederationTenantContext() {
     }
 
     req.federation.tenantId = resolvedTenantId;
+    const assertionFailure = actionAssertionError(req, resolvedTenantId);
+    if (assertionFailure) {
+      return res.status(401).json({ error: assertionFailure, code: 'INVALID_ACTION_ASSERTION' });
+    }
     next();
   };
 }
