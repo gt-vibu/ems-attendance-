@@ -1,4 +1,4 @@
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../../db';
 import { logger } from '../../../logger';
 import type { Queue, EnqueueOptions, JobHandler } from './types';
@@ -7,21 +7,20 @@ const BATCH_SIZE = 20;
 
 class PostgresQueue implements Queue {
   private handlers = new Map<string, JobHandler>();
-  private memoryQueue: Array<{ jobType: string; payload: any; tenantId?: number }> = [];
 
   async enqueue(jobType: string, payload: any, opts: EnqueueOptions = {}): Promise<void> {
-    try {
-      await db.insert(schema.backgroundJobs).values({
-        tenantId: opts.tenantId ?? null,
-        jobType,
-        payload: payload ?? {},
-        runAfter: opts.runAfter ?? new Date(),
-        maxAttempts: opts.maxAttempts ?? 3,
-      });
-    } catch (err: any) {
-      logger.warn('queue: DB insert fallback to memory queue', { error: err?.message });
-    }
-    this.memoryQueue.push({ jobType, payload, tenantId: opts.tenantId });
+    // Authoritative, fail-closed durable queue insertion into background_jobs table.
+    // If the database is unreachable or insertion fails, enqueue() throws an exception
+    // so the caller is aware that job persistence failed. No non-durable in-memory fallback.
+    await db.insert(schema.backgroundJobs).values({
+      tenantId: opts.tenantId ?? null,
+      jobType,
+      payload: payload ?? {},
+      status: 'pending',
+      attempts: 0,
+      runAfter: opts.runAfter ?? new Date(),
+      maxAttempts: opts.maxAttempts ?? 3,
+    });
   }
 
   registerHandler(jobType: string, handler: JobHandler): void {
@@ -31,46 +30,27 @@ class PostgresQueue implements Queue {
   async pollOnce(): Promise<void> {
     if (this.handlers.size === 0) return;
 
-    let due: any[] = [];
-    try {
-      due = await db.select().from(schema.backgroundJobs).where(
-        eq(schema.backgroundJobs.status, 'pending')
-      ).limit(BATCH_SIZE);
-    } catch {
-      due = [];
-    }
-
-    if (due.length === 0 && this.memoryQueue.length > 0) {
-      const items = [...this.memoryQueue];
-      this.memoryQueue = [];
-      for (const item of items) {
-        const handler = this.handlers.get(item.jobType);
-        if (handler) {
-          try {
-            await handler(item.payload, { jobId: 1, tenantId: item.tenantId, attempts: 1 });
-          } catch (err: any) {
-            logger.error('queue: memory job failed', { jobType: item.jobType, error: err?.message });
-          }
-        }
-      }
-      return;
-    }
+    const due = await db.select().from(schema.backgroundJobs).where(
+      eq(schema.backgroundJobs.status, 'pending')
+    ).limit(BATCH_SIZE);
 
     for (const job of due) {
       const handler = this.handlers.get(job.jobType);
-      if (!handler) continue;
+      if (!handler) continue; // No handler registered on this instance for this jobType
 
-      try {
-        await db.update(schema.backgroundJobs)
-          .set({ status: 'running', attempts: job.attempts + 1 })
-          .where(eq(schema.backgroundJobs.id, job.id));
-      } catch {}
+      // Claim job (pending -> running) before execution
+      const claimed = await db.update(schema.backgroundJobs)
+        .set({ status: 'running', attempts: job.attempts + 1 })
+        .where(and(eq(schema.backgroundJobs.id, job.id), eq(schema.backgroundJobs.status, 'pending')))
+        .returning();
+
+      if (claimed.length === 0) continue; // Already claimed by another worker instance
 
       try {
         await handler(job.payload, { jobId: job.id, tenantId: job.tenantId, attempts: job.attempts + 1 });
         await db.update(schema.backgroundJobs)
           .set({ status: 'done', completedAt: new Date() })
-          .where(eq(schema.backgroundJobs.id, job.id)).catch(() => {});
+          .where(eq(schema.backgroundJobs.id, job.id));
       } catch (err: any) {
         const willRetry = job.attempts + 1 < job.maxAttempts;
         await db.update(schema.backgroundJobs)
@@ -79,7 +59,7 @@ class PostgresQueue implements Queue {
             lastError: err?.message || String(err),
             runAfter: willRetry ? new Date(Date.now() + 60_000) : undefined,
           })
-          .where(eq(schema.backgroundJobs.id, job.id)).catch(() => {});
+          .where(eq(schema.backgroundJobs.id, job.id));
         logger.error('queue: job failed', { jobId: job.id, jobType: job.jobType, attempts: job.attempts + 1, willRetry, error: err?.message });
       }
     }

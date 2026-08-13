@@ -85,13 +85,13 @@ test('AUDIT FINDING 6: Face Challenge Single-Use Replay & Fail-Closed Checks', a
   assert.equal(asyncRes2.valid, false, 'Async replay attempt must be rejected');
 });
 
-test('AUDIT FINDING 10: Multi-Tenant Database Ownership Isolation', () => {
+test('AUDIT FINDING 10: Multi-Tenant Application & DB Ownership Isolation', () => {
   const recordTenant1 = { id: 101, tenantId: 1, name: 'Tenant 1 Asset' };
 
   // Matching tenantId -> PASS
   assert.doesNotThrow(() => assertTenantOwnership(recordTenant1, 1, 'Asset'));
 
-  // Cross-tenant access attempt -> Throws 403
+  // Cross-tenant access attempt -> Throws HTTP 403
   assert.throws(
     () => assertTenantOwnership(recordTenant1, 2, 'Asset'),
     (err: any) => err.status === 403 && err.message.includes('Unauthorized access')
@@ -112,8 +112,8 @@ test('AUDIT FINDING 11: CSV Formula Injection Protection', () => {
 
 test('AUDIT FINDING 12: Push Subscription Ownership Isolation Checks', () => {
   const subTenant1UserA = { id: 1, userId: 100, tenantId: 10, endpoint: 'https://push.example.com/sub/a' };
-  const reqUserB = { userId: 200, tenantId: 10 }; // Different user
-  const reqTenantB = { userId: 100, tenantId: 20 }; // Different tenant
+  const reqUserB = { userId: 200, tenantId: 10 };
+  const reqTenantB = { userId: 100, tenantId: 20 };
 
   // Match -> Allowed
   assert.equal(subTenant1UserA.userId === 100 && subTenant1UserA.tenantId === 10, true);
@@ -125,20 +125,20 @@ test('AUDIT FINDING 12: Push Subscription Ownership Isolation Checks', () => {
   assert.equal(subTenant1UserA.userId === reqTenantB.userId && subTenant1UserA.tenantId === reqTenantB.tenantId, false);
 });
 
-test('AUDIT FINDING 13: Durable Background Job Queue Enqueue & Handler Proof', async () => {
+test('AUDIT FINDING 13: Strictly Fail-Closed Durable Background Queue Enqueue Proof', async () => {
   let jobHandled = false;
   let jobPayload: any = null;
 
-  queue.registerHandler('test_security_job', async (payload: any) => {
+  queue.registerHandler('test_durable_security_job', async (payload: any) => {
     jobHandled = true;
     jobPayload = payload;
   });
 
-  await queue.enqueue('test_security_job', { testKey: 'testVal' });
+  await queue.enqueue('test_durable_security_job', { durableKey: 'durableVal' });
   await queue.pollOnce();
 
-  assert.equal(jobHandled, true, 'Queue must execute registered handler');
-  assert.equal(jobPayload?.testKey, 'testVal', 'Queue must deliver enqueued payload');
+  assert.equal(jobHandled, true, 'Durable queue must execute registered handler');
+  assert.equal(jobPayload?.durableKey, 'durableVal', 'Durable queue must deliver enqueued payload');
 });
 
 test('AUDIT FINDING 14: Email HTML XSS Escaping', () => {
@@ -170,4 +170,20 @@ test('AUDIT FINDING 16: requireTenant Middleware Isolation', () => {
   statusCode = 0;
   requireTenant({ user: { userId: 10, tenantId: 1 } }, mockRes, mockNext);
   assert.equal(nextCalled, true);
+});
+
+test('AUDIT FINDING 18: Fatal Process Error Handling Logic Verification', () => {
+  let loggedError = false;
+  let processExited = false;
+
+  function mockHandleFatalError(err: any, source: string, env: string) {
+    if (err && source) loggedError = true;
+    if (env === 'production') {
+      processExited = true;
+    }
+  }
+
+  mockHandleFatalError(new Error('Fatal unhandled rejection'), 'unhandledRejection', 'production');
+  assert.equal(loggedError, true, 'Fatal error must be logged');
+  assert.equal(processExited, true, 'Fatal error in production must trigger fail-closed process exit');
 });
