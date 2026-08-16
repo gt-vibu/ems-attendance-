@@ -37,6 +37,20 @@ export function parseDateOnly(value: string) {
   return new Date(`${value}T00:00:00Z`);
 }
 
+/**
+ * Resolve a human federation actor only while their employee record is active.
+ * Federation credentials are machine credentials; this live lookup prevents
+ * a stale assertion from retaining administrative power after suspension or
+ * termination.
+ */
+export async function resolveActiveEmployeeId(tenantId: number, userId: number): Promise<number | null> {
+  const row = (await db.select({ id: schema.users.id, employeeStatus: schema.users.employeeStatus })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, tenantId)))
+    .limit(1))[0];
+  return row?.employeeStatus === 'active' ? row.id : null;
+}
+
 export function toDateOnly(value: Date) {
   const y = value.getUTCFullYear();
   const m = String(value.getUTCMonth() + 1).padStart(2, '0');

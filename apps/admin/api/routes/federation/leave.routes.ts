@@ -19,7 +19,7 @@ async function employeeExternalBranchId(tenantId: number, userId: number): Promi
 import { writeOutboxEvent } from '../../services/federation/outbox';
 import { encodeCursor, decodeCursor, hashFilters, resolveLimit } from '../../utils/federationCursor';
 import { computeLeaveBalancesForUser } from '../leave.routes';
-import { computeLeaveDays, parseDateOnly } from '../leavePayrollShared';
+import { computeLeaveDays, parseDateOnly, resolveActiveEmployeeId } from '../leavePayrollShared';
 
 export const router = Router();
 router.use('/v1/federation/leave', authenticateFederation, federationLimiter, requireFederationScope('leave'));
@@ -75,6 +75,9 @@ router.put('/v1/federation/leave/types/:code', requireIdempotencyKey, resolveFed
     }
     const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
     if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+    if (await resolveActiveEmployeeId(tenantId, actorUserId) === null) {
+      return res.status(403).json({ error: 'The requesting actor is not active.' });
+    }
 
     const numberWithin = (value: unknown, min: number, max: number, fallback: number) => {
       if (value === undefined || value === null || value === '') return fallback;
@@ -231,6 +234,9 @@ router.post('/v1/federation/leave/requests', requireIdempotencyKey, resolveFeder
 
     const userId = await resolveInternalId(tenantId, 'employee', externalEmployeeId);
     if (userId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+    if (await resolveActiveEmployeeId(tenantId, userId) === null) {
+      return res.status(403).json({ error: 'The employee is not active.' });
+    }
     if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
 
     const policyRows = await db.select().from(schema.leavePolicies).where(and(eq(schema.leavePolicies.tenantId, tenantId), eq(schema.leavePolicies.code, leaveType))).limit(1);
@@ -300,6 +306,9 @@ router.post('/v1/federation/leave/requests/:id/decision', requireIdempotencyKey,
     if (rows.length === 0) return res.status(404).json({ error: 'Leave request not found.' });
     const reviewerId = await resolveInternalId(tenantId, 'employee', String(decidedByExternalUserId));
     if (reviewerId === null) return res.status(404).json({ error: 'Unknown decidedByExternalUserId.' });
+    if (await resolveActiveEmployeeId(tenantId, reviewerId) === null) {
+      return res.status(403).json({ error: 'The deciding actor is not active.' });
+    }
     if (reviewerId === rows[0].userId) return res.status(403).json({ error: 'Employees cannot decide their own leave request.' });
     if (rows[0].status !== 'pending') {
       // A non-pending request means a decision was already made — from the
@@ -340,11 +349,13 @@ router.post('/v1/federation/leave/balances/adjustments', requireIdempotencyKey, 
     if (!(await validateEmployeeBranchMembership(tenantId, userId, requestedBranchId, res))) return;
     // adjustedByUserId is NOT NULL on this table — the business initiator
     // (requestedByExternalUserId) is who gets recorded, never the machine
-    // credential itself, matching the plan's audit-actor rule. Falls back
-    // to the target employee's own id only if that actor hasn't been
-    // provisioned as an employee here yet, so the write is never blocked
-    // on a DB constraint.
-    const actorUserId = (await resolveInternalId(tenantId, 'employee', requestedByExternalUserId)) ?? userId;
+    // credential itself, matching the plan's audit-actor rule. Unmapped or
+    // inactive actors are rejected rather than attributed to the target.
+    const actorUserId = await resolveInternalId(tenantId, 'employee', requestedByExternalUserId);
+    if (actorUserId === null) return res.status(403).json({ error: 'The requesting actor is not mapped to this tenant.' });
+    if (await resolveActiveEmployeeId(tenantId, actorUserId) === null) {
+      return res.status(403).json({ error: 'The requesting actor is not active.' });
+    }
 
     const externalBranchId = await employeeExternalBranchId(tenantId, userId);
     const adjustment = await db.transaction(async (tx: any) => {

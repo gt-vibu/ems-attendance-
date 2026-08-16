@@ -52,6 +52,13 @@ async function cleanupFederationExtras(tenantId: number) {
   await db.delete(schema.tenantFederationAuthorizations).where(eq(schema.tenantFederationAuthorizations.tenantId, tenantId));
   await db.delete(schema.federationExternalIdMappings).where(eq(schema.federationExternalIdMappings.tenantId, tenantId));
   await db.delete(schema.federationClients).where(eq(schema.federationClients.tenantId, tenantId));
+  await db.delete(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.tenantId, tenantId));
+  await db.delete(schema.leaveRequests).where(eq(schema.leaveRequests.tenantId, tenantId));
+  await db.delete(schema.leavePolicies).where(eq(schema.leavePolicies.tenantId, tenantId));
+  await db.delete(schema.attendanceLogs).where(eq(schema.attendanceLogs.tenantId, tenantId));
+  await db.delete(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.tenantId, tenantId));
+  await db.delete(schema.compensationHistory).where(eq(schema.compensationHistory.tenantId, tenantId));
+  await db.delete(schema.employeeCompensationProfiles).where(eq(schema.employeeCompensationProfiles.tenantId, tenantId));
   await db.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.tenantId, tenantId));
   // Employees created directly through a federation route call (not via
   // ctx.createEmployee()) aren't in harness.ts's own createdUserIds
@@ -102,6 +109,17 @@ function idHeaders(token: string, key: string, method = 'GET', path = '', body?:
     headers['X-Federation-Action-Assertion'] = `${payload}.${signature}`;
   }
   return headers;
+}
+
+function rewriteAssertion(headers: Record<string, string>, rewrite: (payload: Record<string, unknown>) => void) {
+  const raw = headers['X-Federation-Action-Assertion'];
+  assert.ok(raw);
+  const [encoded] = raw.split('.');
+  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as Record<string, unknown>;
+  rewrite(payload);
+  const nextEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', process.env.FEDERATION_ACTION_ASSERTION_SECRET!).update(nextEncoded).digest('base64url');
+  return { ...headers, 'X-Federation-Action-Assertion': `${nextEncoded}.${signature}` };
 }
 
 describe('Federation contract: OAuth 2.1 client-credentials', () => {
@@ -180,6 +198,104 @@ describe('Federation contract: capability shape', () => {
   });
 });
 
+describe('Federation contract: live workforce mutations', () => {
+  test('creates and approves leave, records attendance, and preserves payroll history', async () => {
+    const ctx = await createTestTenantAndAdmin();
+    try {
+      await db.update(schema.tenants).set({ featuresAllowed: ['smartteams_federation'] }).where(eq(schema.tenants.id, ctx.tenant.id));
+      const { clientId, rawSecret } = await createFederationClient(ctx.tenant.id, ['attendance', 'leave', 'payroll']);
+      const token = await mintAccessToken(clientId, rawSecret);
+      const [branch] = await db.insert(schema.branches).values({ tenantId: ctx.tenant.id, name: 'Live Contract Outlet' }).returning();
+      const requester = await ctx.createEmployee();
+      const approver = await ctx.createEmployee();
+      await db.update(schema.users).set({ branchId: branch.id }).where(eq(schema.users.id, requester.id));
+      await db.update(schema.users).set({ branchId: branch.id }).where(eq(schema.users.id, approver.id));
+
+      const suffix = crypto.randomBytes(4).toString('hex');
+      const externalBranchId = `live_branch_${suffix}`;
+      const externalRequesterId = `live_requester_${suffix}`;
+      const externalApproverId = `live_approver_${suffix}`;
+      await db.insert(schema.federationExternalIdMappings).values([
+        { tenantId: ctx.tenant.id, entityType: 'branch', internalId: branch.id, externalId: externalBranchId },
+        { tenantId: ctx.tenant.id, entityType: 'employee', internalId: requester.id, externalId: externalRequesterId },
+        { tenantId: ctx.tenant.id, entityType: 'employee', internalId: approver.id, externalId: externalApproverId },
+      ]);
+      await db.insert(schema.leavePolicies).values({
+        tenantId: ctx.tenant.id, code: 'ANNUAL', name: 'Annual Leave', maxDaysPerYear: 24,
+        allowHalfDay: true, requiresApproval: true, medicalOnlyNoAdvanceNoticeDays: 0,
+        defaultDeductionPercent: 100, accrualEnabled: false, carryForwardEnabled: false,
+        maxCarryForwardDays: 0, encashmentEnabled: false,
+      });
+
+      const leavePath = '/v1/federation/leave/requests';
+      const leaveBody = JSON.stringify({
+        externalEmployeeId: externalRequesterId, externalBranchId, leaveType: 'ANNUAL',
+        startDate: '2026-09-10', endDate: '2026-09-10', reason: 'Live contract flow',
+      });
+      const leaveResponse = await fetch(`${appHandle.baseUrl}${leavePath}`, {
+        method: 'POST', headers: idHeaders(token, `live-leave-${suffix}`, 'POST', leavePath, leaveBody), body: leaveBody,
+      });
+      assert.equal(leaveResponse.status, 200);
+      const leave = await leaveResponse.json() as { requestId: string; status: string };
+      assert.equal(leave.status, 'pending');
+
+      const decisionPath = `/v1/federation/leave/requests/${leave.requestId}/decision`;
+      const decisionBody = JSON.stringify({
+        action: 'approve', expectedVersion: 1, externalBranchId,
+        decidedByExternalUserId: externalApproverId,
+      });
+      const decisionResponse = await fetch(`${appHandle.baseUrl}${decisionPath}`, {
+        method: 'POST', headers: idHeaders(token, `live-decision-${suffix}`, 'POST', decisionPath, decisionBody), body: decisionBody,
+      });
+      assert.equal(decisionResponse.status, 200);
+      assert.equal((await decisionResponse.json()).status, 'approved');
+
+      const checkInPath = '/v1/federation/attendance/check-ins';
+      const checkInBody = JSON.stringify({
+        externalEmployeeId: externalRequesterId, externalBranchId,
+        occurredAt: '2026-09-10T09:00:00.000Z',
+      });
+      const checkInResponse = await fetch(`${appHandle.baseUrl}${checkInPath}`, {
+        method: 'POST', headers: idHeaders(token, `live-checkin-${suffix}`, 'POST', checkInPath, checkInBody), body: checkInBody,
+      });
+      assert.equal(checkInResponse.status, 200);
+
+      const checkOutPath = '/v1/federation/attendance/check-outs';
+      const checkOutBody = JSON.stringify({
+        externalEmployeeId: externalRequesterId, externalBranchId,
+        occurredAt: '2026-09-10T17:00:00.000Z',
+      });
+      const checkOutResponse = await fetch(`${appHandle.baseUrl}${checkOutPath}`, {
+        method: 'POST', headers: idHeaders(token, `live-checkout-${suffix}`, 'POST', checkOutPath, checkOutBody), body: checkOutBody,
+      });
+      assert.equal(checkOutResponse.status, 200);
+
+      const payrollPath = `/v1/federation/employees/${externalRequesterId}/compensation`;
+      const payrollBody = JSON.stringify({
+        annualCtc: 15000, effectiveFrom: '2026-09-01', externalBranchId,
+        requestedByExternalUserId: externalApproverId,
+      });
+      const payrollResponse = await fetch(`${appHandle.baseUrl}${payrollPath}`, {
+        method: 'PUT', headers: idHeaders(token, `live-payroll-${suffix}`, 'PUT', payrollPath, payrollBody), body: payrollBody,
+      });
+      assert.equal(payrollResponse.status, 200);
+      const [profile] = await db.select().from(schema.employeeCompensationProfiles).where(and(
+        eq(schema.employeeCompensationProfiles.tenantId, ctx.tenant.id),
+        eq(schema.employeeCompensationProfiles.userId, requester.id),
+      ));
+      assert.equal(profile?.annualCtc, 15000);
+      const histories = await db.select().from(schema.compensationHistory).where(and(
+        eq(schema.compensationHistory.tenantId, ctx.tenant.id),
+        eq(schema.compensationHistory.userId, requester.id),
+      ));
+      assert.equal(histories.length, 1);
+    } finally {
+      await cleanupFederationExtras(ctx.tenant.id);
+      await ctx.cleanup();
+    }
+  });
+});
+
 describe('Federation contract: action assertions on live routes', () => {
   test('missing, tampered, and replayed assertions are rejected while a valid tenant write succeeds', async () => {
     const { clientId, rawSecret } = await createFederationClient(null, ['employees']);
@@ -225,6 +341,33 @@ describe('Federation contract: action assertions on live routes', () => {
       body: JSON.stringify({ name: 'Different', timezone: 'Asia/Kolkata', currencyCode: 'INR' }),
     });
     assert.equal(changedReplay.status, 409);
+  });
+
+  test('wrong tenant and outlet claims are rejected by the live route middleware', async () => {
+    const ctx = await createTestTenantAndAdmin();
+    try {
+      await db.update(schema.tenants).set({ featuresAllowed: ['smartteams_federation'] }).where(eq(schema.tenants.id, ctx.tenant.id));
+      const { clientId, rawSecret } = await createFederationClient(ctx.tenant.id, ['employees']);
+      const token = await mintAccessToken(clientId, rawSecret);
+      const externalEmployeeId = `claim-bound-${crypto.randomBytes(4).toString('hex')}`;
+      const path = `/v1/federation/employees/${externalEmployeeId}`;
+      const body = JSON.stringify({ name: 'Claim-bound employee', externalOrganizationId: 'tenant-correct', externalBranchId: 'branch-correct' });
+
+      const wrongTenant = rewriteAssertion(idHeaders(token, `claim-tenant-${externalEmployeeId}`, 'PUT', path, body), (payload) => {
+        payload.tenant = 'tenant-wrong';
+      });
+      const wrongTenantResponse = await fetch(`${appHandle.baseUrl}${path}`, { method: 'PUT', headers: wrongTenant, body });
+      assert.equal(wrongTenantResponse.status, 401);
+
+      const wrongOutlet = rewriteAssertion(idHeaders(token, `claim-outlet-${externalEmployeeId}`, 'PUT', path, body), (payload) => {
+        payload.outlet = 'branch-wrong';
+      });
+      const wrongOutletResponse = await fetch(`${appHandle.baseUrl}${path}`, { method: 'PUT', headers: wrongOutlet, body });
+      assert.equal(wrongOutletResponse.status, 401);
+    } finally {
+      await cleanupFederationExtras(ctx.tenant.id);
+      await ctx.cleanup();
+    }
   });
 });
 
@@ -510,6 +653,58 @@ describe('Federation contract: cross-branch isolation', () => {
         await db.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.id, entryA.id));
         await db.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.id, entryB.id));
       }
+    } finally {
+      await cleanupFederationExtras(ctx.tenant.id);
+      await ctx.cleanup();
+    }
+  });
+});
+
+describe('Federation contract: actor lifecycle enforcement', () => {
+  test('inactive actors cannot approve leave, decide attendance, or edit compensation', async () => {
+    const ctx = await createTestTenantAndAdmin();
+    try {
+      await db.update(schema.tenants).set({ featuresAllowed: ['smartteams_federation'] }).where(eq(schema.tenants.id, ctx.tenant.id));
+      const { clientId, rawSecret } = await createFederationClient(ctx.tenant.id, ['attendance', 'leave', 'payroll']);
+      const token = await mintAccessToken(clientId, rawSecret);
+      const requester = await ctx.createEmployee();
+      const reviewer = await ctx.createEmployee();
+      const requesterExternalId = `lifecycle_requester_${crypto.randomBytes(4).toString('hex')}`;
+      const reviewerExternalId = `lifecycle_reviewer_${crypto.randomBytes(4).toString('hex')}`;
+      await db.insert(schema.federationExternalIdMappings).values([
+        { tenantId: ctx.tenant.id, entityType: 'employee', internalId: requester.id, externalId: requesterExternalId },
+        { tenantId: ctx.tenant.id, entityType: 'employee', internalId: reviewer.id, externalId: reviewerExternalId },
+      ]);
+      await db.update(schema.users).set({ employeeStatus: 'inactive' }).where(eq(schema.users.id, reviewer.id));
+
+      const [leave] = await db.insert(schema.leaveRequests).values({
+        tenantId: ctx.tenant.id, userId: requester.id, leaveType: 'ANNUAL',
+        startDate: '2026-08-20', endDate: '2026-08-20', totalDays: 1,
+        reason: 'Lifecycle test', status: 'pending',
+      }).returning();
+      const leavePath = `/v1/federation/leave/requests/${leave.id}/decision`;
+      const leaveBody = JSON.stringify({ action: 'approve', expectedVersion: 1, decidedByExternalUserId: reviewerExternalId });
+      const leaveResponse = await fetch(`${appHandle.baseUrl}${leavePath}`, {
+        method: 'POST', headers: idHeaders(token, `lifecycle-leave-${leave.id}`, 'POST', leavePath, leaveBody), body: leaveBody,
+      });
+      assert.equal(leaveResponse.status, 403);
+
+      const [attendance] = await db.insert(schema.attendanceLogs).values({
+        tenantId: ctx.tenant.id, userId: requester.id, status: 'pending', type: 'check_in',
+      }).returning();
+      const attendancePath = `/v1/federation/attendance/${attendance.id}/decision`;
+      const attendanceBody = JSON.stringify({ action: 'approve', decidedByExternalUserId: reviewerExternalId });
+      const attendanceResponse = await fetch(`${appHandle.baseUrl}${attendancePath}`, {
+        method: 'POST', headers: idHeaders(token, `lifecycle-attendance-${attendance.id}`, 'POST', attendancePath, attendanceBody), body: attendanceBody,
+      });
+      assert.equal(attendanceResponse.status, 403);
+
+      const payrollPath = `/v1/federation/employees/${requesterExternalId}/compensation`;
+      const payrollBody = JSON.stringify({ annualCtc: 240000, effectiveFrom: '2026-08-01', requestedByExternalUserId: reviewerExternalId });
+      const payrollResponse = await fetch(`${appHandle.baseUrl}${payrollPath}`, {
+        method: 'PUT', headers: idHeaders(token, `lifecycle-payroll-${requester.id}`, 'PUT', payrollPath, payrollBody), body: payrollBody,
+      });
+      assert.equal(payrollResponse.status, 403);
     } finally {
       await cleanupFederationExtras(ctx.tenant.id);
       await ctx.cleanup();

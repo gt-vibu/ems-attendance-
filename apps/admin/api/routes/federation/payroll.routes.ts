@@ -12,7 +12,7 @@ import { encodeCursor, decodeCursor, hashFilters, resolveLimit } from '../../uti
 import { queue } from '../../services/queue';
 import { checkCalendarGate, validateBatchForApproval, getPendingAdjustmentsForBatch } from '../../services/payrollBatch';
 import { finalizePayrollBatchFinancials } from '../../services/payrollBatchCalculation';
-import { getOrCreatePayrollSettings, computeCompensationDiff } from '../leavePayrollShared';
+import { getOrCreatePayrollSettings, computeCompensationDiff, resolveActiveEmployeeId } from '../leavePayrollShared';
 import { isPlatformFeatureAllowedForTenant } from '../../auth/rbac';
 
 export const router = Router();
@@ -130,6 +130,9 @@ router.put('/v1/federation/payroll/calendars/:year/:month', requireIdempotencyKe
     if (!requestedByExternalUserId) return res.status(422).json({ error: 'requestedByExternalUserId is required.' });
     const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
     if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+    if (await resolveActiveEmployeeId(tenantId, actorUserId) === null) {
+      return res.status(403).json({ error: 'The requesting actor is not active.' });
+    }
 
     const dateFields = [
       'attendanceFreezeDate', 'calculationDate', 'hrReviewDate',

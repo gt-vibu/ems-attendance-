@@ -21,6 +21,7 @@ import {
   validatePreferencesUpdate,
   type AttendancePrefs,
 } from '../../services/attendancePreferencesService';
+import { resolveActiveEmployeeId } from '../leavePayrollShared';
 
 export const router = Router();
 router.use('/v1/federation/attendance', authenticateFederation, federationLimiter, requireFederationScope('attendance'));
@@ -151,6 +152,9 @@ async function recordAttendanceFact(req: any, res: any, type: 'check_in' | 'chec
   const employeeInternalId = await resolveInternalId(tenantId, 'employee', externalEmployeeId);
   const branchInternalId = await resolveInternalId(tenantId, 'branch', externalBranchId);
   if (employeeInternalId === null) return res.status(404).json({ error: 'Unknown externalEmployeeId.' });
+  if (await resolveActiveEmployeeId(tenantId, employeeInternalId) === null) {
+    return res.status(403).json({ error: 'The employee is not active.' });
+  }
   if (branchInternalId === null) return res.status(404).json({ error: 'Unknown externalBranchId.' });
 
   const policyConfigured = await isFederationAttendancePolicyConfigured(tenantId, String(req.federation.clientId));
@@ -264,6 +268,9 @@ router.post('/v1/federation/attendance/:attendanceId/corrections', requireIdempo
       if (!requestedByExternalUserId) return res.status(422).json({ error: 'requestedByExternalUserId is required for self-service corrections.' });
       const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
       if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+      if (await resolveActiveEmployeeId(tenantId, actorUserId) === null) {
+        return res.status(403).json({ error: 'The requesting actor is not active.' });
+      }
       if (actorUserId !== rows[0].userId) return res.status(403).json({ error: 'Employees can only correct their own attendance.' });
     }
 
@@ -296,6 +303,9 @@ router.post('/v1/federation/attendance/:attendanceId/decision', requireIdempoten
     if (rows.length === 0) return res.status(404).json({ error: 'Attendance record not found.' });
     const reviewerId = await resolveInternalId(tenantId, 'employee', String(decidedByExternalUserId));
     if (reviewerId === null) return res.status(404).json({ error: 'Unknown decidedByExternalUserId.' });
+    if (await resolveActiveEmployeeId(tenantId, reviewerId) === null) {
+      return res.status(403).json({ error: 'The deciding actor is not active.' });
+    }
     if (reviewerId === rows[0].userId) return res.status(403).json({ error: 'Employees cannot decide their own attendance.' });
     if (rows[0].status !== 'pending') return res.status(400).json({ error: 'This record has already been decided.' });
 
@@ -366,6 +376,9 @@ router.put('/v1/federation/attendance/preferences', requireIdempotencyKey, resol
     }
     const actorUserId = await resolveInternalId(tenantId, 'employee', String(requestedByExternalUserId));
     if (actorUserId === null) return res.status(404).json({ error: 'Unknown requestedByExternalUserId.' });
+    if (await resolveActiveEmployeeId(tenantId, actorUserId) === null) {
+      return res.status(403).json({ error: 'The requesting actor is not active.' });
+    }
     if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
       return res.status(422).json({ error: 'preferences must be an object.' });
     }
