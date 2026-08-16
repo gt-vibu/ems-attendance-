@@ -123,14 +123,9 @@ router.get('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
     const employeeId = parseInt(req.params.id, 10);
     const tenantId = req.user.tenantId;
 
-    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (userRows.length === 0) {
+    const employee = await getByIdForTenant(schema.users, employeeId, tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
-    }
-
-    const employee = userRows[0];
-    if (employee.tenantId !== tenantId) {
-      return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
     }
 
     const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -184,14 +179,9 @@ router.put('/api/tenant/employees/:id', authenticate, async (req: any, res: any)
     const employeeId = parseInt(req.params.id, 10);
     const tenantId = req.user.tenantId;
 
-    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (userRows.length === 0) {
+    const employee = await getByIdForTenant(schema.users, employeeId, tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
-    }
-
-    const employee = userRows[0];
-    if (employee.tenantId !== tenantId) {
-      return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
     }
 
     const scopedBranchIds = await getScopedBranchIds(req.user);
@@ -359,14 +349,9 @@ router.post('/api/tenant/employees/:id/reset-device', authenticate, async (req: 
     const employeeId = parseInt(req.params.id, 10);
     const tenantId = req.user.tenantId;
 
-    const userRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (userRows.length === 0) {
+    const employee = await getByIdForTenant(schema.users, employeeId, tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
-    }
-
-    const employee = userRows[0];
-    if (employee.tenantId !== tenantId) {
-      return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
     }
 
     const scopedBranchIds = await getScopedBranchIds(req.user);

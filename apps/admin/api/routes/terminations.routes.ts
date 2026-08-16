@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
+import { getByIdForTenant } from '../utils/tenantScoped';
 import { authenticate } from '../middleware/authenticate';
 import { hasPrivilege, getScopedBranchIds } from '../auth/rbac';
 import { logToAuditLedger } from '../services/audit';
@@ -38,13 +39,9 @@ router.post('/api/tenant/employees/:id/terminate', authenticate, async (req: any
     const tenantId = req.user.tenantId;
     const { reason } = req.body || {};
 
-    const employeeRows = await db.select().from(schema.users).where(eq(schema.users.id, employeeId)).limit(1);
-    if (employeeRows.length === 0) {
+    const employee = await getByIdForTenant(schema.users, employeeId, tenantId);
+    if (!employee) {
       return res.status(404).json({ error: 'Employee not found.' });
-    }
-    const employee = employeeRows[0];
-    if (employee.tenantId !== tenantId) {
-      return res.status(403).json({ error: 'Access denied: This employee belongs to another organization.' });
     }
     if (employee.role === 'tenant_admin' || employee.role === 'super_admin') {
       return res.status(400).json({ error: 'Admin accounts cannot be terminated here. A super admin can remove a tenant admin from the platform view.' });
