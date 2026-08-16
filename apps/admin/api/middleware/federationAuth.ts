@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { verifyFederationAccessToken } from '../auth/federationClients';
 import { isPlatformFeatureAllowedForTenant } from '../auth/rbac';
-import { resolveMappingByExternalId, type FederationEntityType } from '../services/federation/externalId';
+import { resolveExternalId, resolveMappingByExternalId, type FederationEntityType } from '../services/federation/externalId';
 
 // Gate for every /v1/federation/* route except the token endpoint itself
 // and the unauthenticated infra probes (health/live, health/ready). Verifies
@@ -80,7 +80,7 @@ function timingSafeStringEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-export function validateActionAssertion(req: any, tenantId: number): string | null {
+export function validateActionAssertion(req: any, tenantId: number, expectedExternalTenantId?: string | null): string | null {
   if (req.method === 'GET') return null;
   const secret = process.env.FEDERATION_ACTION_ASSERTION_SECRET;
   if (!secret) return 'Federation action assertions are not configured.';
@@ -97,19 +97,31 @@ export function validateActionAssertion(req: any, tenantId: number): string | nu
   const bodyHash = crypto.createHash('sha256').update(JSON.stringify(req.body ?? {})).digest('base64url');
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
   const firstString = (...keys: string[]) => keys.map((key) => body[key]).find((value) => typeof value === 'string' && value.length > 0);
+  const selfServiceActorPath = /^\/v1\/federation\/(attendance\/check-(?:in|out)s|leave\/requests)$/.test(path);
   const expectedActor = firstString('decidedByExternalUserId', 'requestedByExternalUserId', 'actorExternalUserId');
+  const actor = expectedActor ?? (selfServiceActorPath ? firstString('externalEmployeeId') : undefined);
   const tenantFromPath = path.match(/^\/v1\/federation\/tenants\/([^/]+)/)?.[1];
   const outletFromPath = path.match(/^\/v1\/federation\/tenants\/[^/]+\/branches\/([^/]+)/)?.[1];
   const employeeFromPath = path.match(/^\/v1\/federation\/employees\/([^/]+)/)?.[1];
-  const expectedTenant = firstString('externalOrganizationId', 'externalTenantId') ?? tenantFromPath;
-  const expectedOutlet = firstString('externalBranchId') ?? outletFromPath;
-  const expectedTarget = firstString('externalEmployeeId', 'externalLeaveRequestId', 'externalAttendanceId', 'externalPayrollRunId') || employeeFromPath || path;
+  const bodyTenant = firstString('externalOrganizationId', 'externalTenantId');
+  const bodyOutlet = firstString('externalBranchId');
+  const bodyTarget = firstString('externalEmployeeId', 'externalLeaveRequestId', 'externalAttendanceId', 'externalPayrollRunId');
+  const expectedTenant = tenantFromPath ?? bodyTenant;
+  const expectedOutlet = outletFromPath ?? bodyOutlet;
+  const expectedTarget = employeeFromPath ?? bodyTarget ?? path;
+  const requestBindingConflict =
+    (tenantFromPath !== undefined && bodyTenant !== undefined && tenantFromPath !== bodyTenant) ||
+    (outletFromPath !== undefined && bodyOutlet !== undefined && outletFromPath !== bodyOutlet) ||
+    (employeeFromPath !== undefined && bodyTarget !== undefined && employeeFromPath !== bodyTarget);
   if (
     payload?.aud !== 'smartteams-federation' || payload?.method !== req.method ||
     payload?.path !== path || payload?.bodyHash !== bodyHash ||
     payload?.action !== `${req.method}:${path}` ||
-    (expectedActor !== undefined && payload?.actor !== expectedActor) ||
+    requestBindingConflict ||
+    (actor !== undefined && payload?.actor !== actor) ||
+    (selfServiceActorPath && !actor) ||
     (expectedTenant !== undefined && payload?.tenant !== expectedTenant) ||
+    (expectedExternalTenantId !== undefined && payload?.tenant !== expectedExternalTenantId) ||
     (expectedOutlet !== undefined && payload?.outlet !== expectedOutlet) ||
     payload?.target !== expectedTarget ||
     !Number.isInteger(payload?.iat) || !Number.isInteger(payload?.exp) ||
@@ -121,10 +133,6 @@ export function validateActionAssertion(req: any, tenantId: number): string | nu
   // replay protection without adding a second nonce store.
   if (req.header('Idempotency-Key') !== payload.nonce) return 'Federation action assertion nonce does not match the idempotency key.';
   return null;
-}
-
-function actionAssertionError(req: any, tenantId: number): string | null {
-  return validateActionAssertion(req, tenantId);
 }
 
 function checkMtls(req: any): string | null {
@@ -207,8 +215,9 @@ export async function authenticateFederation(req: any, res: any, next: any) {
 
 // Applied AFTER authenticateFederation on every domain route (attendance,
 // employees, leave, payroll) that identifies its target by external id.
-// A per-tenant client already has req.federation.tenantId fixed — this is a
-// no-op for it. A platform client (tenantId null) instead derives which
+// A per-tenant client already has req.federation.tenantId fixed and the
+// mapped external organization is checked against the signed assertion. A
+// platform client (tenantId null) instead derives which
 // tenant this specific request targets by looking up whichever external id
 // the request actually carries (branch → employee → organization, most
 // specific first) against federation_external_id_mappings, which is
@@ -226,7 +235,11 @@ export function resolveFederationTenantContext() {
   return async (req: any, res: any, next: any) => {
     if (!req.federation?.isPlatformClient) {
       // Per-tenant client: tenantId was already fixed at token-issue time.
-      const assertionFailure = actionAssertionError(req, req.federation.tenantId);
+      const externalTenantId = await resolveExternalId(req.federation.tenantId, 'tenant', req.federation.tenantId);
+      if (!externalTenantId) {
+        return res.status(409).json({ error: 'Federation tenant mapping is missing; provision the organization before issuing domain requests.', code: 'TENANT_MAPPING_REQUIRED' });
+      }
+      const assertionFailure = validateActionAssertion(req, req.federation.tenantId, externalTenantId);
       if (assertionFailure) {
         return res.status(401).json({ error: assertionFailure, code: 'INVALID_ACTION_ASSERTION' });
       }
@@ -314,7 +327,11 @@ export function resolveFederationTenantContext() {
     }
 
     req.federation.tenantId = resolvedTenantId;
-    const assertionFailure = actionAssertionError(req, resolvedTenantId);
+    const externalTenantId = await resolveExternalId(resolvedTenantId, 'tenant', resolvedTenantId);
+    if (!externalTenantId) {
+      return res.status(409).json({ error: 'Federation tenant mapping is missing; provision the organization before issuing domain requests.', code: 'TENANT_MAPPING_REQUIRED' });
+    }
+    const assertionFailure = validateActionAssertion(req, resolvedTenantId, externalTenantId);
     if (assertionFailure) {
       return res.status(401).json({ error: assertionFailure, code: 'INVALID_ACTION_ASSERTION' });
     }

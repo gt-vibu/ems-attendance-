@@ -27,6 +27,8 @@ type CompensationDraft = {
   annualCtc: string;
   effectiveFrom: string;
   overtimeHourlyRate: string;
+  attendanceTracked: boolean;
+  attendanceAffectsPayroll: 'inherit' | 'yes' | 'no';
   basicCalcType: CalculationType;
   basicValue: string;
   // HRA and PF are NOT universal — plenty of companies (especially ones
@@ -54,6 +56,8 @@ const DEFAULT_DRAFT: CompensationDraft = {
   annualCtc: '',
   effectiveFrom: new Date().toISOString().slice(0, 10),
   overtimeHourlyRate: '',
+  attendanceTracked: true,
+  attendanceAffectsPayroll: 'inherit',
   basicCalcType: 'percent_of_ctc',
   basicValue: '50',
   hraEnabled: true,
@@ -118,7 +122,7 @@ function clearDraft(draftKey: string) {
 // per-employee profile or a role's default template) plus the annual CTC,
 // reconstruct the salary structure fields the same way regardless of where
 // the data came from.
-function buildDraftFromComponents(annualCtcRaw: any, components: any[], effectiveFrom?: string | null, overtimeHourlyRate?: any): CompensationDraft {
+function buildDraftFromComponents(annualCtcRaw: any, components: any[], effectiveFrom?: string | null, overtimeHourlyRate?: any, attendanceTrackedRaw?: unknown, attendanceAffectsPayrollRaw?: unknown): CompensationDraft {
   const list = Array.isArray(components) ? components : [];
   // Nothing saved yet at all (brand-new employee/role, never configured) —
   // this is the ONLY case that gets the traditional Basic/HRA/PF starter
@@ -154,6 +158,8 @@ function buildDraftFromComponents(annualCtcRaw: any, components: any[], effectiv
     annualCtc: annualCtcRaw != null ? String(annualCtcRaw) : DEFAULT_DRAFT.annualCtc,
     effectiveFrom: effectiveFrom || DEFAULT_DRAFT.effectiveFrom,
     overtimeHourlyRate: overtimeHourlyRate != null ? String(overtimeHourlyRate) : DEFAULT_DRAFT.overtimeHourlyRate,
+    attendanceTracked: attendanceTrackedRaw !== false,
+    attendanceAffectsPayroll: attendanceAffectsPayrollRaw === true ? 'yes' : attendanceAffectsPayrollRaw === false ? 'no' : 'inherit',
     basicCalcType: basicVC.calcType,
     basicValue: basicVC.value,
     hraEnabled: isFreshSetup ? true : !!hra,
@@ -270,6 +276,8 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
             detailData.components,
             detailData.profile?.effectiveFrom,
             detailData.profile?.overtimeHourlyRate,
+            detailData.profile?.attendanceTracked,
+            detailData.profile?.attendanceAffectsPayroll,
           );
           setDraft(initialDraft);
           saveDraft(draftKey, initialDraft);
@@ -408,6 +416,8 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
           body: JSON.stringify({
             annualCtc,
             overtimeHourlyRate: draft.overtimeHourlyRate ? Number(draft.overtimeHourlyRate) : null,
+            attendanceTracked: draft.attendanceTracked,
+            attendanceAffectsPayroll: draft.attendanceAffectsPayroll === 'inherit' ? null : draft.attendanceAffectsPayroll === 'yes',
             effectiveFrom: draft.effectiveFrom,
             components: componentsPayload,
           }),
@@ -560,6 +570,27 @@ export default function PayrollWizardPage({ user, onLogout }: { user: User; onLo
                   </>
                 )}
               </div>
+
+              {mode === 'employee' && (
+                <div className="mt-6 rounded-xl border border-[var(--color-nexus-border)] bg-[var(--color-nexus-surface-alt)] p-4">
+                  <div className="mb-3">
+                    <h4 className="text-sm font-bold text-[var(--color-nexus-ink)]">Attendance and payroll policy</h4>
+                    <p className="mt-1 text-xs text-[var(--color-nexus-muted)]">Attendance tracking and attendance-driven pay deductions are independent settings for this employee.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-[var(--color-nexus-ink)]">
+                    <input type="checkbox" checked={draft.attendanceTracked} onChange={(event) => updateDraft('attendanceTracked', event.target.checked)} />
+                    Track attendance for this employee
+                  </label>
+                  <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">
+                    Attendance affects payroll
+                    <select value={draft.attendanceAffectsPayroll} onChange={(event) => updateDraft('attendanceAffectsPayroll', event.target.value as CompensationDraft['attendanceAffectsPayroll'])} className="mt-1 block w-full rounded-xl border border-[var(--color-nexus-border)] bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-[var(--color-nexus-ink)]">
+                      <option value="inherit">Use organization policy</option>
+                      <option value="yes">Yes — apply finalized attendance deductions</option>
+                      <option value="no">No — keep payroll independent</option>
+                    </select>
+                  </label>
+                </div>
+              )}
 
               <div className="mt-6 overflow-hidden rounded-xl border border-[var(--color-nexus-border)]">
                 <div className="grid grid-cols-[1.3fr_1fr_1fr_1fr] bg-[var(--color-nexus-surface-alt)] px-5 py-4 text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)]">

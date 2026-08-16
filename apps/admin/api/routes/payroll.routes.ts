@@ -555,6 +555,12 @@ router.post('/api/tenant/payroll/employee/:userId', authenticate, async (req: an
       userId,
       annualCtc: Number(req.body?.annualCtc || 0),
       overtimeHourlyRate: req.body?.overtimeHourlyRate != null ? Number(req.body.overtimeHourlyRate) : null,
+      attendanceTracked: req.body?.attendanceTracked !== undefined
+        ? !!req.body.attendanceTracked
+        : (previousProfile?.attendanceTracked ?? true),
+      attendanceAffectsPayroll: req.body?.attendanceAffectsPayroll !== undefined
+        ? (req.body.attendanceAffectsPayroll === null ? null : !!req.body.attendanceAffectsPayroll)
+        : (previousProfile?.attendanceAffectsPayroll ?? null),
       effectiveFrom: req.body?.effectiveFrom || tenantDateKey(tenantRowEff),
       status: 'active',
       updatedAt: new Date(),

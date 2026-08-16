@@ -1266,6 +1266,11 @@ export const employeeCompensationProfiles = pgTable('employee_compensation_profi
   overtimeHourlyRate: real('overtime_hourly_rate'),
   effectiveFrom: text('effective_from').notNull(),
   status: text('status').notNull().default('active'),
+  // Attendance and payroll are separate concerns. `null` preserves the
+  // legacy tenant-wide feature decision; explicit false opts this employee
+  // out of attendance-driven deductions and explicit true opts them in.
+  attendanceTracked: boolean('attendance_tracked').notNull().default(true),
+  attendanceAffectsPayroll: boolean('attendance_affects_payroll'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -2571,5 +2576,4 @@ export const expensePolicies = pgTable('expense_policies', {
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
-
 

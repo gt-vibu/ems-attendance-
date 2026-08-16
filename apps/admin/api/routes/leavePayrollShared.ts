@@ -285,6 +285,14 @@ export interface AttendanceDrivenInputs {
   unpaidAbsenceDays: number;
 }
 
+export function shouldApplyAttendanceDrivenPayroll(
+  tenantFeatureEnabled: boolean,
+  profile?: { attendanceTracked?: boolean | null; attendanceAffectsPayroll?: boolean | null } | null,
+): boolean {
+  if (!tenantFeatureEnabled || profile?.attendanceTracked === false) return false;
+  return profile?.attendanceAffectsPayroll !== false;
+}
+
 // Real overtime is computed day-by-day from actual worked minutes (see
 // services/earnings.ts) — expensive relative to a flat 0, so it only runs
 // at all once a tenant admin has explicitly opted in via
@@ -302,7 +310,21 @@ export async function resolveOvertimeHours(overtimePayrollEnabled: boolean, user
 // feature existed unless the tenant explicitly enabled
 // 'payroll_attendance_driven'.
 export async function resolveAttendanceDrivenInputs(tenant: any, userId: number, tenantId: number, year: number, month: number): Promise<AttendanceDrivenInputs | null> {
-  if (!isPlatformFeatureAllowed(tenant, 'payroll_attendance_driven')) return null;
+  const tenantFeatureEnabled = isPlatformFeatureAllowed(tenant, 'payroll_attendance_driven');
+  if (!tenantFeatureEnabled) return null;
+  const [profile] = await db.select({
+    attendanceTracked: schema.employeeCompensationProfiles.attendanceTracked,
+    attendanceAffectsPayroll: schema.employeeCompensationProfiles.attendanceAffectsPayroll,
+  }).from(schema.employeeCompensationProfiles).where(and(
+    eq(schema.employeeCompensationProfiles.tenantId, tenantId),
+    eq(schema.employeeCompensationProfiles.userId, userId),
+    eq(schema.employeeCompensationProfiles.status, 'active'),
+  )).limit(1);
+  // A profile-level policy is authoritative when explicitly set. Null keeps
+  // existing tenants on the legacy tenant-wide feature decision, making the
+  // migration additive while allowing payroll-independent employees without
+  // role-name or auditor-specific exceptions.
+  if (!shouldApplyAttendanceDrivenPayroll(tenantFeatureEnabled, profile)) return null;
   return computeAttendanceDrivenPayrollInputs(tenantId, userId, year, month);
 }
 

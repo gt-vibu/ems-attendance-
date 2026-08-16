@@ -14,6 +14,7 @@ function signedRequest(overrides: Partial<{
   iat: number;
   exp: number;
   nonce: string;
+  tenant?: string;
   signature?: string;
 }> = {}) {
   const request = {
@@ -37,7 +38,7 @@ function signedRequest(overrides: Partial<{
     path: overrides.path ?? '/v1/federation/leave/requests/leave-1/decision',
     action: `${overrides.method ?? 'POST'}:${overrides.path ?? '/v1/federation/leave/requests/leave-1/decision'}`,
     actor: undefined,
-    tenant: undefined,
+    tenant: overrides.tenant,
     outlet: undefined,
     target: 'employee-1',
     bodyHash: crypto.createHash('sha256').update(JSON.stringify(request.body)).digest('base64url'),
@@ -101,4 +102,60 @@ test('rejects assertions whose signed nonce is not the idempotency key', () => {
     },
   };
   assert.match(validateActionAssertion(mismatched, 10) ?? '', /nonce/);
+});
+
+test('requires the signed tenant claim to match the resolved tenant mapping', () => {
+  const signed = signedRequest({ tenant: 'tenant-a' });
+  assert.equal(validateActionAssertion(signed.request, 10, 'tenant-a'), null);
+  assert.match(validateActionAssertion(signed.request, 10, 'tenant-b') ?? '', /invalid or expired/);
+  const unsigned = signedRequest();
+  assert.match(validateActionAssertion(unsigned.request, 10, 'tenant-a') ?? '', /invalid or expired/);
+});
+
+test('rejects body identifiers that disagree with path-bound tenant or target identifiers', () => {
+  const tenantPath = '/v1/federation/tenants/tenant-a/branches/branch-a';
+  const tenantRequest = signedRequest({ path: tenantPath, body: { externalOrganizationId: 'tenant-b', externalBranchId: 'branch-a' } });
+  assert.match(validateActionAssertion(tenantRequest.request, 10, 'tenant-a') ?? '', /invalid or expired/);
+
+  const employeePath = '/v1/federation/employees/employee-a/compensation';
+  const employeeRequest = signedRequest({ path: employeePath, body: { externalEmployeeId: 'employee-b' } });
+  assert.match(validateActionAssertion(employeeRequest.request, 10, 'tenant-a') ?? '', /invalid or expired/);
+});
+
+test('requires and binds the human actor for self-service attendance writes', () => {
+  const path = '/v1/federation/attendance/check-ins';
+  const body = { externalEmployeeId: 'employee-1', externalBranchId: 'branch-1', occurredAt: new Date().toISOString() };
+  const nonce = 'nonce-attendance-123456';
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    aud: 'smartteams-federation', iat: now, exp: now + 30, nonce,
+    method: 'POST', path, action: `POST:${path}`, actor: 'employee-1',
+    tenant: undefined, outlet: 'branch-1', target: 'employee-1',
+    bodyHash: crypto.createHash('sha256').update(JSON.stringify(body)).digest('base64url'),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const assertion = `${encoded}.${crypto.createHmac('sha256', secret).update(encoded).digest('base64url')}`;
+  const request = {
+    method: 'POST', originalUrl: path, body,
+    header(name: string) {
+      if (name === 'Idempotency-Key') return nonce;
+      return name === 'X-Federation-Action-Assertion' ? assertion : undefined;
+    },
+  };
+  assert.equal(validateActionAssertion(request, 10), null);
+
+  const tampered = { ...request, body: { ...body, externalEmployeeId: 'employee-2' } };
+  assert.match(validateActionAssertion(tampered, 10) ?? '', /invalid or expired/);
+
+  const unsignedActorPayload = { ...payload, actor: undefined };
+  const unsignedActorEncoded = Buffer.from(JSON.stringify(unsignedActorPayload)).toString('base64url');
+  const unsignedActorAssertion = `${unsignedActorEncoded}.${crypto.createHmac('sha256', secret).update(unsignedActorEncoded).digest('base64url')}`;
+  const unsignedActorRequest = {
+    ...request,
+    header(name: string) {
+      if (name === 'Idempotency-Key') return nonce;
+      return name === 'X-Federation-Action-Assertion' ? unsignedActorAssertion : undefined;
+    },
+  };
+  assert.match(validateActionAssertion(unsignedActorRequest, 10) ?? '', /invalid or expired/);
 });

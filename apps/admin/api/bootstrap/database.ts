@@ -237,6 +237,16 @@ async function runSchemaSync() {
     }
 
     try {
+      // Employee-level attendance/payroll coupling is additive. Keep the
+      // boot synchronizer idempotent for legacy databases that predate the
+      // versioned migration while preserving null as "inherit tenant policy".
+      await db.execute(sql`ALTER TABLE employee_compensation_profiles ADD COLUMN IF NOT EXISTS attendance_tracked BOOLEAN NOT NULL DEFAULT true;`);
+      await db.execute(sql`ALTER TABLE employee_compensation_profiles ADD COLUMN IF NOT EXISTS attendance_affects_payroll BOOLEAN;`);
+    } catch (e) {
+      logger.warn('boot schema-sync: employee attendance/payroll policy statements failed', { error: (e as any)?.message });
+    }
+
+    try {
       const tenantsNeedingDigestDefaults = await db.execute(sql`
         SELECT t.id FROM tenants t
         WHERE NOT EXISTS (SELECT 1 FROM notification_digest_subscriptions s WHERE s.tenant_id = t.id)

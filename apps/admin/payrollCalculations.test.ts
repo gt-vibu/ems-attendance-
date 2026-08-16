@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeFinalSettlement } from './api/routes/leavePayrollShared.ts';
+import { computeFinalSettlement, shouldApplyAttendanceDrivenPayroll } from './api/routes/leavePayrollShared.ts';
 
 // Pure-function coverage for the settlement math extracted out of
 // payrollExtras.routes.ts's /settlements/generate handler this audit round
@@ -72,5 +72,20 @@ describe('computeFinalSettlement', () => {
     });
     // 2 days worked * 100 = 200 gross, minus 5000 recovery = deeply negative.
     assert.ok(result.netSettlement < 0);
+  });
+});
+
+describe('attendance/payroll policy', () => {
+  test('keeps payroll independent when an employee explicitly opts out', () => {
+    assert.equal(shouldApplyAttendanceDrivenPayroll(true, { attendanceTracked: true, attendanceAffectsPayroll: false }), false);
+  });
+
+  test('allows an explicit employee opt-in without role-name exceptions', () => {
+    assert.equal(shouldApplyAttendanceDrivenPayroll(true, { attendanceTracked: true, attendanceAffectsPayroll: true }), true);
+  });
+
+  test('inherits the tenant setting for legacy profiles', () => {
+    assert.equal(shouldApplyAttendanceDrivenPayroll(true, { attendanceTracked: true, attendanceAffectsPayroll: null }), true);
+    assert.equal(shouldApplyAttendanceDrivenPayroll(false, { attendanceTracked: true, attendanceAffectsPayroll: true }), false);
   });
 });

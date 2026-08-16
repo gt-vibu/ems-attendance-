@@ -15,6 +15,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 // default `npm test`.
 
 let appHandle: Awaited<ReturnType<typeof startTestApp>>;
+const tenantExternalIds = new Map<number, string>();
 
 before(async () => {
   process.env.FEDERATION_ACTION_ASSERTION_SECRET = 'integration-action-assertion-secret-0123456789';
@@ -38,6 +39,11 @@ async function createFederationClient(tenantId: number | null, scopes: string[])
     tenantId, name: `__contract_test_client_${crypto.randomBytes(4).toString('hex')}__`,
     clientId, clientSecretHash: secretHash, scopes, status: 'active',
   }).returning();
+  if (tenantId !== null) {
+    const externalId = `contract_tenant_${tenantId}_${crypto.randomBytes(4).toString('hex')}`;
+    await db.insert(schema.federationExternalIdMappings).values({ tenantId, entityType: 'tenant', internalId: tenantId, externalId });
+    tenantExternalIds.set(tenantId, externalId);
+  }
   return { client, clientId, rawSecret };
 }
 
@@ -68,6 +74,7 @@ async function cleanupFederationExtras(tenantId: number) {
   await db.update(schema.users).set({ branchId: null }).where(eq(schema.users.tenantId, tenantId));
   await db.delete(schema.users).where(eq(schema.users.tenantId, tenantId));
   await db.delete(schema.branches).where(eq(schema.branches.tenantId, tenantId));
+  tenantExternalIds.delete(tenantId);
 }
 
 async function mintAccessToken(clientId: string, clientSecret: string): Promise<string> {
@@ -82,7 +89,7 @@ async function mintAccessToken(clientId: string, clientSecret: string): Promise<
   return body.access_token;
 }
 
-function idHeaders(token: string, key: string, method = 'GET', path = '', body?: string) {
+function idHeaders(token: string, key: string, method = 'GET', path = '', body?: string, tenantOverride?: string) {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
@@ -96,11 +103,19 @@ function idHeaders(token: string, key: string, method = 'GET', path = '', body?:
     const tenantFromPath = path.match(/^\/v1\/federation\/tenants\/([^/]+)/)?.[1];
     const outletFromPath = path.match(/^\/v1\/federation\/tenants\/[^/]+\/branches\/([^/]+)/)?.[1];
     const employeeFromPath = path.match(/^\/v1\/federation\/employees\/([^/]+)/)?.[1];
+    let signedTenant: string | undefined;
+    try {
+      const tokenPayload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as { tenantId?: number | null };
+      signedTenant = tokenPayload.tenantId == null ? undefined : tenantExternalIds.get(Number(tokenPayload.tenantId));
+    } catch {
+      signedTenant = undefined;
+    }
+    const selfServiceActorPath = /^\/v1\/federation\/(attendance\/check-(?:in|out)s|leave\/requests)$/.test(path);
     const payload = Buffer.from(JSON.stringify({
       aud: 'smartteams-federation', iat: now, exp: now + 60, nonce: key,
       method, path, action: `${method}:${path}`,
-      actor: firstString('decidedByExternalUserId', 'requestedByExternalUserId', 'actorExternalUserId'),
-      tenant: firstString('externalOrganizationId', 'externalTenantId') ?? tenantFromPath,
+      actor: firstString('decidedByExternalUserId', 'requestedByExternalUserId', 'actorExternalUserId') ?? (selfServiceActorPath ? firstString('externalEmployeeId') : undefined),
+      tenant: tenantOverride ?? firstString('externalOrganizationId', 'externalTenantId') ?? tenantFromPath ?? signedTenant,
       outlet: firstString('externalBranchId') ?? outletFromPath,
       target: firstString('externalEmployeeId', 'externalLeaveRequestId', 'externalAttendanceId', 'externalPayrollRunId') ?? employeeFromPath ?? path,
       bodyHash: crypto.createHash('sha256').update(JSON.stringify(parsedBody)).digest('base64url'),
@@ -546,7 +561,7 @@ describe('Federation contract: provisioning (platform-scoped client)', () => {
       // and must still resolve to the right tenant.
       const checkInBody = JSON.stringify({ externalEmployeeId, externalBranchId, occurredAt: new Date().toISOString() });
       const checkInRes = await fetch(`${appHandle.baseUrl}/v1/federation/attendance/check-ins`, {
-        method: 'POST', headers: idHeaders(token, `contract-checkin-${suffix}`, 'POST', '/v1/federation/attendance/check-ins', checkInBody),
+        method: 'POST', headers: idHeaders(token, `contract-checkin-${suffix}`, 'POST', '/v1/federation/attendance/check-ins', checkInBody, externalOrganizationId),
         body: checkInBody,
       });
       assert.equal(checkInRes.status, 200, 'a platform client must resolve tenant context from externalBranchId alone');
