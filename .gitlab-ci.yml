@@ -1,0 +1,66 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  # Cache pnpm store locally for GitLab Runner
+  npm_config_store_dir: ${CI_PROJECT_DIR}/.pnpm-store
+
+# Cache configuration to speed up builds
+cache:
+  key:
+    files:
+      - pnpm-lock.yaml
+  paths:
+    - .pnpm-store
+
+ci_build:
+  stage: build
+  image: node:22-alpine
+  script:
+    - corepack enable pnpm
+    - pnpm install --frozen-lockfile
+    - pnpm build
+    - echo "Assembling deployment artifact..."
+    - mkdir -p artifact/admin
+    # Use pnpm deploy to extract the prod dependencies for the admin app
+    - pnpm deploy --filter @company/admin --prod artifact/admin --legacy
+    # Copy the built dist folder containing the bundled server.cjs and static frontend
+    - cp -r apps/admin/dist artifact/admin/dist
+    # Copy database migrations so the startup sync succeeds. 
+    # server.cjs checks process.cwd()/drizzle, so we place it directly in the admin root.
+    - cp -r packages/database/drizzle artifact/admin/drizzle
+  artifacts:
+    paths:
+      - artifact/
+    expire_in: 1 day
+
+deploy_dev:
+  stage: deploy
+  image: alpine:3.18
+  only:
+    - dev
+  before_script:
+    - apk add --no-cache openssh rsync bash
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$DEV_DEPLOY_SSH_PRIVATE_KEY" | base64 -d > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - eval $(ssh-agent -s)
+    - ssh-add ~/.ssh/id_rsa
+    - mkdir -p ~/.ssh
+    - echo "$DEV_DEPLOY_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+  script:
+    - COMMIT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-8)
+    - RELEASE_DIR="${DEV_DEPLOY_ROOT}/releases/${COMMIT_SHA}"
+    - echo "Deploying artifact to ${RELEASE_DIR}"
+    - ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST} -p ${DEV_DEPLOY_PORT:-22} "mkdir -p ${RELEASE_DIR} ${DEV_DEPLOY_ROOT}/shared"
+    - rsync -rlptD -e "ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -p ${DEV_DEPLOY_PORT:-22}" artifact/ ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST}:${RELEASE_DIR}/
+    # Verify artifact assembly
+    - ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST} -p ${DEV_DEPLOY_PORT:-22} "test -d ${RELEASE_DIR}/admin/node_modules || (echo 'node_modules missing in artifact' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST} -p ${DEV_DEPLOY_PORT:-22} "test -d ${RELEASE_DIR}/admin/dist || (echo 'dist missing in artifact' && exit 1)"
+    - ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST} -p ${DEV_DEPLOY_PORT:-22} "test -d ${RELEASE_DIR}/admin/drizzle || (echo 'migrations missing in artifact' && exit 1)"
+    # Copy activate script and execute
+    - rsync -e "ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -p ${DEV_DEPLOY_PORT:-22}" scripts/deploy/activate.sh ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST}:${RELEASE_DIR}/activate.sh
+    - ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes ${DEV_DEPLOY_USER}@${DEV_DEPLOY_HOST} -p ${DEV_DEPLOY_PORT:-22} "bash ${RELEASE_DIR}/activate.sh ${COMMIT_SHA} ${DEV_DEPLOY_ROOT}"
