@@ -352,6 +352,66 @@ router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'
         await tx.delete(schema.expenseReimbursements).where(eq(schema.expenseReimbursements.tenantId, tenantId));
         await tx.delete(schema.expenses).where(eq(schema.expenses.tenantId, tenantId));
 
+        // Additional deep child / payroll / ticket / statutory tables
+        await tx.delete(schema.salaryAdvanceRecoveries).where(eq(schema.salaryAdvanceRecoveries.tenantId, tenantId));
+        await tx.delete(schema.salaryAdvances).where(eq(schema.salaryAdvances.tenantId, tenantId));
+        await tx.delete(schema.payrollAdvances).where(eq(schema.payrollAdvances.tenantId, tenantId));
+        await tx.delete(schema.payrollLoans).where(eq(schema.payrollLoans.tenantId, tenantId));
+        await tx.delete(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.tenantId, tenantId));
+        await tx.delete(schema.payrollReimbursements).where(eq(schema.payrollReimbursements.tenantId, tenantId));
+        await tx.delete(schema.payrollBonuses).where(eq(schema.payrollBonuses.tenantId, tenantId));
+        await tx.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.tenantId, tenantId));
+        await tx.delete(schema.payrollFinalSettlements).where(eq(schema.payrollFinalSettlements.tenantId, tenantId));
+        await tx.delete(schema.payrollBatches).where(eq(schema.payrollBatches.tenantId, tenantId));
+        await tx.delete(schema.payrollCalendars).where(eq(schema.payrollCalendars.tenantId, tenantId));
+        await tx.delete(schema.salaryRevisionRequests).where(eq(schema.salaryRevisionRequests.tenantId, tenantId));
+        await tx.delete(schema.employeeStatutoryOverrides).where(eq(schema.employeeStatutoryOverrides.tenantId, tenantId));
+        await tx.delete(schema.employeeStatutoryProfiles).where(eq(schema.employeeStatutoryProfiles.tenantId, tenantId));
+        await tx.delete(schema.employeeBankAccounts).where(eq(schema.employeeBankAccounts.tenantId, tenantId));
+        await tx.delete(schema.employeeTaxDeclarations).where(eq(schema.employeeTaxDeclarations.tenantId, tenantId));
+        await tx.delete(schema.companyPayrollPolicies).where(eq(schema.companyPayrollPolicies.tenantId, tenantId));
+        await tx.delete(schema.statutoryRuleVersions).where(eq(schema.statutoryRuleVersions.tenantId, tenantId));
+
+        await tx.delete(schema.leaveEscalationHistory).where(userIds.length > 0 ? inArray(schema.leaveEscalationHistory.actorUserId, userIds) : sql`false`);
+        await tx.delete(schema.ticketEscalations).where(userIds.length > 0 ? inArray(schema.ticketEscalations.escalatedToUserId, userIds) : sql`false`);
+        await tx.delete(schema.tickets).where(eq(schema.tickets.tenantId, tenantId));
+
+        await tx.delete(schema.shiftHistory).where(eq(schema.shiftHistory.tenantId, tenantId));
+        await tx.delete(schema.delegations).where(eq(schema.delegations.tenantId, tenantId));
+        await tx.delete(schema.holidayHistory).where(eq(schema.holidayHistory.tenantId, tenantId));
+        await tx.delete(schema.holidayEmployeeOverrides).where(eq(schema.holidayEmployeeOverrides.tenantId, tenantId));
+
+        await tx.delete(schema.notificationLog).where(eq(schema.notificationLog.tenantId, tenantId));
+        await tx.delete(schema.notificationDigestQueue).where(eq(schema.notificationDigestQueue.tenantId, tenantId));
+        await tx.delete(schema.notificationDigestSubscriptions).where(eq(schema.notificationDigestSubscriptions.tenantId, tenantId));
+        await tx.delete(schema.notificationRecipientGroups).where(eq(schema.notificationRecipientGroups.tenantId, tenantId));
+        await tx.delete(schema.notificationPolicies).where(eq(schema.notificationPolicies.tenantId, tenantId));
+        await tx.delete(schema.notificationTemplates).where(eq(schema.notificationTemplates.tenantId, tenantId));
+
+        await tx.delete(schema.reportSavedTemplates).where(eq(schema.reportSavedTemplates.tenantId, tenantId));
+        await tx.delete(schema.reportSchedules).where(eq(schema.reportSchedules.tenantId, tenantId));
+        await tx.delete(schema.attendanceFreezePeriods).where(eq(schema.attendanceFreezePeriods.tenantId, tenantId));
+
+        await tx.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.tenantId, tenantId));
+        await tx.delete(schema.attendancePreferences).where(eq(schema.attendancePreferences.tenantId, tenantId));
+        await tx.delete(schema.attendancePreferenceHistory).where(eq(schema.attendancePreferenceHistory.tenantId, tenantId));
+        await tx.delete(schema.presenceEvaluations).where(eq(schema.presenceEvaluations.tenantId, tenantId));
+        await tx.delete(schema.presenceWarnings).where(eq(schema.presenceWarnings.tenantId, tenantId));
+
+        await tx.delete(schema.federationWebhookDeliveries).where(eq(schema.federationWebhookDeliveries.tenantId, tenantId));
+        await tx.delete(schema.federationExternalIdMappings).where(eq(schema.federationExternalIdMappings.tenantId, tenantId));
+        await tx.delete(schema.federationWebhookSubscriptions).where(eq(schema.federationWebhookSubscriptions.tenantId, tenantId));
+        await tx.delete(schema.federationEmployeeAccessGrants).where(eq(schema.federationEmployeeAccessGrants.tenantId, tenantId));
+        await tx.delete(schema.federationBreakGlassAudit).where(eq(schema.federationBreakGlassAudit.tenantId, tenantId));
+        await tx.delete(schema.tenantFederationAuthorizations).where(eq(schema.tenantFederationAuthorizations.tenantId, tenantId));
+        await tx.delete(schema.federationClients).where(eq(schema.federationClients.tenantId, tenantId));
+
+        await tx.delete(schema.expenseReports).where(eq(schema.expenseReports.tenantId, tenantId));
+        await tx.delete(schema.expensePolicies).where(eq(schema.expensePolicies.tenantId, tenantId));
+        if (userIds.length > 0) {
+          await tx.delete(schema.consumedFaceChallenges).where(inArray(schema.consumedFaceChallenges.userId, userIds));
+        }
+
         // Depth 2 — reference users/tenants/branches/shifts directly.
         await tx.delete(schema.expenseCategories).where(eq(schema.expenseCategories.tenantId, tenantId));
         await tx.delete(schema.approvalRoutingRules).where(eq(schema.approvalRoutingRules.tenantId, tenantId));

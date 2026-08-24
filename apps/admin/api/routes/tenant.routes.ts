@@ -407,7 +407,7 @@ router.post('/api/tenant/users/create', authenticate, async (req: any, res: any)
       // the frontend whether it can also promise "and they've been emailed
       // their credentials", so it can say so honestly instead of always
       // claiming success even when no mail provider is configured.
-      res.json({ success: true, isNewRole: existingRoleRow.length === 0, role, emailDelivered: emailResult.delivered, tempPassword });
+      res.json({ success: true, isNewRole: existingRoleRow.length === 0, role, emailDelivered: emailResult.delivered, tempPassword, initialTempPassword: tempPassword });
     } catch (err: any) {
       sendServerError(res, err, "tenant.routes.ts");
     }
@@ -451,12 +451,12 @@ router.post('/api/tenant/users/bulk-create', authenticate, async (req: any, res:
         db.select().from(schema.shifts).where(eq(schema.shifts.tenantId, tenantId)),
       ]);
       const branchMap = new Map(allBranches.map(b => [b.id, b]));
-      const shiftMap = new Map(allShifts.map(s => [s.id, s]));
+      const shiftMap = new Map<number, typeof schema.shifts.$inferSelect>(allShifts.map(s => [s.id, s]));
 
       const seenEmailsThisBatch = new Set<string>();
       const results: Array<{ row: number; email: string; success: boolean; error?: string }> = [];
       const pendingUsersToInsert: any[] = [];
-      const pendingEmailTasks: Array<() => Promise<void>> = [];
+      const pendingEmailTasks: any[] = [];
 
       for (let i = 0; i < rows.length; i++) {
         const rowNum = i + 1;

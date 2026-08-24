@@ -119,14 +119,15 @@ export function useRecruitment(
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to register employee');
 
-      if (data.initialTempPassword) {
-        setCreatedTempPassword(data.initialTempPassword);
+      const tempPassword = data.tempPassword || data.initialTempPassword;
+      if (tempPassword) {
+        setCreatedTempPassword(tempPassword);
       }
 
       setSuccess(
         data.emailDelivered
-          ? `Employee "${newUserName}" hired successfully. Temporary password: ${data.initialTempPassword}`
-          : `Employee "${newUserName}" hired successfully. Initial Temporary Password: ${data.initialTempPassword} (Provide this to employee manually).`
+          ? `Employee "${newUserName}" hired successfully. Temporary password: ${tempPassword}`
+          : `Employee "${newUserName}" hired successfully. Initial Temporary Password: ${tempPassword} (Provide this to employee manually).`
       );
       if (data.isNewRole && data.role) {
         setNewRolePrompt(data.role);
