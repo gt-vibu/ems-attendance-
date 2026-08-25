@@ -68,60 +68,88 @@ export function useSuperAdminData(
     }
   };
 
-  const handleToggleTenantStatus = async (tenantId: number, currentStatus: string) => {
+  // --- Website-native confirmation modal state ---
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+
+  const handleToggleTenantStatus = (tenantId: number, currentStatus: string) => {
     const nextStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
-    if (!window.confirm(`${nextStatus === 'suspended' ? 'Suspend' : 'Reactivate'} this tenant? ${nextStatus === 'suspended' ? 'Their users will be immediately blocked from logging in or checking in.' : ''}`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/super/tenants/status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ tenantId, status: nextStatus })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update tenant status');
-      setSuccess(`Tenant ${nextStatus === 'suspended' ? 'suspended' : 'reactivated'} successfully.`);
-      fetchSuperAdminData();
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to update tenant status');
-    } finally {
-      setLoading(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: `${nextStatus === 'suspended' ? 'Suspend' : 'Reactivate'} Tenant`,
+      message: `${nextStatus === 'suspended' ? 'Are you sure you want to suspend this tenant? Their users will be immediately blocked from logging in or checking in.' : 'Reactivate this tenant to restore full system access for all their users?'}`,
+      confirmText: nextStatus === 'suspended' ? 'Suspend Tenant' : 'Reactivate Tenant',
+      variant: nextStatus === 'suspended' ? 'warning' : 'info',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch('/api/super/tenants/status', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ tenantId, status: nextStatus })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to update tenant status');
+          setSuccess(`Tenant ${nextStatus === 'suspended' ? 'suspended' : 'reactivated'} successfully.`);
+          fetchSuperAdminData();
+          setTimeout(() => setSuccess(''), 4000);
+        } catch (err: any) {
+          setError(err.message || 'Failed to update tenant status');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   // Permanently deletes a tenant AND every one of its employees/data
   // (attendance, leave, payroll, documents, etc.) — irreversible, unlike
   // suspend above which just blocks logins. Backed by the existing
   // POST /api/super/tenants/delete cascade.
-  const handleDeleteTenant = async (tenantId: number, tenantName: string) => {
-    if (!window.confirm(`Permanently delete "${tenantName}" and ALL of its data — every employee, attendance record, leave request, and document? This cannot be undone.`)) return;
-    if (!window.confirm(`Are you absolutely sure? Type-confirm: this will erase "${tenantName}" completely.`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/super/tenants/delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ tenantId })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete tenant');
-      setSuccess(`"${tenantName}" and all of its data have been permanently deleted.`);
-      fetchSuperAdminData();
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete tenant');
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteTenant = (tenantId: number, tenantName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `Delete Tenant "${tenantName}"`,
+      message: `Are you sure you want to permanently delete "${tenantName}" and ALL of its data (every employee, attendance record, leave request, and document)? This action cannot be undone.`,
+      confirmText: 'Delete Entire Tenant',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch('/api/super/tenants/delete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ tenantId })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to delete tenant');
+          setSuccess(`"${tenantName}" and all of its data have been permanently deleted.`);
+          fetchSuperAdminData();
+          setTimeout(() => setSuccess(''), 4000);
+        } catch (err: any) {
+          setError(err.message || 'Failed to delete tenant');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   const handleOpenApproveModal = (req: any) => {
@@ -156,10 +184,6 @@ export function useSuperAdminData(
         setSuccess(`Tenant "${selectedRequest.companyName}" approved successfully! Temporary credentials mailed.`);
         setTimeout(() => setSuccess(''), 4000);
       } else {
-        // Email genuinely failed to send (or no provider is configured) —
-        // the new tenant admin has no other way to get their temp password,
-        // so surface the activation link here instead of only in a toast
-        // that disappears in 4 seconds.
         setUndeliveredActivation({ companyName: selectedRequest.companyName, activationLink: data.activationLink });
       }
       setShowApprovalModal(false);
@@ -199,33 +223,38 @@ export function useSuperAdminData(
     }
   };
 
-  const handleDeleteTenantAdmin = async (adminUserId: number, adminName: string) => {
-    if (!window.confirm(`Permanently delete the admin account "${adminName}"? This revokes their access immediately and cannot be undone. The rest of the tenant (employees, data) is unaffected.`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/super/tenant-admins/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ userId: adminUserId })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete admin account');
-      setSuccess(`Admin account "${adminName}" deleted.`);
-      setTenantAdmins((prev) => prev.filter((a) => a.id !== adminUserId));
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete admin account');
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteTenantAdmin = (adminUserId: number, adminName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `Delete Tenant Admin Account`,
+      message: `Are you sure you want to permanently delete the admin account "${adminName}"? This will revoke their access immediately and cannot be undone. The rest of the tenant (employees and data) will remain unaffected.`,
+      confirmText: 'Delete Admin Account',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch('/api/super/tenant-admins/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ userId: adminUserId })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to delete admin account');
+          setSuccess(`Admin account "${adminName}" deleted.`);
+          setTenantAdmins((prev) => prev.filter((a) => a.id !== adminUserId));
+          setTimeout(() => setSuccess(''), 4000);
+        } catch (err: any) {
+          setError(err.message || 'Failed to delete admin account');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
-  // --- Edit an existing tenant's platform feature whitelist — the ongoing
-  // counterpart to the one-time selection made at approval time. This is
-  // the top of the cascade: whatever the tenant admin can turn on/delegate
-  // is bounded by what's selected here (see isPlatformFeatureAllowed() in
-  // apps/admin/api/auth/rbac.ts). ---
+  // --- Edit an existing tenant's platform feature whitelist ---
   const [editFeaturesTenant, setEditFeaturesTenant] = useState<any>(null);
   const [editFeaturesSelected, setEditFeaturesSelected] = useState<string[]>([]);
   const [editFeaturesSaving, setEditFeaturesSaving] = useState(false);
@@ -264,13 +293,7 @@ export function useSuperAdminData(
     }
   };
 
-  // --- Connected Apps modal (per-tenant federation authorization) —
-  // the actual "link this tenant to a 3rd-party platform app" screen. The
-  // "Connected Apps" button previously just navigated to the generic
-  // Integration Hub with no tenant context at all — this is the real
-  // per-tenant equivalent, wired to the tenantConnectedApps.routes.ts
-  // endpoints (GET/authorize/revoke), including the externalOrganizationId
-  // a platform-wide app needs to resolve which tenant a request is about.
+  // --- Connected Apps modal ---
   const [connectedAppsTenant, setConnectedAppsTenant] = useState<any>(null);
   const [connectedApps, setConnectedApps] = useState<any[]>([]);
   const [connectedAppsExternalOrgId, setConnectedAppsExternalOrgId] = useState<string | null>(null);
@@ -331,26 +354,35 @@ export function useSuperAdminData(
     }
   };
 
-  const handleRevokeApp = async (appId: number, appName: string) => {
+  const handleRevokeApp = (appId: number, appName: string) => {
     if (!connectedAppsTenant) return;
-    if (!window.confirm(`Revoke "${appName}"'s access to "${connectedAppsTenant.name}"? It will immediately stop being able to call the API on this tenant's behalf.`)) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(`/api/super/tenants/${connectedAppsTenant.id}/connected-apps/${appId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to revoke access');
-      setSuccess(`"${appName}" revoked.`);
-      await openConnectedApps(connectedAppsTenant);
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to revoke access');
-    } finally {
-      setLoading(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: `Revoke Application Access`,
+      message: `Are you sure you want to revoke "${appName}"'s access to "${connectedAppsTenant.name}"? It will immediately stop being able to call the API on this tenant's behalf.`,
+      confirmText: 'Revoke Access',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch(`/api/super/tenants/${connectedAppsTenant.id}/connected-apps/${appId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to revoke access');
+          setSuccess(`"${appName}" revoked.`);
+          await openConnectedApps(connectedAppsTenant);
+          setTimeout(() => setSuccess(''), 4000);
+        } catch (err: any) {
+          setError(err.message || 'Failed to revoke access');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   return {
@@ -367,6 +399,7 @@ export function useSuperAdminData(
     jobScheduler,
     systemHealth,
     undeliveredActivation, setUndeliveredActivation,
+    confirmModal, setConfirmModal,
     fetchSuperAdminData,
     handleToggleTenantStatus,
     handleDeleteTenant,

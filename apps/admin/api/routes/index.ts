@@ -17,6 +17,7 @@ import { router as rolesRouter } from './roles.routes';
 import { router as leaveRouter } from './leave.routes';
 import { router as payrollRouter } from './payroll.routes';
 import { router as payrollExtrasRouter } from './payrollExtras.routes';
+import { router as salaryAdvanceRouter } from './salaryAdvance.routes';
 import { router as holidaysRouter } from './holidays.routes';
 import { router as employeesRouter } from './employees.routes';
 import { router as shiftOverridesRouter } from './shiftOverrides.routes';
@@ -56,6 +57,8 @@ import {
   federationPayrollRouter,
 } from './federation/index';
 
+import { complianceRouter } from './compliance.routes';
+
 // Mounts every domain router at the root so each route keeps the exact full
 // path it declares (e.g. '/api/auth/login'). The routers carry no path
 // prefix — the split is purely an organizational one, so behavior is
@@ -63,6 +66,7 @@ import {
 // because all paths are distinct and specific; the SPA catch-all ('*') is
 // registered by server.ts AFTER this, so it still wins last.
 export function registerRoutes(app: Express) {
+  app.use('/api/tenant/compliance', complianceRouter);
   app.use(healthRouter);
   app.use(authRouter);
   app.use(superRouter);
@@ -81,6 +85,7 @@ export function registerRoutes(app: Express) {
   app.use(leaveRouter);
   app.use(payrollRouter);
   app.use(payrollExtrasRouter);
+  app.use(salaryAdvanceRouter);
   app.use(holidaysRouter);
   app.use(employeesRouter);
   app.use(shiftOverridesRouter);

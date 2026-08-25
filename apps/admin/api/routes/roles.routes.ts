@@ -136,7 +136,7 @@ router.post('/api/tenant/roles', authenticate, async (req: any, res: any) => {
   }
 });
 
-router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) => {
+async function updateRolePrivilegesHandler(req: any, res: any) {
   try {
     if (!await hasPrivilege(req.user, 'roles.manage')) {
       return res.status(403).json({ error: 'Access denied: Insufficient privileges.' });
@@ -151,10 +151,6 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
       return res.status(400).json({ error: 'privileges must be an array of known feature keys' });
     }
 
-    // PRECEDENCE OF POWER: only newly-added privileges (ones not already on
-    // the role) need to be checked against what the requester holds —
-    // removing a privilege the requester might not personally have is
-    // always safe (it's strictly reducing power).
     const currentPrivileges: string[] = Array.isArray(roleRows[0].privileges) ? (roleRows[0].privileges as string[]) : [];
     const requesterPrivileges = await getEffectivePrivileges(req.user);
     const finalPrivileges = validated.filter((p) => {
@@ -168,10 +164,6 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
       .where(eq(schema.rolePrivilegeDefaults.id, roleId))
       .returning();
 
-    // Granted/revoked diff (not just the final list) — this is what makes
-    // the audit ledger entry actually useful for a permissions audit later:
-    // "what changed" is the question someone reviewing this asks, not just
-    // "what's the current state" (which the role's own row already answers).
     const granted = finalPrivileges.filter((p) => !currentPrivileges.includes(p));
     const revoked = currentPrivileges.filter((p) => !finalPrivileges.includes(p));
 
@@ -189,4 +181,7 @@ router.patch('/api/tenant/roles/:id', authenticate, async (req: any, res: any) =
   } catch (err: any) {
     sendServerError(res, err, "roles.routes.ts");
   }
-});
+}
+
+router.patch('/api/tenant/roles/:id', authenticate, updateRolePrivilegesHandler);
+router.put('/api/tenant/roles/:id/privileges', authenticate, updateRolePrivilegesHandler);

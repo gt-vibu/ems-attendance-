@@ -61,7 +61,7 @@ const sslConfig = process.env.SQL_SSL === 'true'
   ? { rejectUnauthorized, ...(ca ? { ca } : {}) }
   : false;
 
-const pool = new Pool({
+export const pool = new Pool({
   host: process.env.SQL_HOST || '127.0.0.1',
   port: Number(process.env.SQL_PORT) || 5432,
   user: process.env.SQL_ADMIN_USER || 'postgres',
@@ -112,7 +112,119 @@ export async function detectPostgres(): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await pool.query('SELECT 1');
-      try { await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;'); } catch(e){}
+      try { 
+        await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_exit TEXT;');
+        await pool.query('ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS statutory_snapshot JSONB;');
+        await pool.query('ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;');
+        await pool.query('ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS supersedes_run_id INTEGER;');
+        await pool.query('ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS batch_id INTEGER;');
+      } catch(e){}
+      try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS salary_advances (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            origin TEXT NOT NULL DEFAULT 'EMPLOYEE_REQUEST',
+            status TEXT NOT NULL DEFAULT 'draft',
+            requested_amount NUMERIC(12, 2) NOT NULL,
+            approved_amount NUMERIC(12, 2),
+            disbursed_amount NUMERIC(12, 2),
+            outstanding_amount NUMERIC(12, 2) NOT NULL,
+            recovered_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+            recovery_method TEXT NOT NULL DEFAULT 'full_next_payroll',
+            recovery_installments INTEGER NOT NULL DEFAULT 1,
+            start_recovery_year INTEGER NOT NULL,
+            start_recovery_month INTEGER NOT NULL,
+            reason TEXT,
+            remarks TEXT,
+            rejection_reason TEXT,
+            requested_at TIMESTAMP DEFAULT NOW(),
+            approved_at TIMESTAMP,
+            rejected_at TIMESTAMP,
+            disbursed_at TIMESTAMP,
+            closed_at TIMESTAMP,
+            requested_by_user_id INTEGER REFERENCES users(id),
+            approved_by_user_id INTEGER REFERENCES users(id),
+            disbursed_by_user_id INTEGER REFERENCES users(id),
+            disbursement_method TEXT,
+            disbursement_reference TEXT,
+            bank_details_snapshot JSONB,
+            policy_snapshot JSONB,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+          );
+
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'EMPLOYEE_REQUEST';
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS requested_amount NUMERIC(12, 2);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS approved_amount NUMERIC(12, 2);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS disbursed_amount NUMERIC(12, 2);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS outstanding_amount NUMERIC(12, 2) DEFAULT '0.00';
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS recovered_amount NUMERIC(12, 2) DEFAULT '0.00';
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS recovery_method TEXT DEFAULT 'full_next_payroll';
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS recovery_installments INTEGER DEFAULT 1;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS start_recovery_year INTEGER;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS start_recovery_month INTEGER;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS reason TEXT;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS remarks TEXT;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS disbursed_at TIMESTAMP;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS requested_by_user_id INTEGER REFERENCES users(id);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS approved_by_user_id INTEGER REFERENCES users(id);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS disbursed_by_user_id INTEGER REFERENCES users(id);
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS disbursement_method TEXT;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS disbursement_reference TEXT;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS bank_details_snapshot JSONB;
+          ALTER TABLE salary_advances ADD COLUMN IF NOT EXISTS policy_snapshot JSONB;
+
+          CREATE TABLE IF NOT EXISTS salary_advance_recoveries (
+            id SERIAL PRIMARY KEY,
+            tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+            advance_id INTEGER NOT NULL REFERENCES salary_advances(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            scheduled_year INTEGER NOT NULL,
+            scheduled_month INTEGER NOT NULL,
+            installment_number INTEGER NOT NULL DEFAULT 1,
+            total_installments INTEGER NOT NULL DEFAULT 1,
+            scheduled_amount NUMERIC(12, 2) NOT NULL,
+            recovered_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+            remaining_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+            payroll_batch_id INTEGER REFERENCES payroll_batches(id),
+            payroll_run_id INTEGER REFERENCES payroll_runs(id),
+            status TEXT NOT NULL DEFAULT 'scheduled',
+            recovered_at TIMESTAMP,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+          );
+
+          ALTER TABLE salary_advance_recoveries ADD COLUMN IF NOT EXISTS total_installments INTEGER DEFAULT 1;
+          ALTER TABLE salary_advance_recoveries ADD COLUMN IF NOT EXISTS remaining_amount NUMERIC(12, 2) DEFAULT '0.00';
+
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS salary_advance_enabled BOOLEAN DEFAULT true;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_calculation_basis TEXT DEFAULT 'net_salary';
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_amount NUMERIC(12, 2) DEFAULT 50000;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_percentage NUMERIC(5, 2) DEFAULT 50;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_min_tenure_months INTEGER DEFAULT 3;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_active_count INTEGER DEFAULT 1;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_allow_multiple BOOLEAN DEFAULT false;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_default_recovery_method TEXT DEFAULT 'full_next_payroll';
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_installments INTEGER DEFAULT 6;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_min_recovery_amount NUMERIC(12, 2) DEFAULT 1000;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_employee_can_request BOOLEAN DEFAULT true;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_admin_can_assign BOOLEAN DEFAULT true;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_approval_required BOOLEAN DEFAULT true;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_cutoff_day INTEGER DEFAULT 20;
+          ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_approval_thresholds JSONB DEFAULT '[]'::jsonb;
+        `);
+      } catch(e) {
+        console.warn('[db] Note: Automatic salary advances schema check warning:', (e as any)?.message);
+      }
       postgresAvailable = true;
       console.log('[db] Connected to Postgres — using it as the datastore.');
       return postgresAvailable;
@@ -333,7 +445,29 @@ function writeLocalDB(data: any) {
   // corruption — which is what used to trigger the silent-wipe bug above.
   const tmpFile = `${DB_FILE}.tmp-${process.pid}`;
   fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
-  fs.renameSync(tmpFile, DB_FILE);
+  try {
+    fs.renameSync(tmpFile, DB_FILE);
+  } catch (err: any) {
+    if (err.code === 'EPERM' || err.code === 'EBUSY' || err.errno === -4048) {
+      let retries = 5;
+      while (retries > 0) {
+        try {
+          fs.renameSync(tmpFile, DB_FILE);
+          return;
+        } catch {
+          retries--;
+        }
+      }
+      try {
+        fs.copyFileSync(tmpFile, DB_FILE);
+        fs.unlinkSync(tmpFile);
+      } catch {
+        /* best-effort fallback */
+      }
+    } else {
+      throw err;
+    }
+  }
 }
 
 // Was previously checking `table?.name` first — which doesn't hold the SQL
@@ -434,6 +568,14 @@ class QueryBuilder {
     return this;
   }
 
+  onConflictDoUpdate(_config?: any) {
+    return this;
+  }
+
+  onConflictDoNothing(_config?: any) {
+    return this;
+  }
+
   async then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
     try {
       const res = await this.execute();
@@ -511,6 +653,15 @@ class QueryBuilder {
       data[tableName] = updatedRowsList;
       writeLocalDB(data);
       return updatedRows;
+    }
+
+    if (this.action === 'delete') {
+      const remainingRows = this.whereClause
+        ? rows.filter((row: any) => !this.matchesWhere(row))
+        : [];
+      data[tableName] = remainingRows;
+      writeLocalDB(data);
+      return [];
     }
 
     // Default: SELECT
@@ -619,7 +770,7 @@ class QueryBuilder {
     });
   }
 
-  private extractConditions(clause: any, conditions: Array<{ column: string, value: any }> = []): Array<{ column: string, value: any }> {
+  private extractConditions(clause: any, conditions: Array<{ column: string, value: any, isArray?: boolean }> = []): Array<{ column: string, value: any, isArray?: boolean }> {
     if (!clause) return conditions;
 
     if (clause.queryChunks) {
@@ -627,6 +778,7 @@ class QueryBuilder {
       
       let colName = '';
       let val: any = undefined;
+      let isArray = false;
       let foundColumn = false;
       let foundParam = false;
 
@@ -634,9 +786,14 @@ class QueryBuilder {
         if (chunk && chunk.table && chunk.name) {
           colName = chunk.name;
           foundColumn = true;
+        } else if (Array.isArray(chunk)) {
+          val = chunk.map((c: any) => (c && typeof c === 'object' && 'value' in c) ? c.value : c);
+          isArray = true;
+          foundParam = true;
         } else if (chunk && typeof chunk === 'object') {
           if ('value' in chunk && chunk.value !== undefined && !Array.isArray(chunk.value)) {
             val = chunk.value;
+            isArray = false;
             foundParam = true;
           } else if (chunk.queryChunks) {
             this.extractConditions(chunk, conditions);
@@ -645,7 +802,7 @@ class QueryBuilder {
       }
 
       if (foundColumn && foundParam) {
-        conditions.push({ column: colName, value: val });
+        conditions.push({ column: colName, value: val, isArray });
       }
     }
     
@@ -709,7 +866,7 @@ class QueryBuilder {
     }
 
     try {
-      const conditions: Array<{ column: string, value: any }> = [];
+      const conditions: Array<{ column: string, value: any, isArray?: boolean }> = [];
       this.extractConditions(this.whereClause, conditions);
 
       if (conditions.length > 0) {
@@ -722,6 +879,10 @@ class QueryBuilder {
           const rowVal = row[col] !== undefined ? row[col] : (row[camelCol] !== undefined ? row[camelCol] : row[snakeCol]);
           
           if (rowVal === undefined) return false;
+          if (cond.isArray || Array.isArray(cond.value)) {
+            const list = Array.isArray(cond.value) ? cond.value : [cond.value];
+            return list.map(String).includes(String(rowVal));
+          }
           return String(rowVal) === String(cond.value);
         });
 

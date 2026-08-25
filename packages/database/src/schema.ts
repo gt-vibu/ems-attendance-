@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, uniqueIndex, index, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, boolean, jsonb, real, numeric, uniqueIndex, index, type AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export const tenants = pgTable('tenants', {
   id: serial('id').primaryKey(),
@@ -1253,7 +1253,22 @@ export const payrollSettings = pgTable('payroll_settings', {
   // What fraction of monthly gross counts as "basic wage" for PF/ESI when
   // no salary component is explicitly named "Basic" — the common Indian
   // payroll convention when CTC isn't broken into named components.
-  statutoryBasicPercentOfGross: real('statutory_basic_percent_of_gross').notNull().default(50),
+  // --- Salary Advance Policy Settings ---
+  salaryAdvanceEnabled: boolean('salary_advance_enabled').default(true),
+  advanceCalculationBasis: text('advance_calculation_basis').default('net_salary'), // 'net_salary' | 'gross_salary' | 'basic_salary' | 'fixed_cap'
+  advanceMaxAmount: numeric('advance_max_amount', { precision: 12, scale: 2 }).default('50000.00'),
+  advanceMaxPercentage: numeric('advance_max_percentage', { precision: 5, scale: 2 }).default('50.00'), // e.g. 50%
+  advanceMinTenureMonths: integer('advance_min_tenure_months').default(3),
+  advanceMaxActiveCount: integer('advance_max_active_count').default(1),
+  advanceAllowMultiple: boolean('advance_allow_multiple').default(false),
+  advanceDefaultRecoveryMethod: text('advance_default_recovery_method').default('full_next_payroll'), // 'full_next_payroll' | 'installment' | 'custom'
+  advanceMaxInstallments: integer('advance_max_installments').default(6),
+  advanceMinRecoveryAmount: numeric('advance_min_recovery_amount', { precision: 12, scale: 2 }).default('1000.00'),
+  advanceEmployeeCanRequest: boolean('advance_employee_can_request').default(true),
+  advanceAdminCanAssign: boolean('advance_admin_can_assign').default(true),
+  advanceApprovalRequired: boolean('advance_approval_required').default(true),
+  advancePayrollCutoffDay: integer('advance_cutoff_day').default(20),
+  advanceApprovalThresholds: jsonb('advance_approval_thresholds'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -1329,6 +1344,7 @@ export const payrollRuns = pgTable('payroll_runs', {
   batchId: integer('batch_id'),
   version: integer('version').notNull().default(1),
   supersedesRunId: integer('supersedes_run_id'),
+  statutorySnapshot: jsonb('statutory_snapshot'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   // Versioned Payslips (P3/P7 fix): uniqueness now includes `version` so a
@@ -1341,6 +1357,122 @@ export const payrollRuns = pgTable('payroll_runs', {
   // Tenant-wide batch/period lookups (payroll.routes.ts generate/history)
   // filter on exactly this triple.
   tenantYearMonthIdx: index('payroll_runs_tenant_year_month_idx').on(table.tenantId, table.year, table.month),
+}));
+
+// --- India Payroll Legal & Statutory Compliance Tables (Additive) ---
+
+export const statutoryRuleCatalog = pgTable('statutory_rule_catalog', {
+  id: serial('id').primaryKey(),
+  ruleCode: text('rule_code').notNull().unique(), // e.g. 'IN_EPF', 'IN_ESI', 'IN_PT', 'IN_TDS'
+  name: text('name').notNull(),
+  category: text('category').notNull(), // 'epf' | 'esi' | 'pt' | 'tds'
+  jurisdiction: text('jurisdiction').notNull().default('IN-NATIONAL'), // 'IN-NATIONAL' or state code e.g. 'IN-KA', 'IN-MH'
+  status: text('status').notNull().default('active'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const statutoryRuleVersions = pgTable('statutory_rule_versions', {
+  id: serial('id').primaryKey(),
+  catalogId: integer('catalog_id').references(() => statutoryRuleCatalog.id),
+  ruleCode: text('rule_code').notNull(),
+  jurisdiction: text('jurisdiction').notNull().default('IN-NATIONAL'),
+  version: integer('version').notNull().default(1),
+  effectiveFrom: text('effective_from').notNull(), // 'YYYY-MM-DD'
+  effectiveTo: text('effective_to'), // 'YYYY-MM-DD' or null for open-ended
+  parameters: jsonb('parameters').notNull(), // rates, caps, thresholds, slabs
+  eligibilityRules: jsonb('eligibility_rules').notNull(), // wage ceiling rules, employment type inclusion
+  calculationFormula: text('calculation_formula').notNull(),
+  legalReference: text('legal_reference').notNull(),
+  authority: text('authority').notNull(),
+  notificationNumber: text('notification_number'),
+  sourceUrl: text('source_url'),
+  verifiedAt: timestamp('verified_at').defaultNow(),
+  verifiedBy: text('verified_by').default('system'),
+  status: text('status').notNull().default('active'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  ruleJurisdictionVersionIdx: uniqueIndex('statutory_rule_jurisdiction_version_unique').on(table.ruleCode, table.jurisdiction, table.version),
+}));
+
+export const companyPayrollPolicies = pgTable('company_payroll_policies', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  pfCappingStrategy: text('pf_capping_strategy').notNull().default('cap_at_statutory_ceiling'), // 'cap_at_statutory_ceiling' | 'actual_basic'
+  epsCappingStrategy: text('eps_capping_strategy').notNull().default('cap_at_statutory_ceiling'),
+  defaultTaxRegime: text('default_tax_regime').notNull().default('new_regime'), // 'new_regime' | 'old_regime'
+  branchStateMappings: jsonb('branch_state_mappings').default('[]'), // [{ branchId: 1, stateCode: 'IN-KA' }]
+  statutoryValidationStatus: text('statutory_validation_status').notNull().default('valid'),
+  effectiveFrom: text('effective_from').notNull().default('2026-04-01'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const employeeStatutoryProfiles = pgTable('employee_statutory_profiles', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  pan: text('pan'),
+  uan: text('uan'),
+  pfNumber: text('pf_number'),
+  esiIpNumber: text('esi_ip_number'),
+  workLocationState: text('work_location_state').notNull().default('IN-KA'),
+  isSeniorCitizen: boolean('is_senior_citizen').notNull().default(false),
+  isSuperSeniorCitizen: boolean('is_super_senior_citizen').notNull().default(false),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantUserUnique: uniqueIndex('employee_statutory_profiles_tenant_user_unique').on(table.tenantId, table.userId),
+}));
+
+export const employeeStatutoryOverrides = pgTable('employee_statutory_overrides', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  statutoryModule: text('statutory_module').notNull(), // 'epf' | 'esi' | 'pt'
+  overrideType: text('override_type').notNull(), // 'force_eligible' | 'force_exempt'
+  reason: text('reason').notNull(),
+  supportingDocumentRef: text('supporting_document_ref'),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  effectiveFrom: text('effective_from').notNull(),
+  effectiveTo: text('effective_to'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const employeeBankAccounts = pgTable('employee_bank_accounts', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  bankName: text('bank_name').notNull(),
+  accountNumber: text('account_number').notNull(),
+  accountNumberMasked: text('account_number_masked').notNull(),
+  ifscCode: text('ifsc_code').notNull(),
+  accountType: text('account_type').notNull().default('savings'), // 'savings' | 'current'
+  isPrimary: boolean('is_primary').notNull().default(true),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantUserUnique: uniqueIndex('employee_bank_accounts_tenant_user_unique').on(table.tenantId, table.userId),
+}));
+
+export const employeeTaxDeclarations = pgTable('employee_tax_declarations', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  financialYear: text('financial_year').notNull(), // e.g. '2025-2026', '2026-2027'
+  regime: text('regime').notNull().default('new_regime'), // 'new_regime' | 'old_regime'
+  section80c: real('section_80c').notNull().default(0),
+  section80d: real('section_80d').notNull().default(0),
+  section80ccd1b: real('section_80ccd1b').notNull().default(0),
+  hraRentPaid: real('hra_rent_paid').notNull().default(0),
+  isMetroCity: boolean('is_metro_city').notNull().default(false),
+  homeLoanInterest24b: real('home_loan_interest_24b').notNull().default(0),
+  otherIncome: real('other_income').notNull().default(0),
+  previousEmployerIncome: real('previous_employer_income').notNull().default(0),
+  previousEmployerTds: real('previous_employer_tds').notNull().default(0),
+  proofStatus: text('proof_status').notNull().default('pending'), // 'pending' | 'submitted' | 'verified' | 'rejected'
+  verifiedByUserId: integer('verified_by_user_id').references(() => users.id),
+  verifiedAt: timestamp('verified_at'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantUserFyUnique: uniqueIndex('employee_tax_declarations_tenant_user_fy_unique').on(table.tenantId, table.userId, table.financialYear),
 }));
 
 // Once a payroll_runs row is locked (status = 'locked'), it is never
@@ -1470,6 +1602,71 @@ export const payrollAdvances = pgTable('payroll_advances', {
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({
   tenantStatusIdx: index('payroll_advances_tenant_status_idx').on(table.tenantId, table.status),
+}));
+
+// First-class enterprise Salary Advance entity with full lifecycle state machine,
+// exact decimal-safe monetary representation, multi-stage approval, and audit snapshots.
+export const salaryAdvances = pgTable('salary_advances', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  origin: text('origin').notNull().default('EMPLOYEE_REQUEST'), // 'EMPLOYEE_REQUEST' | 'ADMIN_ASSIGNED'
+  status: text('status').notNull().default('draft'), // 'draft' | 'pending_approval' | 'approved' | 'pending_disbursement' | 'disbursed' | 'partially_recovered' | 'fully_recovered' | 'closed' | 'rejected' | 'cancelled' | 'voided'
+  requestedAmount: numeric('requested_amount', { precision: 12, scale: 2 }).notNull(),
+  approvedAmount: numeric('approved_amount', { precision: 12, scale: 2 }),
+  disbursedAmount: numeric('disbursed_amount', { precision: 12, scale: 2 }),
+  outstandingAmount: numeric('outstanding_amount', { precision: 12, scale: 2 }).notNull(),
+  recoveredAmount: numeric('recovered_amount', { precision: 12, scale: 2 }).notNull().default('0.00'),
+  recoveryMethod: text('recovery_method').notNull().default('full_next_payroll'), // 'full_next_payroll' | 'installment' | 'custom'
+  recoveryInstallments: integer('recovery_installments').notNull().default(1),
+  startRecoveryYear: integer('start_recovery_year').notNull(),
+  startRecoveryMonth: integer('start_recovery_month').notNull(),
+  reason: text('reason'),
+  remarks: text('remarks'),
+  rejectionReason: text('rejection_reason'),
+  requestedAt: timestamp('requested_at').defaultNow(),
+  approvedAt: timestamp('approved_at'),
+  rejectedAt: timestamp('rejected_at'),
+  disbursedAt: timestamp('disbursed_at'),
+  closedAt: timestamp('closed_at'),
+  requestedByUserId: integer('requested_by_user_id').references(() => users.id),
+  approvedByUserId: integer('approved_by_user_id').references(() => users.id),
+  disbursedByUserId: integer('disbursed_by_user_id').references(() => users.id),
+  disbursementMethod: text('disbursement_method'), // 'bank_transfer' | 'cash' | 'check' | 'upi'
+  disbursementReference: text('disbursement_reference'),
+  bankDetailsSnapshot: jsonb('bank_details_snapshot'),
+  policySnapshot: jsonb('policy_snapshot'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantUserIdx: index('salary_advances_tenant_user_idx').on(table.tenantId, table.userId),
+  tenantStatusIdx: index('salary_advances_tenant_status_idx').on(table.tenantId, table.status),
+}));
+
+// Reconciled recovery schedule linking scheduled deduction installments directly to payroll periods and batches
+export const salaryAdvanceRecoveries = pgTable('salary_advance_recoveries', {
+  id: serial('id').primaryKey(),
+  tenantId: integer('tenant_id').references(() => tenants.id).notNull(),
+  advanceId: integer('advance_id').references(() => salaryAdvances.id).notNull(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  scheduledYear: integer('scheduled_year').notNull(),
+  scheduledMonth: integer('scheduled_month').notNull(),
+  installmentNumber: integer('installment_number').notNull().default(1),
+  totalInstallments: integer('total_installments').notNull().default(1),
+  scheduledAmount: numeric('scheduled_amount', { precision: 12, scale: 2 }).notNull(),
+  recoveredAmount: numeric('recovered_amount', { precision: 12, scale: 2 }).notNull().default('0.00'),
+  remainingAmount: numeric('remaining_amount', { precision: 12, scale: 2 }).notNull(),
+  payrollBatchId: integer('payroll_batch_id').references(() => payrollBatches.id),
+  payrollRunId: integer('payroll_run_id').references(() => payrollRuns.id),
+  status: text('status').notNull().default('scheduled'), // 'scheduled' | 'partially_recovered' | 'recovered' | 'skipped' | 'cancelled'
+  recoveredAt: timestamp('recovered_at'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tenantAdvanceIdx: index('salary_advance_recoveries_tenant_advance_idx').on(table.tenantId, table.advanceId),
+  tenantPeriodStatusIdx: index('salary_advance_recoveries_tenant_period_status_idx').on(table.tenantId, table.scheduledYear, table.scheduledMonth, table.status),
+  uniqueAdvancePeriod: uniqueIndex('salary_advance_recoveries_unique_advance_period').on(table.advanceId, table.scheduledYear, table.scheduledMonth),
 }));
 
 export const payrollReimbursements = pgTable('payroll_reimbursements', {

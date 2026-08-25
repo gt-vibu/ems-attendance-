@@ -10,6 +10,7 @@ import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 // down once added. See the roadmap plan, Phase 0c/9.
 const CATEGORIES = [
   { value: 'leave', label: 'Leave Requests' },
+  { value: 'salary_advance', label: 'Salary Advances' },
   { value: 'attendance_correction', label: 'Attendance Corrections' },
   { value: 'wfh', label: 'Work From Home' },
   { value: 'missed_checkout', label: 'Missed Checkout' },

@@ -248,6 +248,9 @@ export default function ExpensesPage({
 
   const [allScopeExpenses, setAllScopeExpenses] = useState<ExpenseItem[]>([]);
 
+  const isCompanyAdmin = user.role === 'tenant_admin' || user.role === 'super_admin';
+  const canSubmitExpense = useMemo(() => !isCompanyAdmin, [isCompanyAdmin]);
+
   // Permission / Privilege Capability Evaluation
   const canReadAll = useMemo(() => {
     if (user.role === 'tenant_admin' || user.role === 'super_admin' || user.role === 'gm' || user.role === 'finance') return true;
@@ -793,16 +796,18 @@ export default function ExpensesPage({
               <span>Manage Categories</span>
             </button>
           )}
-          <button
-            onClick={() => {
-              resetForm();
-              setShowSubmitModal(true);
-            }}
-            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Submit Expense</span>
-          </button>
+          {canSubmitExpense && (
+            <button
+              onClick={() => {
+                resetForm();
+                setShowSubmitModal(true);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Submit Expense</span>
+            </button>
+          )}
         </div>
       </div>
 

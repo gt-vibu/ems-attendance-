@@ -14,6 +14,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'payroll.read', 'payroll.manage', 'reports.view', 'settings.edit', 'branch.manage', 'shift.manage', 'holiday.manage',
     'tickets.manage', 'alerts.security.receive', 'alerts.security.resolve', 'alerts.low_attendance.receive',
     'expenses.submit', 'expenses.read', 'expenses.approve', 'expenses.reimburse', 'expenses.reimburse.partial', 'expenses.reports', 'expenses.policy',
+    'salary_advance.request', 'salary_advance.view', 'salary_advance.approve', 'salary_advance.assign', 'salary_advance.disburse', 'salary_advance.cancel', 'salary_advance.manage',
   ],
   GM: [
     'attendance.read', 'attendance.approve.late_arrival', 'attendance.approve.wfh', 'attendance.approve.corrections',
@@ -22,6 +23,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'alerts.geofence_exit.receive', 'alerts.geofence_exit.resolve',
     'alerts.security.receive', 'alerts.security.resolve', 'alerts.low_attendance.receive',
     'expenses.submit', 'expenses.read', 'expenses.approve', 'expenses.reimburse', 'expenses.reimburse.partial', 'expenses.reports',
+    'salary_advance.request', 'salary_advance.view', 'salary_advance.approve', 'salary_advance.disburse',
   ],
   // A hired manager gets late-arrival/WFH/correction approval and
   // break-violation/GPS-out-of-bounds alerts for their own team by default
@@ -33,6 +35,7 @@ export const STARTER_ROLE_DEFAULTS: Record<string, string[]> = {
     'alerts.break_violation.receive', 'alerts.break_violation.resolve',
     'alerts.geofence_exit.receive', 'alerts.geofence_exit.resolve',
     'expenses.submit', 'expenses.read', 'expenses.approve',
+    'salary_advance.request', 'salary_advance.view', 'salary_advance.approve',
   ],
-  employee: ['reports.view', 'expenses.submit'],
+  employee: ['reports.view', 'expenses.submit', 'salary_advance.request'],
 };

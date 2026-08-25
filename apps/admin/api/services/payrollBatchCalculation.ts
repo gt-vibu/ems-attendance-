@@ -14,6 +14,7 @@ import {
   resolveOvertimeHours,
   resolveAttendanceDrivenInputs,
 } from '../routes/leavePayrollShared';
+import { resolveStatutoryRules } from './complianceResolver';
 
 // Runs the actual per-employee calculation loop for a Payroll Batch (P1),
 // off the request thread — enqueued via the same Postgres-backed job queue
@@ -96,6 +97,7 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
   if (!batch) return;
 
   const { year, month, tenantId } = batch;
+  await db.delete(schema.payrollRuns).where(eq(schema.payrollRuns.batchId, batchId));
   const [settings, tenantRows] = await Promise.all([
     getOrCreatePayrollSettings(tenantId),
     db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1),
@@ -106,7 +108,10 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
 
   let totalGross = 0, totalNet = 0, calculatedCount = 0;
   for (const emp of employees) {
-    const profileRows = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, emp.id), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1);
+    let profileRows = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, emp.id), eq(schema.employeeCompensationProfiles.status, 'active'))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1);
+    if (profileRows.length === 0) {
+      profileRows = await db.select().from(schema.employeeCompensationProfiles).where(and(eq(schema.employeeCompensationProfiles.tenantId, tenantId), eq(schema.employeeCompensationProfiles.userId, emp.id))).orderBy(desc(schema.employeeCompensationProfiles.id)).limit(1);
+    }
     let profile: any = profileRows[0] || null;
     let effectiveComponents = profile
       ? await db.select().from(schema.employeeSalaryComponents).where(and(eq(schema.employeeSalaryComponents.tenantId, tenantId), eq(schema.employeeSalaryComponents.userId, emp.id))).orderBy(schema.employeeSalaryComponents.sortOrder)
@@ -193,6 +198,33 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
       breakdown.push({ type: 'loan_recovery', loanId: loan.id, amount: -recovery, reason: `Loan EMI (#${loan.id})` });
     }
 
+    // Salary Advances (First-Class Recoveries)
+    const scheduledRecoveries = await db.select().from(schema.salaryAdvanceRecoveries).where(and(
+      eq(schema.salaryAdvanceRecoveries.tenantId, tenantId),
+      eq(schema.salaryAdvanceRecoveries.userId, emp.id),
+      eq(schema.salaryAdvanceRecoveries.scheduledYear, year),
+      eq(schema.salaryAdvanceRecoveries.scheduledMonth, month),
+      eq(schema.salaryAdvanceRecoveries.status, 'scheduled'),
+    ));
+    for (const rec of scheduledRecoveries) {
+      const advRows = await db.select().from(schema.salaryAdvances).where(and(
+        eq(schema.salaryAdvances.id, rec.advanceId),
+        inArray(schema.salaryAdvances.status, ['disbursed', 'partially_recovered']),
+      )).limit(1);
+      if (advRows.length === 0) continue;
+      const recAmount = Number(rec.scheduledAmount || 0);
+      if (recAmount <= 0) continue;
+      finalNet -= recAmount;
+      breakdown.push({
+        type: 'advance_recovery',
+        salaryAdvanceId: rec.advanceId,
+        recoveryId: rec.id,
+        amount: -recAmount,
+        reason: `Salary Advance (#${rec.advanceId}) installment ${rec.installmentNumber}/${rec.totalInstallments}`,
+      });
+    }
+
+    // Legacy payrollAdvances (Backward compatibility)
     const activeAdvances = await db.select().from(schema.payrollAdvances).where(and(
       eq(schema.payrollAdvances.tenantId, tenantId),
       eq(schema.payrollAdvances.userId, emp.id),
@@ -219,6 +251,33 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
       breakdown.push({ type: 'reimbursement', reimbursementId: reimb.id, amount: reimb.amount, reason: `${reimb.category} reimbursement` });
     }
 
+    const paymentDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const statutoryResolution = await resolveStatutoryRules({
+      tenantId,
+      userId: emp.id,
+      payrollPeriod: { year, month },
+      paymentDate,
+      monthlyGross,
+      basicMonthly: summary.statutory?.basicMonthly || (monthlyGross * 0.5),
+      annualCtc: profile.annualCtc,
+    });
+
+    const statutorySnapshot = {
+      paymentDate,
+      taxYear: statutoryResolution.taxYear,
+      taxLawVersion: statutoryResolution.taxLawVersion,
+      legalReference: statutoryResolution.legalReference,
+      workLocationState: statutoryResolution.workLocationState,
+      epfRuleVersion: statutoryResolution.epfRule?.version ?? null,
+      esiRuleVersion: statutoryResolution.esiRule?.version ?? null,
+      ptRuleVersion: statutoryResolution.ptRule?.version ?? null,
+      tdsRuleVersion: statutoryResolution.tdsRule?.version ?? null,
+      derivedEligibility: statutoryResolution.derivedEligibility,
+      calculations: statutoryResolution.calculations,
+      tdsExplanation: statutoryResolution.tdsExplanation,
+      validationIssues: statutoryResolution.validationIssues,
+    };
+
     const [lineItem] = await db.insert(schema.payrollRuns).values({
       tenantId, userId: emp.id, profileId: profile.id ?? null, year, month, batchId: batch.id,
       workingDays: summary.workingDays,
@@ -231,6 +290,7 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
       overtimePay: summary.overtimePay,
       netPay: finalNet,
       breakdown,
+      statutorySnapshot,
       status: 'generated',
       version: 1,
     }).onConflictDoUpdate({
@@ -248,6 +308,7 @@ export async function calculatePayrollBatch(batchId: number, actorId: number, ac
         overtimePay: summary.overtimePay,
         netPay: finalNet,
         breakdown,
+        statutorySnapshot,
         status: 'generated',
       },
     }).returning();
@@ -293,19 +354,27 @@ export async function finalizePayrollBatchFinancials(batchId: number) {
 
   const referencedLoanIds = new Set<number>();
   const referencedAdvanceIds = new Set<number>();
+  const referencedRecoveryIds = new Set<number>();
+  const referencedSalaryAdvanceIds = new Set<number>();
   for (const lineItem of preLineItems as any[]) {
     const breakdown = Array.isArray(lineItem.breakdown) ? lineItem.breakdown : [];
     for (const line of breakdown) {
       if (line.loanId) referencedLoanIds.add(Number(line.loanId));
       if (line.advanceId) referencedAdvanceIds.add(Number(line.advanceId));
+      if (line.recoveryId) referencedRecoveryIds.add(Number(line.recoveryId));
+      if (line.salaryAdvanceId) referencedSalaryAdvanceIds.add(Number(line.salaryAdvanceId));
     }
   }
-  const [preLoans, preAdvances] = await Promise.all([
+  const [preLoans, preAdvances, preRecoveries, preSalaryAdvances] = await Promise.all([
     referencedLoanIds.size > 0 ? db.select().from(schema.payrollLoans).where(inArray(schema.payrollLoans.id, [...referencedLoanIds])) : Promise.resolve([]),
     referencedAdvanceIds.size > 0 ? db.select().from(schema.payrollAdvances).where(inArray(schema.payrollAdvances.id, [...referencedAdvanceIds])) : Promise.resolve([]),
+    referencedRecoveryIds.size > 0 ? db.select().from(schema.salaryAdvanceRecoveries).where(inArray(schema.salaryAdvanceRecoveries.id, [...referencedRecoveryIds])) : Promise.resolve([]),
+    referencedSalaryAdvanceIds.size > 0 ? db.select().from(schema.salaryAdvances).where(inArray(schema.salaryAdvances.id, [...referencedSalaryAdvanceIds])) : Promise.resolve([]),
   ]);
   const loanById = new Map<number, any>(preLoans.map((l: any) => [l.id, l]));
   const advanceById = new Map<number, any>(preAdvances.map((a: any) => [a.id, a]));
+  const recoveryById = new Map<number, any>(preRecoveries.map((r: any) => [r.id, r]));
+  const salaryAdvanceById = new Map<number, any>(preSalaryAdvances.map((s: any) => [s.id, s]));
 
   await db.transaction(async (tx: any) => {
     // Re-check inside the transaction — a concurrent finalize could have
@@ -342,11 +411,12 @@ export async function finalizePayrollBatchFinancials(batchId: number) {
       for (const line of breakdown) {
         if (!line.type || line.type === 'proration' || typeof line.amount !== 'number') continue;
         const sourceTable = line.loanId ? 'payroll_loans'
-          : line.advanceId ? 'payroll_advances'
-            : line.bonusId ? 'payroll_bonuses'
-              : line.reimbursementId ? 'payroll_reimbursements'
-                : null;
-        const sourceId = line.loanId || line.advanceId || line.bonusId || line.reimbursementId || null;
+          : line.recoveryId || line.salaryAdvanceId ? 'salary_advances'
+            : line.advanceId ? 'payroll_advances'
+              : line.bonusId ? 'payroll_bonuses'
+                : line.reimbursementId ? 'payroll_reimbursements'
+                  : null;
+        const sourceId = line.salaryAdvanceId || line.loanId || line.advanceId || line.bonusId || line.reimbursementId || null;
 
         ledgerRows.push({
           tenantId: batch.tenantId,
@@ -361,14 +431,48 @@ export async function finalizePayrollBatchFinancials(batchId: number) {
           month: batch.month,
         });
 
-        // Loan/advance rows were pre-fetched in bulk before the transaction
-        // opened (see finalizePayrollBatchFinancials above) instead of one
-        // SELECT per reference here — this was the main contributor to how
-        // long this transaction held row locks at scale. The in-memory map
-        // is updated after each deduction so a loan/advance referenced more
-        // than once within the same batch (shouldn't normally happen, but
-        // isn't structurally prevented) still deducts correctly in sequence
-        // rather than against a stale balance.
+        // Salary Advance Recovery Commit
+        if (line.recoveryId) {
+          const rec = recoveryById.get(Number(line.recoveryId));
+          if (rec && rec.status === 'scheduled') {
+            const deductedAmount = Math.abs(Number(line.amount || 0));
+            await tx.update(schema.salaryAdvanceRecoveries).set({
+              status: 'recovered',
+              recoveredAmount: String(deductedAmount.toFixed(2)),
+              remainingAmount: '0.00',
+              payrollBatchId: batchId,
+              payrollRunId: lineItem.id,
+              recoveredAt: new Date(),
+              updatedAt: new Date(),
+            }).where(eq(schema.salaryAdvanceRecoveries.id, rec.id));
+
+            const advId = Number(rec?.advanceId ?? rec?.advance_id);
+            const parentAdv = salaryAdvanceById.get(advId);
+            if (parentAdv) {
+              const currentRecovered = Number(parentAdv.recoveredAmount ?? parentAdv.recovered_amount ?? 0);
+              const currentOutstanding = Number(parentAdv.outstandingAmount ?? parentAdv.outstanding_amount ?? 0);
+              const newRecovered = currentRecovered + deductedAmount;
+              const newOutstanding = Math.max(0, currentOutstanding - deductedAmount);
+              const newStatus = newOutstanding <= 0.01 ? 'closed' : 'partially_recovered';
+
+              await tx.update(schema.salaryAdvances).set({
+                recoveredAmount: String(newRecovered.toFixed(2)),
+                outstandingAmount: String(newOutstanding.toFixed(2)),
+                status: newStatus,
+                closedAt: newStatus === 'closed' ? new Date() : null,
+                updatedAt: new Date(),
+              }).where(eq(schema.salaryAdvances.id, parentAdv.id));
+
+              salaryAdvanceById.set(parentAdv.id, {
+                ...parentAdv,
+                recoveredAmount: String(newRecovered.toFixed(2)),
+                outstandingAmount: String(newOutstanding.toFixed(2)),
+                status: newStatus,
+              });
+            }
+          }
+        }
+
         if (line.loanId) {
           const loan = loanById.get(Number(line.loanId));
           if (loan?.status === 'active') {
@@ -378,7 +482,7 @@ export async function finalizePayrollBatchFinancials(batchId: number) {
             loanById.set(loan.id, { ...loan, remainingBalance: newBalance, status: newStatus });
           }
         }
-        if (line.advanceId) {
+        if (line.advanceId && !line.recoveryId) {
           const advance = advanceById.get(Number(line.advanceId));
           if (advance?.status === 'active') {
             const newBalance = Math.max(0, Number(advance.remainingBalance || 0) - Math.abs(Number(line.amount || 0)));

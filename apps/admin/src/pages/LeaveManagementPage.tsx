@@ -207,6 +207,27 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
     </select>
   );
 
+  const primaryActions = (
+    <button
+      type="button"
+      onClick={() => setShowCreatePolicyModal(true)}
+      className="px-3.5 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+    >
+      <Plus size={15} /> Add Policy
+    </button>
+  );
+
+  const secondaryActions = leavePolicies.length === 0 ? (
+    <button
+      type="button"
+      onClick={handleSeedDefaults}
+      disabled={seedingDefaults}
+      className="px-3 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] text-xs font-bold transition-colors disabled:opacity-50"
+    >
+      {seedingDefaults ? 'Adding…' : 'Seed Standard Policies'}
+    </button>
+  ) : undefined;
+
   const mainContent = (
     <div className="p-4 md:p-5">
       {error && <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">{error}</div>}
@@ -294,28 +315,7 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
 
       {activeTab === 'policies' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <h4 className="font-bold text-sm text-[var(--color-nexus-ink)]">Leave Types &amp; Policies</h4>
-            <div className="flex items-center gap-2">
-              {leavePolicies.length === 0 && (
-                <button
-                  type="button"
-                  onClick={handleSeedDefaults}
-                  disabled={seedingDefaults}
-                  className="px-3 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-surface-alt)] hover:bg-[var(--color-nexus-border)] text-[var(--color-nexus-ink)] text-xs font-bold transition-colors disabled:opacity-50"
-                >
-                  {seedingDefaults ? 'Adding…' : 'Seed Standard Policies'}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowCreatePolicyModal(true)}
-                className="px-3 py-2 rounded-[var(--radius-nexus-control)] bg-[var(--color-nexus-primary)] hover:bg-[var(--color-nexus-primary-hover)] text-white text-xs font-bold transition-colors flex items-center gap-1.5"
-              >
-                <Plus size={14} /> Add Policy
-              </button>
-            </div>
-          </div>
+          <h4 className="font-bold text-sm text-[var(--color-nexus-ink)]">Leave Types &amp; Policies</h4>
 
           {leavePolicies.length === 0 && (
             <div className="p-8 text-center bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl">
@@ -481,6 +481,8 @@ export default function LeaveManagementPage({ user, onLogout, embedded = false }
       onSearchChange={setSearch}
       searchPlaceholder="Search employee name or reason..."
       filterControls={filterControls}
+      primaryActions={primaryActions}
+      secondaryActions={secondaryActions}
     >
       {mainContent}
     </ManagementTemplate>

@@ -55,6 +55,7 @@ const PayrollPage = safeLazy(() => import('./pages/PayrollPage'));
 const PayrollWizardPage = safeLazy(() => import('./pages/PayrollWizardPage'));
 const PayrollHistoryPage = safeLazy(() => import('./pages/PayrollHistoryPage'));
 const PayrollBatchPage = safeLazy(() => import('./pages/PayrollBatchPage'));
+const CompliancePage = safeLazy(() => import('./pages/CompliancePage'));
 const NotificationPoliciesPage = safeLazy(() => import('./pages/NotificationPoliciesPage'));
 const DelegationPage = safeLazy(() => import('./pages/DelegationPage'));
 const FederationClientsPage = safeLazy(() => import('./pages/FederationClientsPage'));
@@ -181,6 +182,7 @@ export default function AdminApp() {
           <Route path="/tenant/payroll/setup/role/:roleName/:step" element={user && canSeeDashboard(user.role) ? <PayrollWizardPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/history/:userId" element={user && canSeeDashboard(user.role) ? <PayrollHistoryPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/payroll/batches" element={user && canSeeDashboard(user.role) ? <PayrollBatchPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/payroll/compliance" element={user && canSeeDashboard(user.role) ? <CompliancePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/notification-center" element={user && canSeeDashboard(user.role) ? <NotificationPoliciesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/notification-policies" element={<Navigate to="/tenant/notification-center" replace />} />
           <Route path="/tenant/delegation" element={user && canSeeDashboard(user.role) ? <DelegationPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
@@ -199,7 +201,7 @@ export default function AdminApp() {
           <Route path="/tenant/terminations" element={user && canSeeDashboard(user.role) ? <TerminationsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/shift-swaps" element={user && canSeeDashboard(user.role) ? <ShiftSwapsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/tickets" element={user && canSeeDashboard(user.role) ? <TicketsPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
-          <Route path="/tenant/org-chart" element={user && canSeeDashboard(user.role) ? <OrgChartPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
+          <Route path="/tenant/org-chart" element={<Navigate to="/tenant/admin" replace />} />
           <Route path="/tenant/profile" element={user ? <UserProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/company-profile" element={user && canSeeDashboard(user.role) ? <CompanyProfilePage user={user} onLogout={logout} /> : <Navigate to="/login" />} />
           <Route path="/tenant/expense-categories" element={user && canSeeDashboard(user.role) ? <ExpenseCategoriesPage user={user} onLogout={logout} /> : <Navigate to="/login" />} />

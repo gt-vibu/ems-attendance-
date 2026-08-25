@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Users, Clock, Coffee, ScrollText, Smartphone, Building2, QrCode, Home, AlertTriangle, ChevronDown,
   CalendarDays, Banknote, Users2, Megaphone, ShieldCheck, Ticket,
@@ -36,7 +36,14 @@ export interface FeatureCatalogGridProps {
 // (granting extra privileges on top of the selected role) — one component,
 // so the two surfaces can never drift apart.
 export default function FeatureCatalogGrid({ catalog, selected, onChange, allowedKeys, disabled, dependencies }: FeatureCatalogGridProps) {
-  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
+  const [openCategories, setOpenCategories] = useState<Set<string>>(() => new Set(catalog.map(c => c.category)));
+
+  // Auto-expand categories when catalog arrives
+  useEffect(() => {
+    if (catalog.length > 0) {
+      setOpenCategories(new Set(catalog.map(c => c.category)));
+    }
+  }, [catalog]);
 
   const isAllowed = (key: string) => allowedKeys === 'ALL' || allowedKeys.includes(key);
 

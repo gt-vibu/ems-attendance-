@@ -36,9 +36,6 @@ export const ADMIN_CATEGORIES: NavCategory[] = [
     items: [
       { id: 'company-profile', label: 'Company Profile', icon: Building2, path: '/tenant/company-profile' },
       { id: 'branches', label: 'Branches', icon: Building2, path: '/tenant/branches' },
-      { id: 'teams', label: 'Teams & Structure', icon: Users2, path: '/tenant/teams' },
-      { id: 'directory', label: 'Employee Directory', icon: UserCheck, path: '/tenant/directory' },
-      { id: 'org-chart', label: 'Org Chart', icon: Users2, path: '/tenant/org-chart' },
       { id: 'boundaries', label: 'Workspace Boundaries', icon: ShieldCheck, path: '/tenant/workspace-boundaries' },
     ],
   },

@@ -1,37 +1,36 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, ReactNode, ErrorInfo } from 'react';
 
-interface Props {
+export interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
 }
 
-interface State {
+export interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
+class InnerErrorBoundary extends (Component as any)<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = {
     hasError: false,
     error: null,
   };
 
-  public static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Unhandled React Error Boundary caught exception:', error, errorInfo);
   }
 
-  public handleReset = () => {
-    this.setState({ hasError: false, error: null });
-  };
+  render() {
+    const state = (this as any).state;
+    const props = (this as any).props;
 
-  public render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
+    if (state?.hasError) {
+      if (props?.fallback) {
+        return props.fallback;
       }
 
       return (
@@ -70,6 +69,8 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return props?.children;
   }
 }
+
+export const ErrorBoundary = InnerErrorBoundary as unknown as React.FC<ErrorBoundaryProps>;

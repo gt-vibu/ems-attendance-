@@ -10,6 +10,7 @@
 // timeout here at all, so a slow cold-start just kept the request open with
 // no way for the caller to give up and retry.
 import { db, schema } from '../../db';
+import { logger } from '../../logger';
 
 const FACE_SERVICE_TIMEOUT_MS = 25000;
 

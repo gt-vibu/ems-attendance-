@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, sql, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '../../db';
 import { sendServerError } from '../utils/errors';
 import { logger } from '../../logger';
@@ -370,16 +370,14 @@ router.post('/api/super/tenants/delete', authenticate, requireRole('super_admin'
         await tx.delete(schema.employeeBankAccounts).where(eq(schema.employeeBankAccounts.tenantId, tenantId));
         await tx.delete(schema.employeeTaxDeclarations).where(eq(schema.employeeTaxDeclarations.tenantId, tenantId));
         await tx.delete(schema.companyPayrollPolicies).where(eq(schema.companyPayrollPolicies.tenantId, tenantId));
-        await tx.delete(schema.statutoryRuleVersions).where(eq(schema.statutoryRuleVersions.tenantId, tenantId));
 
-        await tx.delete(schema.leaveEscalationHistory).where(userIds.length > 0 ? inArray(schema.leaveEscalationHistory.actorUserId, userIds) : sql`false`);
-        await tx.delete(schema.ticketEscalations).where(userIds.length > 0 ? inArray(schema.ticketEscalations.escalatedToUserId, userIds) : sql`false`);
+        await tx.delete(schema.leaveEscalationHistory).where(userIds.length > 0 ? or(inArray(schema.leaveEscalationHistory.fromUserId, userIds), inArray(schema.leaveEscalationHistory.toUserId, userIds)) : sql`false`);
+        await tx.delete(schema.ticketEscalations).where(userIds.length > 0 ? or(inArray(schema.ticketEscalations.fromUserId, userIds), inArray(schema.ticketEscalations.toUserId, userIds)) : sql`false`);
         await tx.delete(schema.tickets).where(eq(schema.tickets.tenantId, tenantId));
 
         await tx.delete(schema.shiftHistory).where(eq(schema.shiftHistory.tenantId, tenantId));
         await tx.delete(schema.delegations).where(eq(schema.delegations.tenantId, tenantId));
         await tx.delete(schema.holidayHistory).where(eq(schema.holidayHistory.tenantId, tenantId));
-        await tx.delete(schema.holidayEmployeeOverrides).where(eq(schema.holidayEmployeeOverrides.tenantId, tenantId));
 
         await tx.delete(schema.notificationLog).where(eq(schema.notificationLog.tenantId, tenantId));
         await tx.delete(schema.notificationDigestQueue).where(eq(schema.notificationDigestQueue.tenantId, tenantId));
@@ -638,6 +636,7 @@ router.post('/api/super/tenant-admins/delete', authenticate, requireRole('super_
 
       try {
         await db.transaction(async (tx: any) => {
+          // 1. Detach / Nullify all nullable FK reference columns pointing to this admin user
           await tx.update(schema.auditLedger).set({ actorId: null }).where(eq(schema.auditLedger.actorId, target.id));
           await tx.update(schema.attendanceCorrections).set({ reviewedByUserId: null }).where(eq(schema.attendanceCorrections.reviewedByUserId, target.id));
           await tx.update(schema.wfhLocationChangeRequests).set({ reviewedByUserId: null }).where(eq(schema.wfhLocationChangeRequests.reviewedByUserId, target.id));
@@ -646,26 +645,106 @@ router.post('/api/super/tenant-admins/delete', authenticate, requireRole('super_
           await tx.update(schema.terminationRequests).set({ reviewedByUserId: null }).where(eq(schema.terminationRequests.reviewedByUserId, target.id));
           await tx.update(schema.leaveRequests).set({ reviewedByUserId: null }).where(eq(schema.leaveRequests.reviewedByUserId, target.id));
           await tx.update(schema.leaveEncashmentRequests).set({ reviewedByUserId: null }).where(eq(schema.leaveEncashmentRequests.reviewedByUserId, target.id));
+          await tx.update(schema.leaveEscalationHistory).set({ fromUserId: null }).where(eq(schema.leaveEscalationHistory.fromUserId, target.id));
+          await tx.update(schema.leaveEscalationHistory).set({ toUserId: null }).where(eq(schema.leaveEscalationHistory.toUserId, target.id));
           await tx.update(schema.shiftSwapRequests).set({ reviewedByUserId: null }).where(eq(schema.shiftSwapRequests.reviewedByUserId, target.id));
           await tx.update(schema.compensationHistory).set({ changedByUserId: null }).where(eq(schema.compensationHistory.changedByUserId, target.id));
           await tx.update(schema.serviceAccounts).set({ createdByUserId: null }).where(eq(schema.serviceAccounts.createdByUserId, target.id));
           await tx.update(schema.webhookSubscriptions).set({ createdByUserId: null }).where(eq(schema.webhookSubscriptions.createdByUserId, target.id));
           await tx.update(schema.departments).set({ headUserId: null }).where(eq(schema.departments.headUserId, target.id));
           await tx.update(schema.shiftOverrides).set({ createdBy: null }).where(eq(schema.shiftOverrides.createdBy, target.id));
+          await tx.update(schema.shiftHistory).set({ actorUserId: null }).where(eq(schema.shiftHistory.actorUserId, target.id));
           await tx.update(schema.tickets).set({ currentAssigneeUserId: null }).where(eq(schema.tickets.currentAssigneeUserId, target.id));
           await tx.update(schema.tickets).set({ resolvedByUserId: null }).where(eq(schema.tickets.resolvedByUserId, target.id));
           await tx.update(schema.ticketEscalations).set({ fromUserId: null }).where(eq(schema.ticketEscalations.fromUserId, target.id));
           await tx.update(schema.ticketEscalations).set({ toUserId: null }).where(eq(schema.ticketEscalations.toUserId, target.id));
           await tx.update(schema.users).set({ managerId: null }).where(eq(schema.users.managerId, target.id));
+          
+          await tx.update(schema.expenses).set({ approvedByUserId: null }).where(eq(schema.expenses.approvedByUserId, target.id));
+          await tx.update(schema.salaryAdvances).set({ approvedByUserId: null }).where(eq(schema.salaryAdvances.approvedByUserId, target.id));
+          await tx.update(schema.salaryRevisionRequests).set({ hrReviewedByUserId: null }).where(eq(schema.salaryRevisionRequests.hrReviewedByUserId, target.id));
+          await tx.update(schema.salaryRevisionRequests).set({ financeReviewedByUserId: null }).where(eq(schema.salaryRevisionRequests.financeReviewedByUserId, target.id));
+          await tx.update(schema.salaryRevisionRequests).set({ requestedByUserId: null }).where(eq(schema.salaryRevisionRequests.requestedByUserId, target.id));
+          await tx.update(schema.payrollBatches).set({ createdByUserId: null }).where(eq(schema.payrollBatches.createdByUserId, target.id));
+          await tx.update(schema.reportSavedTemplates).set({ createdByUserId: null }).where(eq(schema.reportSavedTemplates.createdByUserId, target.id));
+          await tx.update(schema.reportSchedules).set({ createdByUserId: null }).where(eq(schema.reportSchedules.createdByUserId, target.id));
+          await tx.update(schema.attendanceFreezePeriods).set({ frozenByUserId: null }).where(eq(schema.attendanceFreezePeriods.frozenByUserId, target.id));
+          await tx.update(schema.attendancePreferences).set({ updatedByUserId: null }).where(eq(schema.attendancePreferences.updatedByUserId, target.id));
+          await tx.update(schema.attendancePreferenceHistory).set({ changedByUserId: null }).where(eq(schema.attendancePreferenceHistory.changedByUserId, target.id));
+          await tx.update(schema.employeeDocuments).set({ uploadedByUserId: null }).where(eq(schema.employeeDocuments.uploadedByUserId, target.id));
+          await tx.update(schema.federationBreakGlassAudit).set({ actorUserId: null }).where(eq(schema.federationBreakGlassAudit.actorUserId, target.id));
+
+          // Delegations
+          await tx.delete(schema.delegations).where(or(eq(schema.delegations.delegatedByUserId, target.id), eq(schema.delegations.delegatedToUserId, target.id)));
+
+          // 2. Delete user-specific child records for this target admin user
+          await tx.delete(schema.userBranchAccess).where(eq(schema.userBranchAccess.userId, target.id));
+          await tx.delete(schema.employeeCompensationProfiles).where(eq(schema.employeeCompensationProfiles.userId, target.id));
+          await tx.delete(schema.employeeSalaryComponents).where(eq(schema.employeeSalaryComponents.userId, target.id));
+          await tx.delete(schema.employeeStatutoryProfiles).where(eq(schema.employeeStatutoryProfiles.userId, target.id));
+          await tx.delete(schema.employeeStatutoryOverrides).where(eq(schema.employeeStatutoryOverrides.userId, target.id));
+          await tx.delete(schema.employeeTaxDeclarations).where(eq(schema.employeeTaxDeclarations.userId, target.id));
+          await tx.delete(schema.employeeBankAccounts).where(eq(schema.employeeBankAccounts.userId, target.id));
+          await tx.delete(schema.compensationHistory).where(eq(schema.compensationHistory.userId, target.id));
+          await tx.delete(schema.holidayEmployeeOverrides).where(eq(schema.holidayEmployeeOverrides.userId, target.id));
+          await tx.delete(schema.optionalHolidayChoices).where(eq(schema.optionalHolidayChoices.userId, target.id));
+          await tx.delete(schema.leaveBalanceAdjustments).where(eq(schema.leaveBalanceAdjustments.userId, target.id));
+          await tx.delete(schema.leaveRequests).where(eq(schema.leaveRequests.userId, target.id));
+          await tx.delete(schema.leaveEncashmentRequests).where(eq(schema.leaveEncashmentRequests.userId, target.id));
+          await tx.delete(schema.expenses).where(eq(schema.expenses.userId, target.id));
+          await tx.delete(schema.expenseReimbursements).where(eq(schema.expenseReimbursements.userId, target.id));
+          await tx.delete(schema.expenseReports).where(eq(schema.expenseReports.userId, target.id));
+          await tx.delete(schema.salaryAdvances).where(eq(schema.salaryAdvances.userId, target.id));
+          await tx.delete(schema.salaryAdvanceRecoveries).where(eq(schema.salaryAdvanceRecoveries.userId, target.id));
+          await tx.delete(schema.payrollAdvances).where(eq(schema.payrollAdvances.userId, target.id));
+          await tx.delete(schema.payrollLoans).where(eq(schema.payrollLoans.userId, target.id));
+          await tx.delete(schema.payrollAdjustments).where(eq(schema.payrollAdjustments.userId, target.id));
+          await tx.delete(schema.payrollReimbursements).where(eq(schema.payrollReimbursements.userId, target.id));
+          await tx.delete(schema.payrollBonuses).where(eq(schema.payrollBonuses.userId, target.id));
+          await tx.delete(schema.payrollRuns).where(eq(schema.payrollRuns.userId, target.id));
+          await tx.delete(schema.payrollLedgerEntries).where(eq(schema.payrollLedgerEntries.userId, target.id));
+          await tx.delete(schema.payrollFinalSettlements).where(eq(schema.payrollFinalSettlements.userId, target.id));
+          await tx.delete(schema.salaryRevisionRequests).where(eq(schema.salaryRevisionRequests.userId, target.id));
+          await tx.delete(schema.attendanceCorrections).where(eq(schema.attendanceCorrections.userId, target.id));
+          await tx.delete(schema.wfhLocationChangeRequests).where(eq(schema.wfhLocationChangeRequests.userId, target.id));
+          await tx.delete(schema.deviceChangeRequests).where(eq(schema.deviceChangeRequests.userId, target.id));
+          await tx.delete(schema.terminationRequests).where(or(eq(schema.terminationRequests.employeeId, target.id), eq(schema.terminationRequests.requestedByUserId, target.id)));
+          await tx.delete(schema.employeeHomeLocations).where(eq(schema.employeeHomeLocations.userId, target.id));
+          await tx.delete(schema.employeeDocuments).where(eq(schema.employeeDocuments.userId, target.id));
+          await tx.delete(schema.tickets).where(eq(schema.tickets.raisedByUserId, target.id));
+          await tx.delete(schema.attendanceAlerts).where(eq(schema.attendanceAlerts.userId, target.id));
+          await tx.delete(schema.attendanceLogs).where(eq(schema.attendanceLogs.userId, target.id));
+          await tx.delete(schema.attendanceLogsArchive).where(eq(schema.attendanceLogsArchive.userId, target.id));
+          await tx.delete(schema.breakSessions).where(eq(schema.breakSessions.userId, target.id));
+          await tx.delete(schema.presenceEvaluations).where(eq(schema.presenceEvaluations.userId, target.id));
+          await tx.delete(schema.presenceWarnings).where(eq(schema.presenceWarnings.userId, target.id));
+          await tx.delete(schema.shiftSwapRequests).where(or(eq(schema.shiftSwapRequests.requesterId, target.id), eq(schema.shiftSwapRequests.targetUserId, target.id)));
+          await tx.delete(schema.federationEmployeeAccessGrants).where(eq(schema.federationEmployeeAccessGrants.userId, target.id));
+          if (schema.consumedFaceChallenges) {
+            await tx.delete(schema.consumedFaceChallenges).where(eq(schema.consumedFaceChallenges.userId, target.id));
+          }
           await tx.delete(schema.webauthnCredentials).where(eq(schema.webauthnCredentials.userId, target.id));
           await tx.delete(schema.webauthnChallenges).where(eq(schema.webauthnChallenges.userId, target.id));
           await tx.delete(schema.notifications).where(eq(schema.notifications.userId, target.id));
           await tx.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.userId, target.id));
+
+          // 3. Update tenants.adminUid if it matched target.uid
+          if (target.tenantId) {
+            const tenantRow = await tx.select().from(schema.tenants).where(eq(schema.tenants.id, target.tenantId));
+            if (tenantRow.length > 0 && tenantRow[0].adminUid === target.uid) {
+              const remainingAdmins = await tx.select().from(schema.users).where(and(eq(schema.users.tenantId, target.tenantId), eq(schema.users.role, 'tenant_admin'), ne(schema.users.id, target.id)));
+              const newAdminUid = remainingAdmins.length > 0 ? remainingAdmins[0].uid : '';
+              await tx.update(schema.tenants).set({ adminUid: newAdminUid }).where(eq(schema.tenants.id, target.tenantId));
+            }
+          }
+
+          // 4. Delete the target user row
           await tx.delete(schema.users).where(eq(schema.users.id, target.id));
         });
       } catch (txErr: any) {
-        return res.status(409).json({
-          error: 'This admin has associated records (e.g. generated QR sessions, leave-balance adjustments, uploaded documents, termination requests they filed, a team they manage, or a ticket they raised) that must be reassigned before their account can be deleted.',
+        logger.error('Failed to delete tenant admin user', { userId: target.id, error: txErr.message, stack: txErr.stack });
+        return res.status(500).json({
+          error: 'Failed to delete tenant admin account due to a database constraint.',
           detail: txErr.message,
         });
       }

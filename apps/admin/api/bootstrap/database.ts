@@ -250,6 +250,79 @@ async function runSchemaSync() {
       // versioned migration while preserving null as "inherit tenant policy".
       await db.execute(sql`ALTER TABLE employee_compensation_profiles ADD COLUMN IF NOT EXISTS attendance_tracked BOOLEAN NOT NULL DEFAULT true;`);
       await db.execute(sql`ALTER TABLE employee_compensation_profiles ADD COLUMN IF NOT EXISTS attendance_affects_payroll BOOLEAN;`);
+      
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS salary_advances (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          origin TEXT NOT NULL DEFAULT 'EMPLOYEE_REQUEST',
+          status TEXT NOT NULL DEFAULT 'draft',
+          requested_amount NUMERIC(12, 2) NOT NULL,
+          approved_amount NUMERIC(12, 2),
+          disbursed_amount NUMERIC(12, 2),
+          outstanding_amount NUMERIC(12, 2) NOT NULL,
+          recovered_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+          recovery_method TEXT NOT NULL DEFAULT 'full_next_payroll',
+          recovery_installments INTEGER NOT NULL DEFAULT 1,
+          start_recovery_year INTEGER NOT NULL,
+          start_recovery_month INTEGER NOT NULL,
+          reason TEXT,
+          remarks TEXT,
+          rejection_reason TEXT,
+          requested_at TIMESTAMP DEFAULT NOW(),
+          approved_at TIMESTAMP,
+          rejected_at TIMESTAMP,
+          disbursed_at TIMESTAMP,
+          closed_at TIMESTAMP,
+          requested_by_user_id INTEGER REFERENCES users(id),
+          approved_by_user_id INTEGER REFERENCES users(id),
+          disbursed_by_user_id INTEGER REFERENCES users(id),
+          disbursement_method TEXT,
+          disbursement_reference TEXT,
+          bank_details_snapshot JSONB,
+          policy_snapshot JSONB,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS salary_advance_recoveries (
+          id SERIAL PRIMARY KEY,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          advance_id INTEGER NOT NULL REFERENCES salary_advances(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          scheduled_year INTEGER NOT NULL,
+          scheduled_month INTEGER NOT NULL,
+          installment_number INTEGER NOT NULL DEFAULT 1,
+          total_installments INTEGER NOT NULL DEFAULT 1,
+          scheduled_amount NUMERIC(12, 2) NOT NULL,
+          recovered_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+          remaining_amount NUMERIC(12, 2) NOT NULL DEFAULT '0.00',
+          payroll_batch_id INTEGER REFERENCES payroll_batches(id),
+          payroll_run_id INTEGER REFERENCES payroll_runs(id),
+          status TEXT NOT NULL DEFAULT 'scheduled',
+          recovered_at TIMESTAMP,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS salary_advance_enabled BOOLEAN DEFAULT true;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_calculation_basis TEXT DEFAULT 'net_salary';`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_amount NUMERIC(12, 2) DEFAULT 50000;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_percentage NUMERIC(5, 2) DEFAULT 50;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_min_tenure_months INTEGER DEFAULT 3;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_active_count INTEGER DEFAULT 1;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_allow_multiple BOOLEAN DEFAULT false;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_default_recovery_method TEXT DEFAULT 'full_next_payroll';`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_max_installments INTEGER DEFAULT 6;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_min_recovery_amount NUMERIC(12, 2) DEFAULT 1000;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_employee_can_request BOOLEAN DEFAULT true;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_admin_can_assign BOOLEAN DEFAULT true;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_approval_required BOOLEAN DEFAULT true;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_cutoff_day INTEGER DEFAULT 20;`);
+      await db.execute(sql`ALTER TABLE payroll_settings ADD COLUMN IF NOT EXISTS advance_approval_thresholds JSONB DEFAULT '[]'::jsonb;`);
     } catch (e) {
       logger.warn('boot schema-sync: employee attendance/payroll policy statements failed', { error: (e as any)?.message });
     }

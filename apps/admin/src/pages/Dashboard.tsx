@@ -255,7 +255,7 @@ export default function Dashboard({ user, onLogout, defaultTab }: { user: User; 
   const {
     tenancyRequests, showApprovalModal, setShowApprovalModal, selectedRequest,
     selectedFeatures, selectedPlanOverride, setSelectedPlanOverride, allTenants, superAnalytics, platformFeatures, platformFeatureDependencies, featureUsage, jobScheduler, systemHealth,
-    undeliveredActivation, setUndeliveredActivation,
+    undeliveredActivation, setUndeliveredActivation, confirmModal, setConfirmModal,
     fetchSuperAdminData, handleToggleTenantStatus, handleDeleteTenant, handleOpenApproveModal, handleApproveRequest, toggleFeature,
     manageAdminsTenant, tenantAdmins, tenantAdminsLoading, openManageAdmins, setManageAdminsTenant, handleDeleteTenantAdmin,
     connectedAppsTenant, setConnectedAppsTenant, connectedApps, connectedAppsExternalOrgId, connectedAppsLoading,
@@ -2554,6 +2554,55 @@ export default function Dashboard({ user, onLogout, defaultTab }: { user: User; 
           </div>
         )}
 
+        {/* Website-native Confirmation Modal Overlay */}
+        {confirmModal?.isOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmModal(null)}>
+            <div className="nexus-card border border-[var(--color-nexus-border)] rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg ${
+                  confirmModal.variant === 'warning'
+                    ? 'bg-amber-500/10 text-amber-500'
+                    : confirmModal.variant === 'info'
+                    ? 'bg-blue-500/10 text-blue-500'
+                    : 'bg-red-500/10 text-red-500'
+                }`}>
+                  {confirmModal.variant === 'info' ? 'ℹ️' : '⚠️'}
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-[var(--color-nexus-ink)] font-sans">{confirmModal.title}</h3>
+                  <p className="text-xs text-[var(--color-nexus-muted)]">Confirmation required</p>
+                </div>
+              </div>
+              
+              <p className="text-sm text-[var(--color-nexus-ink)]/80 mb-6 leading-relaxed">
+                {confirmModal.message}
+              </p>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-[var(--color-nexus-border)] text-xs font-bold text-[var(--color-nexus-ink)] hover:bg-[var(--color-nexus-surface-alt)] transition-colors uppercase tracking-wider"
+                >
+                  {confirmModal.cancelText || 'Cancel'}
+                </button>
+                <button
+                  onClick={() => confirmModal.onConfirm()}
+                  disabled={loading}
+                  className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md disabled:opacity-50 ${
+                    confirmModal.variant === 'warning'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : confirmModal.variant === 'info'
+                      ? 'bg-blue-600 hover:bg-blue-500'
+                      : 'bg-[var(--color-nexus-error)] hover:brightness-110'
+                  }`}
+                >
+                  {loading ? 'Processing…' : (confirmModal.confirmText || 'Confirm')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Edit Features moved to its own page (PlanFeaturesPage.tsx),
             reached via the "Edit Features" button above — a plan's feature
             list runs to 20+ items and a max-w-md modal was too cramped to
@@ -3143,7 +3192,6 @@ export default function Dashboard({ user, onLogout, defaultTab }: { user: User; 
                     ...(hasTerminationAccess ? [{ id: 'terminations', label: 'Termination Requests', icon: UserX, count: terminationRequests.length, visible: true }] : []),
                     ...(hasShiftSwapAccess ? [{ id: 'shift-swaps', label: 'Shift Swap Requests', icon: Clock, count: shiftSwapRequests.length, visible: true }] : []),
                     { id: 'tickets', label: 'Tickets', icon: Ticket, visible: hasAnyPrivilege('tickets.manage') },
-                    { id: 'org-chart', label: 'Org Chart', icon: Users2, visible: true },
                   ].filter((opt) => opt.visible).map((opt) => {
                     const Icon = opt.icon;
                     const isActive = adminSubTab === opt.id;
@@ -3835,22 +3883,9 @@ export default function Dashboard({ user, onLogout, defaultTab }: { user: User; 
                           required
                         />
                         <datalist id="role-suggestions">
-                          <option value="Employee" />
-                          <option value="Intern" />
-                          <option value="Team Lead" />
-                          <option value="L1 Manager" />
-                          <option value="L2 Manager" />
-                          <option value="Manager" />
-                          <option value="Senior Manager" />
-                          <option value="Assistant Manager" />
-                          <option value="Supervisor" />
-                          <option value="Coordinator" />
-                          <option value="HR" />
-                          <option value="HR Manager" />
-                          <option value="GM" />
-                          <option value="Receptionist" />
-                          <option value="Security" />
-                          <option value="HM" />
+                          {Array.from(new Set(['Employee', 'Manager', 'HR', 'GM', 'Team Lead', 'Senior Manager', 'Coordinator', 'HR Manager', 'Receptionist', ...allRoleNames])).map((r) => (
+                            <option key={r} value={r} />
+                          ))}
                         </datalist>
                         <p className="text-[10px] text-[var(--color-nexus-muted)] mt-1">Any role name is accepted — it doesn't need to match the suggestions above.</p>
                       </div>
@@ -4073,10 +4108,6 @@ export default function Dashboard({ user, onLogout, defaultTab }: { user: User; 
 
             {activeTab === 'administration' && adminSubTab === 'tickets' && (
               <TicketsPanel user={user} />
-            )}
-
-            {activeTab === 'administration' && adminSubTab === 'org-chart' && (
-              <OrgChart canEdit={hasAnyPrivilege('employee.edit', 'employee.create')} />
             )}
           </div>
         )}

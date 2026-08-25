@@ -71,6 +71,9 @@ async function generateUniqueExpenseId(tenantId: number): Promise<string> {
 // ---------------------------------------------------------------------------
 router.post('/api/tenant/expenses/ocr', authenticate, async (req: any, res: any) => {
   try {
+    if (req.user?.role === 'tenant_admin' || req.user?.role === 'super_admin') {
+      return res.status(403).json({ error: 'Company Admins review and approve employee expenses and cannot submit personal expense claims.' });
+    }
     const { fileBase64, mimeType } = req.body || {};
     if (!fileBase64 || !mimeType) {
       return res.status(400).json({ error: 'fileBase64 and mimeType are required for OCR.' });
@@ -111,6 +114,9 @@ router.post('/api/tenant/expenses/ocr', authenticate, async (req: any, res: any)
 // ---------------------------------------------------------------------------
 router.post('/api/tenant/expenses', authenticate, async (req: any, res: any) => {
   try {
+    if (req.user?.role === 'tenant_admin' || req.user?.role === 'super_admin') {
+      return res.status(403).json({ error: 'Company Admins review and approve employee expenses and cannot submit personal expense claims.' });
+    }
     const tenantId = await getEffectiveTenantId(req.user);
     const userId = await getEffectiveUserId(req.user);
 

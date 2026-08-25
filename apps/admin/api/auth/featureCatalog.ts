@@ -100,6 +100,19 @@ export const FEATURE_CATALOG: FeatureCatalogCategory[] = [
     ],
   },
   {
+    category: 'Salary Advances',
+    icon: 'Wallet',
+    features: [
+      { key: 'salary_advance.request', label: 'Request Salary Advance', description: 'Submit employee salary advance requests through self-service portal.' },
+      { key: 'salary_advance.view', label: 'View Salary Advances', description: 'View organization-wide salary advance requests, status, and recovery schedules.' },
+      { key: 'salary_advance.approve', label: 'Approve Salary Advances', description: 'Review, approve, or reject employee salary advance requests.' },
+      { key: 'salary_advance.assign', label: 'Directly Assign Advances', description: 'Directly assign salary advances to employees on behalf of management/HR.' },
+      { key: 'salary_advance.disburse', label: 'Disburse Salary Advances', description: 'Record disbursement, payment references, and initiate recovery schedules.' },
+      { key: 'salary_advance.cancel', label: 'Cancel Salary Advances', description: 'Cancel pending or un-disbursed salary advance requests.' },
+      { key: 'salary_advance.manage', label: 'Configure Advance Policies', description: 'Manage company salary advance policies, caps, basis, and eligibility rules.' },
+    ],
+  },
+  {
     category: 'Expenses',
     icon: 'Receipt',
     features: [
@@ -250,8 +263,9 @@ export const FEATURE_DEPENDENCIES: Record<string, string[]> = {
   // Releasing payroll without ever having reviewed/approved it isn't a real
   // workflow — same reasoning as the alerts pairs above.
   'payroll.release': ['payroll.approve'],
-  // Notification policies configure org-wide behavior (who gets told what)
-  // — treating it as a subset of general company-settings management
-  // instead of a standalone grant.
+  'salary_advance.disburse': ['salary_advance.approve'],
+  'salary_advance.approve': ['salary_advance.view'],
+  'salary_advance.assign': ['salary_advance.view'],
+  'salary_advance.manage': ['payroll.manage'],
   'notification_policies.manage': ['tenant.config.manage'],
 };

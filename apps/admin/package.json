@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts requireRole.test.ts expenses.test.ts defaultClientBootstrap.test.ts",
+    "test": "tsx --test attendancePreferences.test.ts presenceEngine.test.ts qr.test.ts wfh.test.ts payrollCalculations.test.ts salaryAdvance.test.ts requireRole.test.ts expenses.test.ts defaultClientBootstrap.test.ts compliance.test.ts",
     "test:integration": "tsx --test integration/payrollLockConcurrency.integration.test.ts integration/attendanceApprovalConcurrency.integration.test.ts integration/correctionFreezeGuard.integration.test.ts integration/federationContract.integration.test.ts",
     "cap:sync:android": "cap sync android",
     "cap:open:android": "cap open android",

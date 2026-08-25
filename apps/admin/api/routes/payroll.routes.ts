@@ -109,13 +109,17 @@ router.get('/api/payroll/mine', authenticate, async (req: any, res: any) => {
 router.get('/api/payroll/history', authenticate, async (req: any, res: any) => {
   try {
     const tenantId = req.user.tenantId;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user.id;
+
+    if (!tenantId || !userId) {
+      return res.json({ history: [] });
+    }
 
     const history = await db.select().from(schema.payrollRuns)
       .where(and(eq(schema.payrollRuns.tenantId, tenantId), eq(schema.payrollRuns.userId, userId)))
       .orderBy(desc(schema.payrollRuns.year), desc(schema.payrollRuns.month));
 
-    res.json({ history });
+    res.json({ history: history || [] });
   } catch (err: any) {
     sendServerError(res, err, "payroll.routes.ts");
   }
@@ -1006,13 +1010,27 @@ router.get('/api/tenant/payroll/role-defaults', authenticate, async (req: any, r
     });
 
     // Every real role name present in this tenant — from actual users.role
-    // values, role_privilege_defaults rows, and standard role packages —
-    // so the frontend can render and configure a card for any role package.
-    const roleNames = Array.from(new Set([
+    // values, role_privilege_defaults rows, existing role defaults, and standard starter roles —
+    // so the frontend can render and configure every company role package.
+    const starterRoles = ['HR', 'GM', 'manager', 'employee', 'developer', 'sales_rep'];
+    const rawRoles = [
       ...tenantUsers.map((u: any) => u.role),
       ...roleDefaultNameRows.map((r: any) => r.roleName),
-      'manager', 'developer', 'sales_rep', 'hr',
-    ].filter(Boolean))).sort();
+      ...defaults.map((d: any) => d.roleName),
+      ...starterRoles,
+    ].filter(Boolean);
+
+    // Case-preserving deduplication while excluding super/tenant admins
+    const roleMap = new Map<string, string>();
+    for (const r of rawRoles) {
+      const trimmed = String(r).trim();
+      const lower = trimmed.toLowerCase();
+      if (lower === 'tenant_admin' || lower === 'super_admin' || lower === 'superadmin' || lower === 'tenantadmin') continue;
+      if (!roleMap.has(lower)) {
+        roleMap.set(lower, trimmed);
+      }
+    }
+    const roleNames = Array.from(roleMap.values()).sort((a, b) => a.localeCompare(b));
 
     res.json({ roleDefaults, roles: roleNames });
   } catch (err: any) {

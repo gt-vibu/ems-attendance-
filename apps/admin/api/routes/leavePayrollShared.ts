@@ -246,14 +246,14 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
   let pfEmployeeDeduction = 0, pfEmployerContribution = 0;
   if (settings.pfEnabled) {
     const pfWage = Math.min(basicMonthly, Number(settings.pfWageCeiling || STATUTORY_DEFAULTS.PF_WAGE_CEILING));
-    pfEmployeeDeduction = pfWage * (Number(settings.pfEmployeeRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYEE_RATE_PERCENT) / 100);
-    pfEmployerContribution = pfWage * (Number(settings.pfEmployerRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYER_RATE_PERCENT) / 100);
+    pfEmployeeDeduction = Math.round(pfWage * (Number(settings.pfEmployeeRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYEE_RATE_PERCENT) / 100));
+    pfEmployerContribution = Math.round(pfWage * (Number(settings.pfEmployerRatePercent ?? STATUTORY_DEFAULTS.PF_EMPLOYER_RATE_PERCENT) / 100));
   }
 
   let esiEmployeeDeduction = 0, esiEmployerContribution = 0;
   if (settings.esiEnabled && monthlyGross <= Number(settings.esiWageCeiling || STATUTORY_DEFAULTS.ESI_WAGE_CEILING)) {
-    esiEmployeeDeduction = monthlyGross * (Number(settings.esiEmployeeRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYEE_RATE_PERCENT) / 100);
-    esiEmployerContribution = monthlyGross * (Number(settings.esiEmployerRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYER_RATE_PERCENT) / 100);
+    esiEmployeeDeduction = Math.round(monthlyGross * (Number(settings.esiEmployeeRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYEE_RATE_PERCENT) / 100));
+    esiEmployerContribution = Math.round(monthlyGross * (Number(settings.esiEmployerRatePercent ?? STATUTORY_DEFAULTS.ESI_EMPLOYER_RATE_PERCENT) / 100));
   }
 
   const professionalTaxDeduction = settings.professionalTaxEnabled
@@ -264,7 +264,7 @@ export function computeStatutoryDeductions(monthlyGross: number, annualCtc: numb
   if (settings.tdsEnabled) {
     const taxableAnnualIncome = Math.max(0, annualCtc - Number(settings.tdsStandardDeduction || STATUTORY_DEFAULTS.TDS_STANDARD_DEDUCTION));
     const annualTax = computeSlabTax(taxableAnnualIncome, settings.incomeTaxSlabs || []);
-    tdsDeduction = annualTax / 12;
+    tdsDeduction = Math.round((annualTax / 12) * 100) / 100;
   }
 
   return {

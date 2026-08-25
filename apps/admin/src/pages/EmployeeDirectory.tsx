@@ -59,10 +59,17 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
   // Privileges
   const [myPrivileges, setMyPrivileges] = useState<string[] | 'ALL'>([]);
 
+  // Configured company roles
+  const [allDefinedRoles, setAllDefinedRoles] = useState<string[]>([]);
+
   useEffect(() => {
     fetch('/api/tenant/my-privileges', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => { if (d.privileges) setMyPrivileges(d.privileges); })
+      .catch(() => {});
+    fetch('/api/tenant/roles', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d.roles)) setAllDefinedRoles(d.roles.map((r: any) => r.roleName).filter(Boolean)); })
       .catch(() => {});
   }, [token]);
 
@@ -101,6 +108,12 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
     return ['All', ...Array.from(set)];
   }, [employees]);
 
+  const rolesOptions = useMemo(() => {
+    const set = new Set<string>(['All', 'employee', 'manager', 'hr', 'tenant_admin', ...allDefinedRoles]);
+    employees.forEach((e) => { if (e.role) set.add(e.role); });
+    return Array.from(set);
+  }, [allDefinedRoles, employees]);
+
   const filteredEmployees = useMemo(() => {
     return employees.filter((e) => {
       const q = search.trim().toLowerCase();
@@ -109,6 +122,7 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
         e.email.toLowerCase().includes(q) ||
         (e.department || '').toLowerCase().includes(q) ||
         (e.designation || '').toLowerCase().includes(q) ||
+        (e.role || '').toLowerCase().includes(q) ||
         `EMP-${e.id}`.toLowerCase().includes(q);
 
       const matchesDept = departmentFilter === 'All' || e.department === departmentFilter;
@@ -194,6 +208,17 @@ export default function EmployeeDirectory({ user, onLogout, embedded = false }: 
         <option value="All">All Departments</option>
         {departments.filter((d) => d !== 'All').map((d) => (
           <option key={d} value={d}>{d}</option>
+        ))}
+      </select>
+
+      <select
+        value={roleFilter}
+        onChange={(e) => { setRoleFilter(e.target.value); setCurrentPage(1); }}
+        className="px-2.5 py-1.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-[var(--radius-nexus-control)] text-xs font-semibold text-[var(--color-nexus-ink)] focus:outline-none"
+      >
+        <option value="All">All Roles</option>
+        {rolesOptions.filter((r) => r !== 'All').map((r) => (
+          <option key={r} value={r}>{r}</option>
         ))}
       </select>
 

@@ -90,19 +90,23 @@ function statusColor(val: string): string | null {
 
 import { safeFetchBuffer } from '../utils/safeHttpClient';
 
+const DEFAULT_LOGO_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAgSURBVHgB7cEBDQAAAMKg909tDjcgAAAAAAAAAAAAAIB3A6VwAAHHc4G8AAAAAElFTkSuQmCC';
+
 async function fetchLogoBuffer(url?: string | null): Promise<Buffer | null> {
-  if (!url) return null;
-  try {
-    const { buffer } = await safeFetchBuffer(url, {
-      timeoutMs: 5000,
-      maxSizeBytes: 2 * 1024 * 1024,
-      allowedContentTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'],
-      allowHttpForLocalhost: process.env.NODE_ENV !== 'production',
-    });
-    return buffer;
-  } catch {
-    return null; // a broken/unreachable/SSRF-blocked logo URL never blocks the export — header just falls back to text
+  if (url) {
+    try {
+      const { buffer } = await safeFetchBuffer(url, {
+        timeoutMs: 5000,
+        maxSizeBytes: 2 * 1024 * 1024,
+        allowedContentTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'],
+        allowHttpForLocalhost: process.env.NODE_ENV !== 'production',
+      });
+      if (buffer && buffer.length > 0) return buffer;
+    } catch {
+      /* Fallback to default brand logo below */
+    }
   }
+  return Buffer.from(DEFAULT_LOGO_PNG_BASE64, 'base64');
 }
 
 export async function buildReportExcel(

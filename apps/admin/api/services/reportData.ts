@@ -24,6 +24,7 @@ import { tenantDateKey, tenantDateLabel, tenantTimeLabel } from './tenantTime';
 
 export interface ReportFilters {
   type: string; // 'attendance' | 'executive' | 'overtime' | 'compliance' | 'wfh' | 'leave' | 'payroll' | 'employee' | 'consolidated'
+  columns?: string[];
   // Which modules to merge when type === 'consolidated' — subset of
   // ['attendance','leave','payroll']. Ignored for every other type.
   modules?: string[];
@@ -222,7 +223,7 @@ async function buildAttendanceReport(
 
   const rows: any[] = [];
   const dailyMap = new Map<string, { present: number; late: number; wfh: number }>();
-  const deptMap = new Map<string, { present: number; total: number; late: number }>();
+  const deptMap = new Map<string, { present: number; total: number; totalDays: number; absent: number; late: number }>();
   let presentCount = 0, lateCount = 0, wfhCount = 0, leaveCount = 0, holidayCount = 0, weekendCount = 0, absentCount = 0, halfDayCount = 0;
   let totalWorkedMinutes = 0, totalOvertimeMinutes = 0;
 
@@ -230,7 +231,7 @@ async function buildAttendanceReport(
     const emp = employeeMap.get(userId);
     if (!emp) continue;
     const dept = emp.department || 'General';
-    if (!deptMap.has(dept)) deptMap.set(dept, { present: 0, total: 0, late: 0 });
+    if (!deptMap.has(dept)) deptMap.set(dept, { present: 0, total: 0, totalDays: 0, absent: 0, late: 0 });
     deptMap.get(dept)!.total += 1;
 
     for (const { year, month } of months) {
@@ -239,14 +240,14 @@ async function buildAttendanceReport(
         if (dateKey < startKey || dateKey > endKey) continue;
         if (entry.status === 'future' || entry.status === 'not_applicable') continue;
 
+        const dInfo = deptMap.get(dept)!;
+        dInfo.totalDays += 1;
+
         const logKey = `${userId}:${dateKey}`;
         const dayLogs = logsByUserDay.get(logKey);
         const isWfh = dayLogs?.checkIn?.attendanceMode === 'wfh';
         const lateMins = dayLogs?.checkIn?.lateByMinutes || 0;
         
-        // Canonical source of truth for workedMinutes & overtimeMinutes:
-        // checkOut log first, then checkIn log. If missing but checkIn and checkOut
-        // timestamps exist, compute dynamically from (checkOut - checkIn) - totalBreakMins.
         let workedMinutes = dayLogs?.checkOut?.workedMinutes ?? dayLogs?.checkIn?.workedMinutes ?? 0;
         let overtimeMins = dayLogs?.checkOut?.overtimeMinutes ?? dayLogs?.checkIn?.overtimeMinutes ?? 0;
 
@@ -263,10 +264,9 @@ async function buildAttendanceReport(
 
         const isPresent = entry.status === 'present' || entry.status === 'late' || entry.status === 'half_day' || entry.status === 'regularized' || entry.status === 'business_travel';
 
-        // Canonical fallback for present/worked days where logged workedMinutes is missing or 0:
         if (isPresent && (!workedMinutes || workedMinutes === 0)) {
           const isHalfDay = entry.status === 'half_day';
-          workedMinutes = isHalfDay ? 240 : 480; // 4 hours for half day, 8 hours standard for present day
+          workedMinutes = isHalfDay ? 240 : 480;
         }
 
         if (filters.status && filters.status !== 'ALL' && STATUS_LABELS[entry.status] !== filters.status) continue;
@@ -275,14 +275,14 @@ async function buildAttendanceReport(
         if (filters.lateOnly && lateMins <= 0) continue;
         if (filters.overtimeOnly && overtimeMins <= 0) continue;
 
-        if (isPresent) { presentCount++; deptMap.get(dept)!.present += 1; }
-        if (entry.status === 'late') { lateCount++; deptMap.get(dept)!.late += 1; }
+        if (isPresent) { presentCount++; dInfo.present += 1; }
+        if (entry.status === 'late') { lateCount++; dInfo.late += 1; }
         if (entry.status === 'half_day') halfDayCount++;
         if (isWfh) wfhCount++;
         if (entry.status === 'paid_leave' || entry.status === 'unpaid_leave') leaveCount++;
         if (entry.status === 'holiday') holidayCount++;
         if (entry.status === 'weekend') weekendCount++;
-        if (entry.status === 'absent_pending_review' || entry.status === 'lop') absentCount++;
+        if (entry.status === 'absent_pending_review' || entry.status === 'lop') { absentCount++; dInfo.absent += 1; }
         totalWorkedMinutes += workedMinutes;
         totalOvertimeMinutes += overtimeMins;
 
@@ -318,12 +318,17 @@ async function buildAttendanceReport(
     }
   }
 
-  const workingDaysConsidered = presentCount + absentCount + leaveCount; // excludes weekend/holiday, matches how attendance % reads elsewhere
+  const workingDaysConsidered = presentCount + absentCount + leaveCount;
   const attendancePct = workingDaysConsidered > 0 ? Math.round((presentCount / workingDaysConsidered) * 100) : 0;
 
   const departmentBreakdown = Array.from(deptMap.entries()).map(([department, d]) => ({
-    department, present: d.present, total: d.total, late: d.late,
-    pct: d.total > 0 ? Math.round((d.present / d.total) * 100) : 0,
+    department,
+    employeeCount: d.total,
+    present: d.present,
+    absent: d.absent,
+    totalDays: d.totalDays,
+    late: d.late,
+    pct: d.totalDays > 0 ? Math.round((d.present / d.totalDays) * 100) : 0,
   }));
   const dailyTrend = Array.from(dailyMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([day, v]) => ({ day, ...v }));
 

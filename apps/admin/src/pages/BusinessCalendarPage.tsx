@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import { User } from '../lib/auth';
+import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
 
 interface CalendarEvent {
   date: string;
@@ -20,11 +21,6 @@ const TYPE_STYLE: Record<string, { dot: string; label: string }> = {
   payroll_salary_credit: { dot: 'bg-emerald-500', label: 'Payroll' },
 };
 
-// One aggregated read-only view over data that already lives in Holidays,
-// Leave, and the Payroll Calendar — no new events are created here, this
-// just merges and sorts what already exists chronologically.
-import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
-
 export default function BusinessCalendarPage({ user, onLogout }: { user: User; onLogout?: () => void }) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
@@ -35,13 +31,31 @@ export default function BusinessCalendarPage({ user, onLogout }: { user: User; o
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  // Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [eventName, setEventName] = useState('');
+  const [eventDate, setEventDate] = useState(() => `${year}-${String(month).padStart(2, '0')}-15`);
+  const [isOptional, setIsOptional] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadCalendar = async () => {
     setLoading(true);
-    fetch(`/api/tenant/business-calendar?year=${year}&month=${month}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(d => setEvents(Array.isArray(d.events) ? d.events : []))
-      .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
+    try {
+      const res = await fetch(`/api/tenant/business-calendar?year=${year}&month=${month}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setEvents(Array.isArray(data.events) ? data.events : []);
+    } catch {
+      setEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCalendar();
   }, [year, month, token]);
 
   const shiftMonth = (delta: number) => {
@@ -50,6 +64,31 @@ export default function BusinessCalendarPage({ user, onLogout }: { user: User; o
     if (m > 12) { m = 1; y += 1; }
     if (m < 1) { m = 12; y -= 1; }
     setMonth(m); setYear(y);
+    setEventDate(`${y}-${String(m).padStart(2, '0')}-15`);
+  };
+
+  const handleAddEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventName.trim() || !eventDate) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/tenant/business-calendar/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: eventName.trim(), date: eventDate, isOptional }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add event.');
+
+      setShowAddModal(false);
+      setEventName('');
+      await loadCalendar();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create event.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const monthLabel = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -78,10 +117,20 @@ export default function BusinessCalendarPage({ user, onLogout }: { user: User; o
               <p className="text-[13px] text-[var(--color-nexus-muted)] mt-0.5">Holidays, leave, and payroll milestones in one place.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => shiftMonth(-1)} className="p-2 rounded-lg hover:bg-[var(--color-nexus-surface-alt)]"><ChevronLeft size={16} /></button>
-            <span className="text-sm font-bold text-[var(--color-nexus-ink)] w-32 sm:w-36 text-center">{monthLabel}</span>
-            <button onClick={() => shiftMonth(1)} className="p-2 rounded-lg hover:bg-[var(--color-nexus-surface-alt)]"><ChevronRight size={16} /></button>
+          
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-1 bg-[var(--color-nexus-surface)] border border-[var(--color-nexus-border)] rounded-xl p-1">
+              <button onClick={() => shiftMonth(-1)} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)]"><ChevronLeft size={16} /></button>
+              <span className="text-xs font-bold text-[var(--color-nexus-ink)] w-32 text-center">{monthLabel}</span>
+              <button onClick={() => shiftMonth(1)} className="p-1.5 rounded-lg hover:bg-[var(--color-nexus-surface-alt)]"><ChevronRight size={16} /></button>
+            </div>
+            
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[var(--color-nexus-primary)] text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity shadow-xs"
+            >
+              <Plus size={15} /> Add Event
+            </button>
           </div>
         </div>
 
@@ -92,9 +141,25 @@ export default function BusinessCalendarPage({ user, onLogout }: { user: User; o
         </div>
 
         {loading ? (
-          <div className="text-xs text-[var(--color-nexus-muted)] font-semibold">Loading…</div>
+          <div className="text-xs text-[var(--color-nexus-muted)] font-semibold py-8 text-center">Loading calendar events…</div>
         ) : Object.keys(grouped).length === 0 ? (
-          <div className="nexus-card rounded-xl p-12 text-center text-sm text-[var(--color-nexus-muted)]">Nothing scheduled this month.</div>
+          <div className="nexus-card rounded-xl p-12 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-[var(--color-nexus-primary-fixed)] text-[var(--color-nexus-primary)] mx-auto flex items-center justify-center">
+              <CalendarDays size={24} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-[var(--color-nexus-ink)]">Nothing scheduled for {monthLabel}</h3>
+              <p className="text-xs text-[var(--color-nexus-muted)] mt-1 max-w-sm mx-auto">
+                No holidays or milestones exist for this month yet. Set up company holidays or key operational dates.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--color-nexus-primary)] text-white text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity shadow-xs"
+            >
+              <Plus size={16} /> Schedule Event / Holiday
+            </button>
+          </div>
         ) : (
           <div className="space-y-2">
             {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([date, dayEvents]) => (
@@ -113,6 +178,84 @@ export default function BusinessCalendarPage({ user, onLogout }: { user: User; o
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Add Event Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)}>
+            <div className="nexus-card rounded-2xl max-w-md w-full p-6 space-y-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-[var(--color-nexus-border)] pb-3">
+                <div className="flex items-center gap-2">
+                  <Plus size={18} className="text-[var(--color-nexus-primary)]" />
+                  <h3 className="font-bold text-sm text-[var(--color-nexus-ink)]">Add Calendar Event / Holiday</h3>
+                </div>
+                <button onClick={() => setShowAddModal(false)} className="text-[var(--color-nexus-muted)] hover:text-[var(--color-nexus-ink)]">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {error && <div className="bg-red-50 text-red-700 text-xs p-3 rounded-xl border border-red-200">{error}</div>}
+
+              <form onSubmit={handleAddEvent} className="space-y-4">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] block mb-1">
+                    Event / Holiday Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Independence Day, Quarterly Planning"
+                    value={eventName}
+                    onChange={e => setEventName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-nexus-muted)] block mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={eventDate}
+                    onChange={e => setEventDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[var(--color-nexus-surface-alt)] border border-[var(--color-nexus-border)] rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[var(--color-nexus-primary)]/20"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isOptional"
+                    checked={isOptional}
+                    onChange={e => setIsOptional(e.target.checked)}
+                    className="rounded border-[var(--color-nexus-border)] text-[var(--color-nexus-primary)] focus:ring-0"
+                  />
+                  <label htmlFor="isOptional" className="text-xs text-[var(--color-nexus-ink)] font-semibold cursor-pointer">
+                    Optional Holiday (Employees choose from quota)
+                  </label>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="flex-1 py-2.5 bg-[var(--color-nexus-surface-alt)] text-[var(--color-nexus-ink)] text-xs font-bold uppercase rounded-xl hover:bg-[var(--color-nexus-border)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="flex-1 py-2.5 bg-[var(--color-nexus-primary)] text-white text-xs font-bold uppercase rounded-xl hover:opacity-90 disabled:opacity-50"
+                  >
+                    {submitting ? 'Saving…' : 'Save Event'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>

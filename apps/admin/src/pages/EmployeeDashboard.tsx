@@ -14,6 +14,7 @@ import EarningsBreakdown from '../components/EarningsBreakdown';
 import DocumentsPanel from '../components/DocumentsPanel';
 import ShiftSwapWidget from '../components/ShiftSwapWidget';
 import ExpensesPage from './ExpensesPage';
+import SalaryAdvancePanel from '../components/SalaryAdvancePanel';
 import MyActivityPanel from '../components/MyActivityPanel';
 import TicketsPanel from '../components/TicketsPanel';
 import PushNotificationToggle from '../components/PushNotificationToggle';
@@ -879,6 +880,7 @@ export default function EmployeeDashboard({ user, onLogout, defaultTab }: { user
     { id: 'earnings', label: 'Earnings', icon: Wallet },
     { id: 'leave', label: 'Leave', icon: CalendarDays, count: leaveData?.requests?.filter((r: any) => r.status === 'pending').length || undefined },
     { id: 'payroll', label: 'Payroll', icon: Banknote },
+    { id: 'salary_advances', label: 'Salary Advances', icon: Wallet },
     { id: 'requests', label: 'Attendance Regularization', icon: ClipboardCheck, count: corrections.filter(c => c.status === 'pending').length || undefined },
     { id: 'tickets', label: 'Tickets', icon: Ticket },
     { id: 'team', label: 'Team', icon: Users },
@@ -958,6 +960,10 @@ export default function EmployeeDashboard({ user, onLogout, defaultTab }: { user
 
       {tab === 'expenses' && (
         <ExpensesPage user={user} onLogout={onLogout} embedded />
+      )}
+
+      {tab === 'salary_advances' && (
+        <SalaryAdvancePanel user={user} />
       )}
 
       {/* OVERVIEW */}

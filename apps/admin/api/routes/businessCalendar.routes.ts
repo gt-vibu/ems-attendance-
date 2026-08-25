@@ -85,3 +85,27 @@ router.get('/api/tenant/business-calendar', authenticate, async (req: any, res: 
     sendServerError(res, err, "businessCalendar.routes.ts");
   }
 });
+
+router.post('/api/tenant/business-calendar/events', authenticate, async (req: any, res: any) => {
+  try {
+    const { name, date, isOptional } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Event/Holiday name is required.' });
+    }
+    if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Valid date (YYYY-MM-DD) is required.' });
+    }
+
+    const [holiday] = await db.insert(schema.holidays).values({
+      tenantId: req.user.tenantId,
+      name: name.trim(),
+      date,
+      isOptional: !!isOptional,
+      isArchived: false,
+    }).returning();
+
+    res.json({ success: true, event: holiday });
+  } catch (err: any) {
+    sendServerError(res, err, "businessCalendar.routes.ts");
+  }
+});

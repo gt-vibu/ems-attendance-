@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User } from '../lib/auth';
-import { AlertTriangle, CheckCircle2, Clock, Play, ArrowRight, Lock, Banknote, Receipt, Gift, TrendingUp, AlertCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Play, ArrowRight, Lock, Banknote, Receipt, Gift, TrendingUp, AlertCircle, Wallet } from 'lucide-react';
 import AdminWorkspaceLayout from '../components/AdminWorkspaceLayout';
+import AdminSalaryAdvancesWorkspace from '../components/AdminSalaryAdvancesWorkspace';
 
 interface PayrollBatchPageProps {
   user: User;
@@ -19,9 +20,9 @@ const STAGE_LABELS: Record<string, string> = {
 export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPageProps) {
   const navigate = useNavigate();
   const token = localStorage.getItem('auth_token');
-  const authHeaders = { Authorization: `Bearer ${token}` };
+  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
-  const [tab, setTab] = useState<'batches' | 'loans' | 'reimbursements' | 'bonuses' | 'revisions' | 'settlements'>('batches');
+  const [tab, setTab] = useState<'batches' | 'salary_advances' | 'loans' | 'reimbursements' | 'bonuses' | 'revisions' | 'settlements'>('batches');
   const [batches, setBatches] = useState<any[]>([]);
   const [selectedBatch, setSelectedBatch] = useState<any>(null);
   const [exceptions, setExceptions] = useState<any[]>([]);
@@ -152,6 +153,7 @@ export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPagePro
         <div className="flex flex-wrap gap-2 mb-6">
           {([
             ['batches', 'Payroll Batches', Play],
+            ['salary_advances', 'Salary Advances', Wallet],
             ['loans', 'Loans & Advances', Banknote],
             ['reimbursements', 'Reimbursements', Receipt],
             ['bonuses', 'Bonuses', Gift],
@@ -207,7 +209,7 @@ export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPagePro
                         <span>{new Date(b.year, b.month - 1, 1).toLocaleString('default', { month: 'long' })} {b.year}</span>
                         <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-600">{STAGE_LABELS[b.status] || b.status}</span>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-1">Total: ₹{Number(b.totalMonthlyNet || 0).toLocaleString()} • {b.totalEmployees || 0} staff</div>
+                      <div className="text-[11px] text-slate-500 mt-1">Total: ₹{Number(b.totalNet ?? b.totalMonthlyNet ?? 0).toLocaleString()} • {b.employeeCount ?? b.totalEmployees ?? 0} staff</div>
                     </button>
                   ))
                 )}
@@ -251,9 +253,9 @@ export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPagePro
                       </div>
 
                       <div className="grid grid-cols-3 gap-3 text-xs bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Gross</span><strong className="text-slate-800 text-sm">₹{Number(selectedBatch.totalMonthlyGross || 0).toLocaleString()}</strong></div>
-                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Net Payable</span><strong className="text-emerald-700 text-sm">₹{Number(selectedBatch.totalMonthlyNet || 0).toLocaleString()}</strong></div>
-                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Deductions</span><strong className="text-slate-800 text-sm">₹{Number(selectedBatch.totalDeductions || 0).toLocaleString()}</strong></div>
+                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Gross</span><strong className="text-slate-800 text-sm">₹{Number(selectedBatch.totalGross ?? selectedBatch.totalMonthlyGross ?? 0).toLocaleString()}</strong></div>
+                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Net Payable</span><strong className="text-emerald-700 text-sm">₹{Number(selectedBatch.totalNet ?? selectedBatch.totalMonthlyNet ?? 0).toLocaleString()}</strong></div>
+                        <div><span className="text-[10px] text-slate-400 block uppercase font-mono">Deductions</span><strong className="text-slate-800 text-sm">₹{Number((selectedBatch.totalGross ?? selectedBatch.totalMonthlyGross ?? 0) - (selectedBatch.totalNet ?? selectedBatch.totalMonthlyNet ?? 0)).toLocaleString()}</strong></div>
                       </div>
                     </div>
 
@@ -265,17 +267,23 @@ export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPagePro
                         <div className="text-xs text-slate-400 p-4 text-center border border-dashed border-slate-200 rounded-lg">No validation issues detected for this batch.</div>
                       ) : (
                         <div className="space-y-2">
-                          {exceptions.map((e, i) => (
-                            <div key={i} className={`p-3 rounded-lg border text-xs flex items-start justify-between gap-3 ${e.blocking ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
-                              <div>
-                                <strong className="font-bold block">{e.reason}</strong>
-                                <span className="text-[11px] opacity-80">{e.details}</span>
+                          {exceptions.map((e, i) => {
+                            const title = e.message || e.reason || (e.type ? `Exception (${e.type})` : 'Validation Issue');
+                            const subtitle = e.userName && e.userName !== 'All employees'
+                              ? `Employee: ${e.userName}`
+                              : (e.details || (e.userId ? `User #${e.userId}` : ''));
+                            return (
+                              <div key={i} className={`p-3 rounded-lg border text-xs flex items-start justify-between gap-3 ${e.blocking ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                                <div>
+                                  <strong className="font-bold block">{title}</strong>
+                                  {subtitle && <span className="text-[11px] opacity-80">{subtitle}</span>}
+                                </div>
+                                <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded ${e.blocking ? 'bg-rose-200 text-rose-900' : 'bg-amber-200 text-amber-900'}`}>
+                                  {e.blocking ? 'Blocking' : 'Warning'}
+                                </span>
                               </div>
-                              <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded ${e.blocking ? 'bg-rose-200 text-rose-900' : 'bg-amber-200 text-amber-900'}`}>
-                                {e.blocking ? 'Blocking' : 'Warning'}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -284,38 +292,47 @@ export default function PayrollBatchPage({ user, onLogout }: PayrollBatchPagePro
               </div>
             </div>
           </div>
+        ) : tab === 'salary_advances' ? (
+          <AdminSalaryAdvancesWorkspace user={user} />
         ) : (
-          <SimpleEntityTab tab={tab} authHeaders={authHeaders} />
+          <SimpleEntityTab tab={tab} token={token} />
         )}
       </div>
     </AdminWorkspaceLayout>
   );
 }
 
-function SimpleEntityTab({ tab, authHeaders }: { tab: string; authHeaders: Record<string, string> }) {
+function SimpleEntityTab({ tab, token }: { tab: string; token: string | null }) {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const endpointFor: Record<string, { list: string; key: string }> = {
-    loans: { list: '/api/tenant/payroll/loans', key: 'loans' },
-    reimbursements: { list: '/api/tenant/payroll/reimbursements', key: 'reimbursements' },
-    bonuses: { list: '/api/tenant/payroll/bonuses', key: 'bonuses' },
-    revisions: { list: '/api/tenant/payroll/salary-revisions', key: 'revisions' },
-    settlements: { list: '/api/tenant/payroll/settlements', key: 'settlements' },
-  };
-  const cfg = endpointFor[tab];
-
-  const fetchItems = useCallback(async () => {
+  useEffect(() => {
+    const endpointFor: Record<string, { list: string; key: string }> = {
+      loans: { list: '/api/tenant/payroll/loans', key: 'loans' },
+      reimbursements: { list: '/api/tenant/payroll/reimbursements', key: 'reimbursements' },
+      bonuses: { list: '/api/tenant/payroll/bonuses', key: 'bonuses' },
+      revisions: { list: '/api/tenant/payroll/salary-revisions', key: 'revisions' },
+      settlements: { list: '/api/tenant/payroll/settlements', key: 'settlements' },
+    };
+    const cfg = endpointFor[tab];
     if (!cfg) return;
-    setLoading(true);
-    try {
-      const res = await fetch(cfg.list, { headers: authHeaders });
-      const d = await res.json();
-      if (res.ok) setItems(d[cfg.key] || []);
-    } finally { setLoading(false); }
-  }, [tab, cfg, authHeaders]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+    let active = true;
+    setLoading(true);
+    fetch(cfg.list, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => res.json())
+      .then((d) => {
+        if (active) setItems(d[cfg.key] || []);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [tab, token]);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
